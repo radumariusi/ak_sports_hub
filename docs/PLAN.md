@@ -157,7 +157,7 @@ Repo-ul e privat, deci contul gratuit are aproximativ 2.000 de minute de Actions
 3. **Artefacte de scurtă durată**: APK-urile din PR-uri se păstrează 3 zile (`retention-days: 3`), apoi dispar automat.
 4. **Curățare automată săptămânală** (`.github/workflows/curatenie.yml`, inclus deja): șterge rulările de workflow mai vechi de 14 zile (păstrând ultimele 20), artefactele expirate sau vechi, cache-urile vechi și release-urile în afară de `ultima-versiune`.
 5. **Workflow-uri economice**: `concurrency` cu anularea rulărilor vechi, nu se construiește nimic la modificări doar în documentație, cache Gradle gestionat de `setup-gradle`.
-6. **Ramuri**: după merge, ramura se șterge automat (setarea „Automatically delete head branches”, pe care o activez eu acum).
+6. **Ramuri**: după merge, ramura se șterge automat. Setarea trebuie activată o singură dată de tine: Settings → General → Pull Requests → „Automatically delete head branches”.
 7. **Cheia de semnare** stă doar în GitHub Secrets (din etapa 1), niciodată în repo.
 
 ## 8. Idei în plus
