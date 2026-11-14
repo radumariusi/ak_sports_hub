@@ -77,6 +77,10 @@ class SportsRepository(
     private val computeMutex = Mutex()
     private val started = AtomicBoolean(false)
     private val _snapshot = MutableStateFlow(SportsSnapshot())
+
+    /** Canalele EPG ale canalelor de sport (se reface doar când se schimbă playlisturile sau EPG-ul). */
+    @Volatile
+    private var sportEpgCache: Set<Long>? = null
     private val _status = MutableStateFlow<String?>(null)
 
     val snapshot: StateFlow<SportsSnapshot> = _snapshot.asStateFlow()
@@ -96,7 +100,11 @@ class SportsRepository(
                 playlists.changes.map { "playlists" },
                 variantStore.state.map { it.corrections }.distinctUntilChanged().map { "corrections" },
                 settings.settings.map { st: SportsSettings -> fetchKey(st) }.distinctUntilChanged().map { "settings" },
-            ).debounce(1_500).collect { recompute() }
+            ).debounce(1_500).collect {
+                // Canalele sau potrivirile EPG s-au putut schimba: lista canalelor de sport se reface.
+                sportEpgCache = null
+                recompute()
+            }
         }
         scope.launch {
             while (true) {
@@ -265,10 +273,7 @@ class SportsRepository(
 
     /** Emisiunile EPG care arată a meci: de pe canalele de sport și cele cu categorie de sport. */
     private suspend fun loadBroadcasts(from: Long, until: Long): List<MatchBroadcast> {
-        val sportChannelIds = db.channels().sportChannelCandidates()
-            .filter { SportChannels.isSport(it.name, it.groupName) }
-            .map { it.id }
-        val sportEpg = epg.epgChannelsOf(sportChannelIds)
+        val sportEpg = sportEpgCache ?: loadSportEpgChannels().also { sportEpgCache = it }
         val rows = (epg.programmesOn(sportEpg, from, until) + epg.sportCategoryProgrammes(from, until, MAX_CATEGORY_ROWS))
             .distinctBy { it.id }
         return rows.mapNotNull { r ->
@@ -277,7 +282,21 @@ class SportsRepository(
         }
     }
 
+    /** Canalele de sport (după nume și grup), citite pe pagini, și canalele lor EPG. */
+    private suspend fun loadSportEpgChannels(): Set<Long> {
+        val ids = ArrayList<Long>()
+        var after = 0L
+        while (true) {
+            val page = db.channels().channelNames(after, PAGE)
+            page.forEach { if (SportChannels.isSport(it.name, it.groupName)) ids += it.id }
+            if (page.size < PAGE) break
+            after = page.last().id
+        }
+        return epg.epgChannelsOf(ids)
+    }
+
     private companion object {
+        const val PAGE = 5_000
         val FRESH_NEAR_MS = TimeUnit.HOURS.toMillis(3)
         val FRESH_FAR_MS = TimeUnit.HOURS.toMillis(12)
         const val REQUEST_GAP_MS = 2_500L
