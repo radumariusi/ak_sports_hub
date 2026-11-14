@@ -17,6 +17,7 @@ import androidx.tv.material3.Text
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.data.EventZones
+import ro.ak.sportshub.data.StreamDelays
 import ro.ak.sportshub.data.SportsSettings
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ChoiceDialog
@@ -24,7 +25,7 @@ import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
 
-private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE }
+private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE, STREAM_DELAY }
 
 /** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
 @Composable
@@ -81,6 +82,14 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 subtitle = "Ascunde scorul, evenimentele și statisticile meciurilor începute; le poți arăta pe fiecare meci",
                 onClick = { update(false) { it.copy(noSpoilers = !it.noSpoilers) } },
                 trailing = { SettingValue(if (s.noSpoilers) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Întârzierea stream-ului live",
+                subtitle = "În panoul meciului din player, golurile și scorul apar abia după atât, cât să le vezi întâi pe ecran",
+                onClick = { dialog = SportsDialog.STREAM_DELAY },
+                trailing = { SettingValue("${s.streamDelaySeconds} s") },
             )
         }
 
@@ -301,6 +310,17 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             onDismiss = { dialog = null },
             onSelect = { i ->
                 update(false) { it.copy(eventZone = EventZones[i].first) }
+                dialog = null
+            },
+        )
+        SportsDialog.STREAM_DELAY -> ChoiceDialog(
+            title = "Întârzierea stream-ului live",
+            hint = "Cât e în urmă imaginea față de realitate. Dacă afli golul din panou înainte să-l vezi, mărește valoarea.",
+            options = StreamDelays.map { if (it == 0) "Fără întârziere" else "$it secunde" },
+            selectedIndex = StreamDelays.indexOf(s.streamDelaySeconds),
+            onDismiss = { dialog = null },
+            onSelect = { i ->
+                update(false) { it.copy(streamDelaySeconds = StreamDelays[i]) }
                 dialog = null
             },
         )

@@ -16,6 +16,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
+import ro.ak.sportshub.core.sports.LiveDelay
+import ro.ak.sportshub.core.sports.PanelView
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchDetails
 import ro.ak.sportshub.core.sports.MatchInsights
@@ -54,6 +56,15 @@ class MatchDetailsRepository(
     fun reveal(matchId: String) = _revealed.update { it + matchId }
 
     fun hide(matchId: String) = _revealed.update { it - matchId }
+
+    /** Ce s-a văzut la fiecare cerere live, pe meci, pentru spoilerele sincronizate cu stream-ul (doar în memorie). */
+    private val delays = java.util.concurrent.ConcurrentHashMap<String, LiveDelay>()
+
+    /**
+     * Panoul meciului din player, live: starea de acum [delayMs] în urmă (cât e întârziat stream-ul).
+     * Null până la prima cerere live.
+     */
+    fun delayedView(match: Match, now: Long, delayMs: Long): PanelView? = delays[match.id]?.view(now, delayMs, match)
 
     /** Pre-meci: detaliile, forma, meciurile directe, clasamentul și echipele de start. */
     suspend fun refreshPreMatch(match: Match, force: Boolean = false) =
@@ -97,9 +108,11 @@ class MatchDetailsRepository(
                     }
                     if (ok > 0) stamp.writeText(now.toString())
                 }
+                val fresh = read(match)
+                if (part == DetailsSchedule.Part.LIVE) delays.getOrPut(match.id) { LiveDelay() }.observe(System.currentTimeMillis(), fresh)
                 set(match.id) {
                     it.copy(
-                        details = read(match),
+                        details = fresh,
                         loading = false,
                         status = if (errors > 0) "TheSportsDB: $errors cereri nereușite; se arată ce e salvat." else null,
                     )
