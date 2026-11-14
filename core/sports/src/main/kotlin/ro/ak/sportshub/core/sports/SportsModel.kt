@@ -50,13 +50,25 @@ data class ExtractedMatch(
 /** O emisiune EPG recunoscută ca meci. */
 data class MatchBroadcast(val broadcast: EpgBroadcast, val extracted: ExtractedMatch)
 
-/** Cât de sigură e legătura dintre un meci și un canal. Ordinea contează: întâi cea mai sigură. */
-enum class Confidence(val label: String) {
+/**
+ * Cât de sigură e legătura dintre un meci și un canal. Ordinea contează: întâi cea mai sigură.
+ * [guess] înseamnă o presupunere (drepturi TV): sursele astea vin după cele găsite efectiv.
+ */
+enum class Confidence(val label: String, val guess: Boolean = false) {
+    /** Ai confirmat tu că pe canalul ăsta e meciul (sau l-ai adăugat de mână). */
+    CONFIRMED("Confirmat de tine"),
+
     /** Programul EPG al canalului conține meciul. */
     EPG("Sigur (EPG)"),
 
-    /** Un furnizor anunță postul, iar canalul are același nume. */
+    /** Un furnizor anunță postul, iar canalul are același nume (sau e în dicționarul de posturi). */
     STATION("Probabil (post anunțat)"),
+
+    /** Ai confirmat canalul la alt meci din aceeași competiție. */
+    LEARNED("Învățat (aceeași competiție)", guess = true),
+
+    /** O regulă de drepturi TV: competiția → posturile care o transmit de obicei. */
+    RIGHTS("Presupus (drepturi TV)", guess = true),
 }
 
 /**

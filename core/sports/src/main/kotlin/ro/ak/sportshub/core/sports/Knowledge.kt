@@ -1,0 +1,218 @@
+package ro.ak.sportshub.core.sports
+
+/**
+ * O regulă de drepturi TV: meciurile din competițiile [competitions] se transmit de obicei pe [stations]
+ * (în țara [country], dacă e dată). Dă surse „presupuse”, care vin după cele găsite efectiv.
+ *
+ * O competiție se potrivește dacă numele ei (fără diacritice) conține unul din [competitions] ca șir de
+ * cuvinte întregi, în aceeași ordine: „england premier league” prinde „England - Premier League”, dar nu
+ * „Egyptian Premier League”. De aceea regulile încorporate au mai multe forme ale aceluiași nume.
+ */
+data class RightsRule(
+    val competitions: List<String>,
+    val stations: List<String>,
+    val country: String? = null,
+    val enabled: Boolean = true,
+) {
+    fun appliesTo(competition: String?): Boolean {
+        if (!enabled || competition.isNullOrBlank()) return false
+        val c = " ${Sport.fold(competition)} "
+        return competitions.any { p -> Sport.fold(p).takeIf { it.isNotEmpty() }?.let { c.contains(" $it ") } == true }
+    }
+
+    /** Pentru afișare: „Premier League → Sky Sports Main Event, TNT Sports 1 (UK)”. */
+    val label: String
+        get() = competitions.firstOrNull().orEmpty() + " → " + stations.joinToString(", ") + (country?.let { " ($it)" } ?: "")
+}
+
+/** Regulile cu care pornește aplicația (exemple editabile, nu adevăr absolut). */
+object DefaultRights {
+    val rules: List<RightsRule> = listOf(
+        RightsRule(
+            listOf("english premier league", "england premier league", "premier league england"),
+            listOf("Sky Sports Main Event", "Sky Sports Premier League", "TNT Sports 1"),
+            "UK",
+        ),
+        RightsRule(
+            listOf("uefa champions league", "champions league"),
+            listOf("TNT Sports 1", "TNT Sports 2", "TNT Sports 3", "TNT Sports 4"),
+            "UK",
+        ),
+        RightsRule(
+            listOf("uefa europa league", "europa league", "uefa conference league", "conference league"),
+            listOf("TNT Sports 1", "TNT Sports 2"),
+            "UK",
+        ),
+        RightsRule(
+            listOf("romanian liga i", "romanian liga 1", "romania superliga", "romania liga i", "superliga romaniei", "liga 1 romania"),
+            listOf("Digi Sport 1", "Digi Sport 2", "Prima Sport 1"),
+            "RO",
+        ),
+        RightsRule(
+            listOf("uefa champions league", "champions league"),
+            listOf("Digi Sport 1", "Digi Sport 2", "Prima Sport 1"),
+            "RO",
+        ),
+        RightsRule(listOf("formula 1", "formula one", "f1 grand prix"), listOf("Sky Sports F1"), "UK"),
+        RightsRule(listOf("nba"), listOf("Sky Sports Main Event", "Sky Sports Arena"), "UK", enabled = false),
+    )
+}
+
+/** Ce ai spus despre o sursă la un meci: „da, e meciul” sau „nu e”. */
+enum class Verdict { CONFIRMED, REJECTED }
+
+/** Alegerile tale pentru un meci (pe cheia de grupare a canalului), cu momentul ultimei alegeri. */
+data class MatchDecisions(val at: Long, val verdicts: Map<String, Verdict>)
+
+/**
+ * Ce știe aplicația în plus, de la tine: dicționarul de posturi, regulile de drepturi TV, ce a învățat
+ * din confirmări și alias-urile de echipe. Se păstrează în preferințe (nu în baza de date, care e un cache).
+ */
+data class SportsKnowledge(
+    /** Postul (forma [StationIndex.compact]) → cheile de grupare ale canalelor tale care îl difuzează. */
+    val stationAliases: Map<String, Set<String>> = emptyMap(),
+    /** Post → canal respinse („nu e postul ăsta”): perechi `post|cheie`. */
+    val stationBlocks: Set<String> = emptySet(),
+    val rules: List<RightsRule> = DefaultRights.rules,
+    /** Competiția (fără diacritice) → canalele pe care ai confirmat meciuri din ea. */
+    val learnedRights: Map<String, Set<String>> = emptyMap(),
+    /** Competiție → canal respinse: perechi `competiție|cheie`. */
+    val rightsBlocks: Set<String> = emptySet(),
+    /** Alegerile pe meci (id-ul meciului → canal → verdict). */
+    val decisions: Map<String, MatchDecisions> = emptyMap(),
+    /** Alias de echipă → numele complet („Sepsi” → „Sepsi OSK”). */
+    val teamAliases: Map<String, String> = emptyMap(),
+) {
+    fun verdict(matchId: String, groupKey: String): Verdict? = decisions[matchId]?.verdicts?.get(groupKey)
+
+    /**
+     * Ai spus [verdict] despre sursa [source] (cheia [groupKey]) la meciul [match].
+     * Pe lângă alegerea pentru meci, se învață:
+     * - confirmarea unui post anunțat îl pune în dicționar; respingerea îl scoate pentru totdeauna;
+     * - confirmarea unei presupuneri (drepturi TV) sau a unui canal adăugat de mână leagă competiția de canal;
+     *   respingerea unei presupuneri o oprește pentru competiția respectivă.
+     * Cu [verdict] null se anulează doar alegerea pentru meci.
+     */
+    fun decide(match: Match, groupKey: String, verdict: Verdict?, source: FoundSource?, now: Long): SportsKnowledge {
+        val current = decisions[match.id]?.verdicts.orEmpty()
+        val nextVerdicts = if (verdict == null) current - groupKey else current + (groupKey to verdict)
+        val nextDecisions = if (nextVerdicts.isEmpty()) decisions - match.id else decisions + (match.id to MatchDecisions(now, nextVerdicts))
+        var k = copy(decisions = nextDecisions)
+        if (verdict == null) return k
+        val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
+        val station = source?.station?.let { StationIndex.compact(StationNames.splitCountry(it).first) }?.takeIf { it.isNotEmpty() }
+        when (source?.origin) {
+            Confidence.STATION -> if (station != null) {
+                val pair = "$station|$groupKey"
+                k = if (verdict == Verdict.CONFIRMED) {
+                    k.copy(stationAliases = k.stationAliases.plusTo(station, groupKey), stationBlocks = k.stationBlocks - pair)
+                } else {
+                    k.copy(stationAliases = k.stationAliases.minusFrom(station, groupKey), stationBlocks = k.stationBlocks + pair)
+                }
+            }
+            Confidence.RIGHTS, Confidence.LEARNED, Confidence.CONFIRMED, null -> if (comp != null) {
+                val pair = "$comp|$groupKey"
+                k = if (verdict == Verdict.CONFIRMED) {
+                    k.copy(learnedRights = k.learnedRights.plusTo(comp, groupKey), rightsBlocks = k.rightsBlocks - pair)
+                } else {
+                    k.copy(learnedRights = k.learnedRights.minusFrom(comp, groupKey), rightsBlocks = k.rightsBlocks + pair)
+                }
+            }
+            Confidence.EPG -> Unit // EPG-ul nu are ce învăța: doar alegerea pentru meci.
+        }
+        return k
+    }
+
+    /** Alegerile pe meciuri mai vechi decât [before] se uită (meciurile s-au terminat demult). */
+    fun prune(before: Long): SportsKnowledge {
+        val kept = decisions.filterValues { it.at >= before }
+        return if (kept.size == decisions.size) this else copy(decisions = kept)
+    }
+
+    /** Legi de mână postul [station] de canalul [groupKey] (dicționarul de posturi). */
+    fun addStationAlias(station: String, groupKey: String): SportsKnowledge {
+        val s = StationIndex.compact(StationNames.splitCountry(station).first)
+        if (s.isEmpty()) return this
+        return copy(stationAliases = stationAliases.plusTo(s, groupKey), stationBlocks = stationBlocks - "$s|$groupKey")
+    }
+
+    fun removeStationAlias(station: String, groupKey: String): SportsKnowledge =
+        copy(stationAliases = stationAliases.minusFrom(station, groupKey))
+
+    fun removeLearned(competition: String, groupKey: String): SportsKnowledge =
+        copy(learnedRights = learnedRights.minusFrom(competition, groupKey))
+
+    /** Uită tot ce s-a învățat din confirmări (dicționarul, competițiile, respingerile și alegerile pe meci). */
+    fun forgetLearning(): SportsKnowledge =
+        copy(stationAliases = emptyMap(), stationBlocks = emptySet(), learnedRights = emptyMap(), rightsBlocks = emptySet(), decisions = emptyMap())
+
+    private companion object {
+        fun Map<String, Set<String>>.plusTo(key: String, value: String) = this + (key to (this[key].orEmpty() + value))
+
+        fun Map<String, Set<String>>.minusFrom(key: String, value: String): Map<String, Set<String>> {
+            val rest = this[key].orEmpty() - value
+            return if (rest.isEmpty()) this - key else this + (key to rest)
+        }
+    }
+}
+
+/** Un canal găsit pentru un meci (cheia de grupare: toate variantele lui), cu încrederea și motivul. */
+data class FoundSource(
+    val groupKey: String,
+    val confidence: Confidence,
+    /** Postul anunțat sau din regulă, dacă potrivirea e pe nume de post. */
+    val station: String? = null,
+    /** Ai spus că nu e meciul: rămâne la final, marcată. */
+    val rejected: Boolean = false,
+    /** Cum fusese găsită, înainte de alegerea ta (pentru ce se învață din confirmare sau respingere). */
+    val origin: Confidence = confidence,
+)
+
+/**
+ * Găsește canalele unui meci, în ordinea încrederii:
+ * EPG (sigur) → post anunțat, din dicționar sau după nume (probabil) → competiție confirmată anterior
+ * (învățat) → reguli de drepturi TV (presupus). Alegerile tale pe meci au ultimul cuvânt:
+ * confirmarea urcă sursa în față, respingerea o coboară la final.
+ */
+class SourceFinder(private val index: StationIndex, private val knowledge: SportsKnowledge) {
+
+    fun find(match: Match, epgKeys: Collection<String>): List<FoundSource> {
+        val found = LinkedHashMap<String, FoundSource>()
+        fun add(key: String, confidence: Confidence, station: String? = null) {
+            val old = found[key]
+            if (old == null || confidence.ordinal < old.confidence.ordinal) found[key] = FoundSource(key, confidence, station)
+        }
+
+        epgKeys.forEach { add(it, Confidence.EPG) }
+
+        for (st in match.stations) {
+            val compact = StationIndex.compact(StationNames.splitCountry(st.name).first)
+            val keys = knowledge.stationAliases[compact].orEmpty() + index.find(st)
+            keys.filter { "$compact|$it" !in knowledge.stationBlocks }.forEach { add(it, Confidence.STATION, st.name) }
+        }
+
+        val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
+        if (comp != null) {
+            knowledge.learnedRights[comp].orEmpty().forEach { add(it, Confidence.LEARNED) }
+            for (rule in knowledge.rules) {
+                if (!rule.appliesTo(match.competition)) continue
+                for (station in rule.stations) {
+                    index.find(TvStation(station, rule.country))
+                        .filter { "$comp|$it" !in knowledge.rightsBlocks }
+                        .forEach { add(it, Confidence.RIGHTS, station) }
+                }
+            }
+        }
+
+        val verdicts = knowledge.decisions[match.id]?.verdicts.orEmpty()
+        for ((key, v) in verdicts) {
+            val old = found[key]
+            when (v) {
+                // Un canal adăugat de mână (negăsit altfel) apare tot ca „confirmat”.
+                Verdict.CONFIRMED -> found[key] = FoundSource(key, Confidence.CONFIRMED, old?.station, origin = old?.origin ?: Confidence.CONFIRMED)
+                Verdict.REJECTED -> if (old != null) found[key] = old.copy(rejected = true)
+            }
+        }
+        return found.values.toList()
+    }
+}

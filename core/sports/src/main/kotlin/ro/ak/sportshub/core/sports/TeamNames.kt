@@ -42,13 +42,35 @@ object TeamNames {
         "porto" to "fc porto", "ajax amsterdam" to "ajax", "psv eindhoven" to "psv",
     )
 
+    /**
+     * Alias-urile tale (din dicționar), deja normalizate: alias → nume. Au prioritate față de cele încorporate.
+     * Se schimbă rar (din setări), deci o simplă referință volatilă e destul.
+     */
+    @Volatile
+    private var userAliases: Map<String, String> = emptyMap()
+
+    /** Pune alias-urile tale (alias → numele complet, așa cum le-ai scris). */
+    fun setUserAliases(map: Map<String, String>) {
+        userAliases = map.entries.mapNotNull { (alias, full) ->
+            val a = base(alias)
+            val f = base(full)
+            if (a.isEmpty() || f.isEmpty() || a == f) null else a to (aliases[f] ?: f)
+        }.toMap()
+    }
+
     /** Cheia unei echipe (doar pentru comparare; în UI apare numele original). */
     fun key(name: String): String {
         val folded = Sport.fold(name)
+        userAliases[folded]?.let { return it }
         aliases[folded]?.let { return it }
+        val joined = base(name)
+        return userAliases[joined] ?: aliases[joined] ?: joined
+    }
+
+    private fun base(name: String): String {
+        val folded = Sport.fold(name)
         val tokens = folded.split(' ').filter { it.isNotEmpty() && it !in clubTokens }
-        val joined = tokens.joinToString(" ").ifEmpty { folded }
-        return aliases[joined] ?: joined
+        return tokens.joinToString(" ").ifEmpty { folded }
     }
 
     private fun parts(name: String): Pair<Set<String>, Set<String>> {

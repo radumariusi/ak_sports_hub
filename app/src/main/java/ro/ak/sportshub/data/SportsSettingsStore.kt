@@ -25,6 +25,10 @@ data class SportsSettings(
     val sportsDbTv: Boolean = true,
     /** Sporturile cerute de la TheSportsDB. */
     val sports: List<Sport> = Sport.DEFAULT_FETCH,
+    /** LiveSoccerTV (neoficial, opțional): meciurile de fotbal de azi și mâine, cu posturile TV. */
+    val liveSoccerTvEnabled: Boolean = true,
+    /** Sofascore (neoficial, opțional): programul și scorurile, fără posturi TV. */
+    val sofascoreEnabled: Boolean = false,
     /** Câte zile (de azi încolo) se cer de la TheSportsDB. */
     val daysAhead: Int = 3,
     val favorites: SportsFavorites = SportsFavorites(),
@@ -76,6 +80,8 @@ class SportsSettingsStore(context: Context) {
                 sportsDbEnabled = o.optBoolean("sportsDbEnabled", d.sportsDbEnabled),
                 sportsDbKey = o.optString("sportsDbKey", d.sportsDbKey).ifBlank { d.sportsDbKey },
                 sportsDbTv = o.optBoolean("sportsDbTv", d.sportsDbTv),
+                liveSoccerTvEnabled = o.optBoolean("liveSoccerTv", d.liveSoccerTvEnabled),
+                sofascoreEnabled = o.optBoolean("sofascore", d.sofascoreEnabled),
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
@@ -102,6 +108,8 @@ class SportsSettingsStore(context: Context) {
         put("sportsDbEnabled", s.sportsDbEnabled)
         put("sportsDbKey", s.sportsDbKey)
         put("sportsDbTv", s.sportsDbTv)
+        put("liveSoccerTv", s.liveSoccerTvEnabled)
+        put("sofascore", s.sofascoreEnabled)
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
         put("noSpoilers", s.noSpoilers)
