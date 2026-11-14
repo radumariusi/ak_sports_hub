@@ -12,7 +12,9 @@ Aplicație IPTV pentru Android TV (uz personal), cu Sports Hub. Planul și etape
 
 ## Structură și reguli tehnice
 
-- `app/` (Android TV, Compose + tv-material), `core/model` și `core/common` (Kotlin pur, testabile fără Android). Build: `./gradlew :core:common:test :app:assembleRelease`.
+- `app/` (Android TV, Compose + tv-material), `core/model`, `core/common` și `core/playlist` (Kotlin pur, testabile fără Android), `core/database` (Room + FTS4). Build: `./gradlew :core:common:test :core:playlist:test :app:assembleRelease`.
+- Playlisturi (`core/playlist`): M3U parsat în flux, doar live (`VodFilter`), Xtream prin `player_api.php` (`get_live_categories`, `get_live_streams`, cereri secvențiale). Descărcarea ține permisul din `ConnectionGate` doar cât durează, apoi parsarea se face din fișier. Un răspuns fără canale live nu șterge canalele vechi.
+- În UI, câmpurile de text se editează doar într-o fereastră separată (`TextInputDialog`), ca săgețile telecomenzii să nu intre în câmpuri. Fluxurile Room din composable-uri se țin în `remember`.
 - Fără verificarea stream-urilor: calitatea și limba vin doar din metadatele playlistului (nume, grup, atribute).
 - Numele normalizat (`ChannelNameParser.groupKey`) e doar cheie de grupare; în UI apar numele original și eticheta de calitate.
 - Furnizorii permit o singură conexiune pe playlist: orice acces la rețea al unui playlist trece prin `ConnectionGate`; nimic în fundal cât rulează playerul pe același playlist.

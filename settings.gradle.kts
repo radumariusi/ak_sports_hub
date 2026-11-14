@@ -25,3 +25,5 @@ rootProject.name = "ak-sports-hub"
 include(":app")
 include(":core:model")
 include(":core:common")
+include(":core:playlist")
+include(":core:database")

@@ -6,8 +6,13 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- usesCleartextTraffic: majoritatea serverelor IPTV folosesc http simplu. -->
     <application
+        android:name=".AkApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:banner="@drawable/banner"
         android:icon="@drawable/ic_app"
         android:label="@string/app_name"
