@@ -95,8 +95,7 @@ class SportsRepository(
                 epg.observeStates().map { "epg" },
                 playlists.changes.map { "playlists" },
                 variantStore.state.map { it.corrections }.distinctUntilChanged().map { "corrections" },
-                settings.settings.map { listOf(it.sports, it.sportsDbEnabled, it.sportsDbTv, it.daysAhead) }
-                    .distinctUntilChanged().map { "settings" },
+                settings.settings.map { st: SportsSettings -> fetchKey(st) }.distinctUntilChanged().map { "settings" },
             ).debounce(1_500).collect { recompute() }
         }
         scope.launch {
@@ -106,6 +105,10 @@ class SportsRepository(
             }
         }
     }
+
+    /** Ce din setări schimbă lista (nu și filtrele sau favoritele, care se aplică în ecran). */
+    private fun fetchKey(s: SportsSettings): String =
+        "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}"
 
     fun refreshInBackground(force: Boolean = true) {
         scope.launch { refreshDue(force) }
@@ -194,10 +197,21 @@ class SportsRepository(
 
     // ---------- lista de meciuri ----------
 
-    suspend fun recompute() = computeMutex.withLock {
-        val result = runCatching { withContext(Dispatchers.IO) { compute(System.currentTimeMillis()) } }
-        result.onSuccess { _snapshot.value = it }
-        result.onFailure { if (_snapshot.value.loading) _snapshot.value = SportsSnapshot(loading = false) }
+    suspend fun recompute() {
+        computeMutex.withLock {
+            val next: SportsSnapshot? = try {
+                withContext(Dispatchers.IO) { compute(System.currentTimeMillis()) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (next != null) {
+                _snapshot.value = next
+            } else if (_snapshot.value.loading) {
+                _snapshot.value = SportsSnapshot(loading = false)
+            }
+        }
     }
 
     private suspend fun compute(now: Long): SportsSnapshot {

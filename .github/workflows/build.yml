@@ -52,7 +52,11 @@ jobs:
           AK_KEY_ALIAS: ${{ secrets.AK_KEY_ALIAS }}
           AK_KEY_PASSWORD: ${{ secrets.AK_KEY_PASSWORD }}
         run: |
+          # Diagnostic temporar: dacă build-ul stă, după 8 minute se afișează unde stă compilatorul.
+          ( sleep 480; echo "=== DUMP ==="; for p in $(jps -q); do jstack "$p" | grep -E "^\"|at (org\.jetbrains\.kotlin|androidx\.compose)" | head -400; done ) &
+          DUMP_PID=$!
           ./gradlew :core:common:test :core:playlist:test :core:epg:test :core:sports:test :app:assembleRelease --stacktrace
+          kill "$DUMP_PID" 2>/dev/null || true
           cp app/build/outputs/apk/release/app-release.apk ak-sports-hub.apk
           ls -lh ak-sports-hub.apk
 

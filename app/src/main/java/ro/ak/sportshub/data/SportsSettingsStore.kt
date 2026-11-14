@@ -47,13 +47,13 @@ class SportsSettingsStore(context: Context) {
         _settings.value = next
     }
 
-    fun toggleFavoriteTeam(name: String) = update { s ->
+    fun toggleFavoriteTeam(name: String): Unit = update { s ->
         val fav = s.favorites
         val teams = if (fav.isTeam(name)) fav.teams.filterNot { TeamNames.same(it, name) } else fav.teams + name
         s.copy(favorites = fav.copy(teams = teams))
     }
 
-    fun toggleFavoriteCompetition(name: String) = update { s ->
+    fun toggleFavoriteCompetition(name: String): Unit = update { s ->
         val fav = s.favorites
         val list = if (fav.isCompetition(name)) fav.competitions.filterNot { it.equals(name, ignoreCase = true) } else fav.competitions + name
         s.copy(favorites = fav.copy(competitions = list))
