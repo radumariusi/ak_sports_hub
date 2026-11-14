@@ -190,12 +190,24 @@ fun LiveTvScreen(
                         else "Grupuri (${visibleGroups.size})",
                     )
                 }
+                // Playlisturi cu canale, dar oprite: canalele lor nu apar nicăieri (nici EPG, nici Sports Hub).
+                val inactive = list.orEmpty().filter { !it.enabled && it.channelCount > 0 }
+                if (visibleGroups.isEmpty() && !searching && inactive.isNotEmpty()) {
+                    items(inactive, key = { "inactive-${it.id}" }) { p ->
+                        ListRow(
+                            title = "Activează „${p.name}”",
+                            subtitle = "Playlistul e inactiv: cele ${formatCount(p.channelCount)} canale ale lui sunt ascunse",
+                            onClick = { scope.launch { container.playlists.setEnabled(p.id, true) } },
+                        )
+                    }
+                }
                 if (visibleGroups.isEmpty()) {
                     item {
                         Text(
                             text = when {
                                 refreshing.isNotEmpty() -> "Se încarcă playlisturile…"
                                 searching -> "Niciun grup găsit."
+                                inactive.isNotEmpty() -> "Apasă OK mai sus ca să-l activezi (sau Setări → Playlisturi → Activ)."
                                 else -> "Niciun canal încă. Verifică playlisturile din Setări."
                             },
                             fontSize = 14.sp,

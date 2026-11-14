@@ -83,7 +83,7 @@ fun PlaylistsScreen(onEdit: (Long) -> Unit, onAdd: (PlaylistType) -> Unit) {
                 items(list, key = { it.id }) { p ->
                     ListRow(
                         title = p.name + if (!p.enabled) "  (inactiv)" else "",
-                        subtitle = statusLine(p, p.id in refreshing),
+                        subtitle = (if (!p.enabled) "canale ascunse · " else "") + statusLine(p, p.id in refreshing),
                         onClick = { onEdit(p.id) },
                     )
                 }

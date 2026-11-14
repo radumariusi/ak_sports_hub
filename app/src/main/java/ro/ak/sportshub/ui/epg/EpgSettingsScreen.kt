@@ -116,7 +116,7 @@ fun EpgSettingsScreen() {
 
             item { SectionLabel("Din playlisturi", modifier = Modifier.padding(top = 8.dp)) }
             if (fromPlaylists.isEmpty()) {
-                item { Hint("Playlisturile tale nu declară niciun EPG (url-tvg). Adaugă unul extern mai jos.") }
+                item { Hint("Playlisturile active nu declară niciun EPG (url-tvg sau xmltv.php la Xtream). Cele inactive nu contează: canalele lor nu primesc program. Poți adăuga unul extern mai jos.") }
             }
             items(fromPlaylists, key = { it.key }) { s ->
                 SourceRow(s, byKey[s.key]) { editing = s }
