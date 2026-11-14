@@ -1,0 +1,36 @@
+# Build Android / Gradle
+build/
+.gradle/
+.kotlin/
+.externalNativeBuild/
+.cxx/
+captures/
+local.properties
+
+# Fișiere generate, niciodată în git
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+output-metadata.json
+
+# Chei de semnare (stau doar în GitHub Secrets)
+*.jks
+*.keystore
+keystore.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Date personale: playlisturi, EPG-uri, capturi
+*.m3u
+*.m3u8
+*.xml.gz
+samples/
+private/
+*.log

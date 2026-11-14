@@ -1,0 +1,70 @@
+name: Curățenie
+
+# Ține repo-ul sub limitele GitHub: șterge rulările vechi de workflow,
+# artefactele, cache-urile vechi și release-urile în afară de „ultima-versiune”.
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # luni, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: curatenie
+  cancel-in-progress: true
+
+jobs:
+  curatenie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ZILE_RULARI: "14"
+      PASTREAZA_RULARI: "20"
+      ZILE_ARTEFACTE: "3"
+      ZILE_CACHE: "7"
+    steps:
+      - name: Rulări de workflow vechi
+        run: |
+          limita=$(date -u -d "-${ZILE_RULARI} days" +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select(.status=="completed") | "\(.id) \(.created_at)"' \
+          | tail -n +$((PASTREAZA_RULARI + 1)) \
+          | while read -r id creat; do
+              if [[ "$creat" < "$limita" ]]; then
+                gh api -X DELETE "repos/$REPO/actions/runs/$id" >/dev/null && echo "rulare ștearsă: $id"
+              fi
+            done
+
+      - name: Artefacte vechi
+        run: |
+          limita=$(date -u -d "-${ZILE_ARTEFACTE} days" +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | "\(.id) \(.created_at) \(.expired)"' \
+          | while read -r id creat expirat; do
+              if [[ "$expirat" == "true" || "$creat" < "$limita" ]]; then
+                gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null && echo "artefact șters: $id"
+              fi
+            done
+
+      - name: Cache-uri vechi
+        run: |
+          limita=$(date -u -d "-${ZILE_CACHE} days" +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/$REPO/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | "\(.id) \(.last_accessed_at)"' \
+          | while read -r id folosit; do
+              if [[ "$folosit" < "$limita" ]]; then
+                gh api -X DELETE "repos/$REPO/actions/caches/$id" >/dev/null && echo "cache șters: $id"
+              fi
+            done
+
+      - name: Release-uri în afară de ultima-versiune
+        run: |
+          gh api --paginate "repos/$REPO/releases?per_page=100" \
+            --jq '.[] | select(.tag_name != "ultima-versiune") | .tag_name' \
+          | while read -r tag; do
+              gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag && echo "release șters: $tag"
+            done
