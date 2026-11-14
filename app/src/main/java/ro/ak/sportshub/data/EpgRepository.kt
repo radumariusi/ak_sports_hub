@@ -199,7 +199,7 @@ class EpgRepository(
                 // Antetele de cache se păstrează doar pentru un fișier citit cu succes.
                 etag = if (fresh) tag?.etag else state.etag,
                 lastModified = if (fresh) tag?.lastModified else state.lastModified,
-                lastError = stats.partialError ?: if (fresh) null else state.lastError,
+                lastError = stats.stats.partialError ?: if (fresh) null else state.lastError,
                 channelCount = stats.channelsKept,
                 programmeCount = stats.stats.programmes,
                 parseSignature = signature,
