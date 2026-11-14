@@ -17,3 +17,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }
+
+tasks.test {
+    // Un test blocat nu ține tot build-ul CI.
+    timeout.set(java.time.Duration.ofMinutes(3))
+    testLogging { events("failed") }
+}

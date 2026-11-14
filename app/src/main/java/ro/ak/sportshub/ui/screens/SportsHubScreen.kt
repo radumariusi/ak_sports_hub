@@ -72,7 +72,7 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
         MatchLists.sort(inTab.map { it.match }).mapNotNull { byId[it.id] }
     }
 
-    fun setFilter(transform: (MatchFilter) -> MatchFilter) = store.update { it.copy(filter = transform(it.filter)) }
+    val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabStrip(tabs = MatchTab.entries.map { it.label }, selectedIndex = tab, onSelect = { tab = it })

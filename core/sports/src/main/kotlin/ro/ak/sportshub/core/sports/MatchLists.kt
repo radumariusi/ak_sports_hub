@@ -81,8 +81,8 @@ object MatchLists {
         val d = day(m, zone)
         return when (tab) {
             MatchTab.LIVE -> m.isLive
-            MatchTab.TODAY -> m.isLive || d == today
-            MatchTab.TOMORROW -> d == today.plusDays(1)
+            MatchTab.TODAY -> m.isLive || d.isEqual(today)
+            MatchTab.TOMORROW -> d.isEqual(today.plusDays(1))
             MatchTab.WEEK -> m.isLive || (m.status != MatchStatus.FINISHED && !d.isBefore(today) && d.isBefore(today.plusDays(7)))
             MatchTab.FAVORITES -> favorite && m.status != MatchStatus.FINISHED && d.isBefore(today.plusDays(7))
         }

@@ -35,13 +35,11 @@ fun SportsSettingsScreen() {
     val status by sports.status.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<SportsDialog?>(null) }
 
-    fun update(refetch: Boolean = false, transform: (SportsSettings) -> SportsSettings) {
+    // Schimbările care privesc TheSportsDB cer din nou doar ce lipsește (fără să forțeze descărcarea).
+    val update: (Boolean, (SportsSettings) -> SportsSettings) -> Unit = { refetch, transform ->
         store.update(transform)
         if (refetch) sports.refreshInBackground(force = false)
     }
-
-    @Composable
-    fun value(text: String) = Text(text = text, fontSize = 14.sp)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp),
@@ -55,7 +53,7 @@ fun SportsSettingsScreen() {
                 title = "Limbi preferate",
                 subtitle = "La meciurile favorite contează peste prag; la celelalte doar la aceeași rezoluție",
                 onClick = { dialog = SportsDialog.LANGUAGES },
-                trailing = { value(s.sourcePreferences.preferredLanguages.joinToString(", ") { it.uppercase() }) },
+                trailing = { SettingValue(s.sourcePreferences.preferredLanguages.joinToString(", ") { it.uppercase() }) },
             )
         }
         item {
@@ -63,7 +61,7 @@ fun SportsSettingsScreen() {
                 title = "Calitate bună",
                 subtitle = "Pragul de la care limba preferată urcă în față, la meciurile favorite",
                 onClick = { dialog = SportsDialog.QUALITY },
-                trailing = { value(s.sourcePreferences.goodQuality.label + " sau mai mult") },
+                trailing = { SettingValue(s.sourcePreferences.goodQuality.label + " sau mai mult") },
             )
         }
         item {
@@ -81,23 +79,23 @@ fun SportsSettingsScreen() {
                 title = "EPG-ul tău",
                 subtitle = "Mereu activ: emisiunile de pe canalele de sport care arată a meci (de exemplu „Arsenal v Chelsea”)",
                 onClick = {},
-                trailing = { value("Da") },
+                trailing = { SettingValue("Da") },
             )
         }
         item {
             ListRow(
                 title = "TheSportsDB",
                 subtitle = "Programul meciurilor, cerut rar (azi și mâine la 3 ore, restul la 12 ore)",
-                onClick = { update(refetch = true) { it.copy(sportsDbEnabled = !it.sportsDbEnabled) } },
-                trailing = { value(if (s.sportsDbEnabled) "Da" else "Nu") },
+                onClick = { update(true) { it.copy(sportsDbEnabled = !it.sportsDbEnabled) } },
+                trailing = { SettingValue(if (s.sportsDbEnabled) "Da" else "Nu") },
             )
         }
         item {
             ListRow(
                 title = "Posturi TV de la TheSportsDB",
                 subtitle = "Pentru potrivirea pe nume de post; cu cheia gratuită datele sunt puține",
-                onClick = { update(refetch = true) { it.copy(sportsDbTv = !it.sportsDbTv) } },
-                trailing = { value(if (s.sportsDbTv) "Da" else "Nu") },
+                onClick = { update(true) { it.copy(sportsDbTv = !it.sportsDbTv) } },
+                trailing = { SettingValue(if (s.sportsDbTv) "Da" else "Nu") },
             )
         }
         item {
@@ -105,7 +103,7 @@ fun SportsSettingsScreen() {
                 title = "Cheie TheSportsDB",
                 subtitle = "123 e cheia gratuită; o cheie proprie dă mai multe rezultate",
                 onClick = { dialog = SportsDialog.KEY },
-                trailing = { value(if (s.sportsDbKey == "123") "gratuită" else "proprie") },
+                trailing = { SettingValue(if (s.sportsDbKey == "123") "gratuită" else "proprie") },
             )
         }
         item {
@@ -113,7 +111,7 @@ fun SportsSettingsScreen() {
                 title = "Zile cerute",
                 subtitle = "De azi încolo",
                 onClick = { dialog = SportsDialog.DAYS },
-                trailing = { value(s.daysAhead.toString()) },
+                trailing = { SettingValue(s.daysAhead.toString()) },
             )
         }
         item {
@@ -131,11 +129,11 @@ fun SportsSettingsScreen() {
                 ListRow(
                     title = sport.label,
                     onClick = {
-                        update(refetch = true) { st ->
+                        update(true) { st ->
                             st.copy(sports = if (on) st.sports - sport else Sport.entries.filter { it in st.sports || it == sport })
                         }
                     },
-                    trailing = { value(if (on) "Da" else "Nu") },
+                    trailing = { SettingValue(if (on) "Da" else "Nu") },
                 )
             }
         }
@@ -146,7 +144,7 @@ fun SportsSettingsScreen() {
                 title = "Echipe favorite",
                 subtitle = s.favorites.teams.joinToString(", ").ifEmpty { "Niciuna. Le poți marca și din ecranul unui meci" },
                 onClick = { dialog = SportsDialog.TEAMS },
-                trailing = { value(s.favorites.teams.size.toString()) },
+                trailing = { SettingValue(s.favorites.teams.size.toString()) },
             )
         }
         item {
@@ -154,7 +152,7 @@ fun SportsSettingsScreen() {
                 title = "Competiții favorite",
                 subtitle = s.favorites.competitions.joinToString(", ").ifEmpty { "Niciuna" },
                 onClick = { dialog = SportsDialog.COMPETITIONS },
-                trailing = { value(s.favorites.competitions.size.toString()) },
+                trailing = { SettingValue(s.favorites.competitions.size.toString()) },
             )
         }
     }
@@ -167,7 +165,7 @@ fun SportsSettingsScreen() {
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val langs = text.split(',', ' ', ';').map { it.trim().lowercase() }.filter { it.length in 2..3 }.distinct()
-                if (langs.isNotEmpty()) update { it.copy(sourcePreferences = it.sourcePreferences.copy(preferredLanguages = langs)) }
+                if (langs.isNotEmpty()) update(false) { it.copy(sourcePreferences = it.sourcePreferences.copy(preferredLanguages = langs)) }
                 dialog = null
             },
         )
@@ -179,7 +177,7 @@ fun SportsSettingsScreen() {
                 selectedIndex = options.indexOf(s.sourcePreferences.goodQuality),
                 onDismiss = { dialog = null },
                 onSelect = { i ->
-                    update { it.copy(sourcePreferences = it.sourcePreferences.copy(goodQuality = options[i])) }
+                    update(false) { it.copy(sourcePreferences = it.sourcePreferences.copy(goodQuality = options[i])) }
                     dialog = null
                 },
             )
@@ -190,7 +188,7 @@ fun SportsSettingsScreen() {
             hint = "Gol = cheia gratuită 123",
             onDismiss = { dialog = null },
             onConfirm = { text ->
-                update(refetch = true) { it.copy(sportsDbKey = text.ifBlank { "123" }) }
+                update(true) { it.copy(sportsDbKey = text.ifBlank { "123" }) }
                 dialog = null
             },
         )
@@ -202,7 +200,7 @@ fun SportsSettingsScreen() {
                 selectedIndex = options.indexOf(s.daysAhead),
                 onDismiss = { dialog = null },
                 onSelect = { i ->
-                    update(refetch = true) { it.copy(daysAhead = options[i]) }
+                    update(true) { it.copy(daysAhead = options[i]) }
                     dialog = null
                 },
             )
@@ -214,7 +212,7 @@ fun SportsSettingsScreen() {
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-                update { it.copy(favorites = it.favorites.copy(teams = list)) }
+                update(false) { it.copy(favorites = it.favorites.copy(teams = list)) }
                 dialog = null
             },
         )
@@ -225,10 +223,15 @@ fun SportsSettingsScreen() {
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-                update { it.copy(favorites = it.favorites.copy(competitions = list)) }
+                update(false) { it.copy(favorites = it.favorites.copy(competitions = list)) }
                 dialog = null
             },
         )
         null -> Unit
     }
+}
+
+@Composable
+private fun SettingValue(text: String) {
+    Text(text = text, fontSize = 14.sp)
 }
