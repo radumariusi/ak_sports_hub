@@ -4,11 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import ro.ak.sportshub.core.common.AppVersions
+import ro.ak.sportshub.data.UpdateState
+import ro.ak.sportshub.ui.components.TextInputDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import ro.ak.sportshub.ui.components.LoadsPanel
 import ro.ak.sportshub.BuildConfig
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ListRow
@@ -29,6 +37,10 @@ fun SettingsScreen(
     val languages = sports.sourcePreferences.preferredLanguages.joinToString(", ") { it.uppercase() }
     val variantStore = appContainer().variantStore
     val variants by variantStore.state.collectAsStateWithLifecycle()
+    val updater = appContainer().updater
+    val update by updater.state.collectAsStateWithLifecycle()
+    var editingToken by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     @Composable
     fun row(title: String, subtitle: String, value: String) {
@@ -36,6 +48,16 @@ fun SettingsScreen(
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        item { LoadsPanel() }
+        (update as? UpdateState.Available)?.let { a ->
+            item {
+                ListRow(
+                    title = "Versiune nouă: v${AppVersions.name(a.latest)}",
+                    subtitle = "Ai v${BuildConfig.VERSION_NAME}. OK descarcă și instalează (setările și playlisturile rămân)",
+                    onClick = { updater.downloadAndInstall() },
+                )
+            }
+        }
         item { SectionLabel("Playlisturi") }
         item {
             ListRow(
@@ -131,6 +153,53 @@ fun SettingsScreen(
         }
 
         item { SectionLabel("Despre") }
-        item { row("Versiune", "AK Sports Hub", BuildConfig.VERSION_NAME) }
+        item {
+            ListRow(
+                title = "Actualizare aplicație",
+                subtitle = updateSubtitle(update),
+                onClick = {
+                    when (update) {
+                        is UpdateState.Available -> updater.downloadAndInstall()
+                        is UpdateState.Ready -> updater.installAgain()
+                        UpdateState.Checking, UpdateState.Downloading -> Unit
+                        else -> scope.launch { updater.check() }
+                    }
+                },
+                trailing = { Text(text = "v" + BuildConfig.VERSION_NAME, fontSize = 14.sp) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Cheie GitHub pentru actualizări",
+                subtitle = "Doar dacă repo-ul e privat: un token „fine-grained” cu acces de citire la conținut. Nu intră în backup.",
+                onClick = { editingToken = true },
+                trailing = { Text(text = if (updater.token != null) "pusă" else "fără", fontSize = 14.sp) },
+            )
+        }
     }
+
+    if (editingToken) {
+        TextInputDialog(
+            title = "Cheie GitHub (token)",
+            initial = "",
+            hint = "github_pat_… (gol = șterge cheia)",
+            password = true,
+            onDismiss = { editingToken = false },
+            onConfirm = {
+                updater.token = it
+                editingToken = false
+                scope.launch { updater.check() }
+            },
+        )
+    }
+}
+
+private fun updateSubtitle(s: UpdateState): String = when (s) {
+    UpdateState.Unknown -> "OK caută o versiune nouă"
+    UpdateState.Checking -> "Se caută…"
+    is UpdateState.UpToDate -> "Ai ultima versiune (v${AppVersions.name(s.latest)}). OK caută din nou"
+    is UpdateState.Available -> "Versiune nouă: v${AppVersions.name(s.latest)}. OK descarcă și instalează"
+    UpdateState.Downloading -> "Se descarcă APK-ul…"
+    is UpdateState.Ready -> "Descărcat v${AppVersions.name(s.latest)}. Confirmă instalarea; dacă nu a apărut fereastra, OK din nou"
+    is UpdateState.Failed -> s.reason + " OK încearcă din nou"
 }

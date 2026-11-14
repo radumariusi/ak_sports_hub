@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import ro.ak.sportshub.core.common.LoadProgress
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.PlaylistEntity
 import ro.ak.sportshub.core.database.PlaylistType
@@ -51,6 +52,8 @@ class PlaylistRepository(
     corrections: (playlistId: Long) -> Map<String, ChannelCorrection> = { emptyMap() },
     /** Fusul orar al serverului Xtream, aflat la actualizare (pentru catch-up). */
     private val onServerZone: (playlistId: Long, timezone: String?) -> Unit = { _, _ -> },
+    /** Încărcările în curs, cu numărătorile lor (pentru ecran). */
+    private val progress: LoadProgress = LoadProgress(),
 ) {
     private val sink = RoomImportSink(db, corrections)
     private val locks = ConcurrentHashMap<Long, Mutex>()
@@ -173,7 +176,9 @@ class PlaylistRepository(
         val previous = if (!force && p.channelCount > 0) CacheTag(p.etag, p.lastModified) else null
 
         val outcome = try {
-            importer.import(source(p), sink, previous, waitForConnection = manual)
+            progress.track("playlist-$id", p.name, "începe") { report ->
+                importer.import(source(p), sink, previous, waitForConnection = manual, report = report)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: PlaylistException) {

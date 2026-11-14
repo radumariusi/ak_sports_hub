@@ -21,6 +21,7 @@ import androidx.tv.material3.Text
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import ro.ak.sportshub.ui.components.LoadsPanel
 import ro.ak.sportshub.core.database.PlaylistEntity
 import ro.ak.sportshub.core.database.PlaylistType
 import ro.ak.sportshub.ui.appContainer
@@ -45,6 +46,7 @@ fun PlaylistsScreen(onEdit: (Long) -> Unit, onAdd: (PlaylistType) -> Unit) {
             color = AkColors.TextDim,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
+        LoadsPanel()
         LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item { SectionLabel("Adaugă") }
             item {

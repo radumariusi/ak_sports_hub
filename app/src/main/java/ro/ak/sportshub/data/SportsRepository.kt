@@ -163,6 +163,9 @@ class SportsRepository(
         scope.launch {
             merge(
                 epg.observeStates().map { "epg" },
+                // Potrivirea canal → program se reface după ce se salvează starea sursei EPG:
+                // fără asta, lista canalelor de sport rămânea cea de dinainte (fără EPG, deci fără surse).
+                epg.observeMappedCount().map { "epg-map" },
                 playlists.changes.map { "playlists" },
                 variantStore.state.map { it.corrections }.distinctUntilChanged().map { "corrections" },
                 settings.settings.map { st: SportsSettings -> fetchKey(st) }.distinctUntilChanged().map { "settings" },
@@ -435,6 +438,14 @@ class SportsRepository(
         val request = Request.Builder().url(job.url)
             .header("Accept", if (job.html != null) "text/html,application/xhtml+xml" else "application/json")
             .apply { if (job.html != null || job.url.contains("sofascore")) header("User-Agent", BROWSER_UA) }
+            .apply {
+                // API-ul Sofascore refuză des cererile care nu par venite de pe site-ul lui.
+                if (job.url.contains("sofascore")) {
+                    header("Referer", "https://www.sofascore.com/")
+                    header("Origin", "https://www.sofascore.com")
+                    header("Accept-Language", "en-US,en;q=0.9")
+                }
+            }
             .build()
         http.newCall(request).execute().use { r ->
             if (!r.isSuccessful) {

@@ -31,6 +31,12 @@ class MainActivity : ComponentActivity() {
         requestNotificationsOnce()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // O dată la câteva ore: e o versiune nouă a aplicației? (apare în Setări → Actualizare).
+        (application as AkApp).container.updater.checkIfDue()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
