@@ -132,7 +132,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "Sofascore",
-                subtitle = "Neoficial, opțional: programul și scorurile pentru sporturile alese (azi și mâine, la 3 ore)",
+                subtitle = "Neoficial, opțional: programul complet și scorurile pentru sporturile alese (azi și mâine, la 3 ore); sursa cu cele mai multe meciuri",
                 onClick = { update(true) { it.copy(sofascoreEnabled = !it.sofascoreEnabled) } },
                 trailing = { SettingValue(if (s.sofascoreEnabled) "Da" else "Nu") },
             )
