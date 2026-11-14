@@ -52,7 +52,7 @@ jobs:
           AK_KEY_ALIAS: ${{ secrets.AK_KEY_ALIAS }}
           AK_KEY_PASSWORD: ${{ secrets.AK_KEY_PASSWORD }}
         run: |
-          ./gradlew :core:common:test :core:playlist:test :app:assembleRelease --stacktrace
+          ./gradlew :core:common:test :core:playlist:test :core:epg:test :app:assembleRelease --stacktrace
           cp app/build/outputs/apk/release/app-release.apk ak-sports-hub.apk
           ls -lh ak-sports-hub.apk
 

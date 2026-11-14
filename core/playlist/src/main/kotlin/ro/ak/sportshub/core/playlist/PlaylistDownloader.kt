@@ -32,6 +32,8 @@ class PlaylistDownloader(private val client: OkHttpClient) {
         target: File,
         userAgent: String?,
         previous: CacheTag? = null,
+        /** Ce se descarcă, pentru mesajul de eroare („playlistul”, „EPG-ul”). */
+        what: String = "playlistul",
     ): Result = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).apply {
             userAgent?.let { header("User-Agent", it) }
@@ -60,9 +62,9 @@ class PlaylistDownloader(private val client: OkHttpClient) {
         } catch (e: PlaylistException) {
             throw e
         } catch (e: IOException) {
-            throw PlaylistException("Nu s-a putut descărca playlistul. Verifică adresa și conexiunea.", e)
+            throw PlaylistException("Nu s-a putut descărca $what. Verifică adresa și conexiunea.", e)
         } catch (e: IllegalArgumentException) {
-            throw PlaylistException("Adresa playlistului nu e validă.", e)
+            throw PlaylistException(if (what == "playlistul") "Adresa playlistului nu e validă." else "Adresa nu e validă.", e)
         }
     }
 

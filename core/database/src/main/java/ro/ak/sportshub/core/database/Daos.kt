@@ -129,6 +129,18 @@ interface ChannelDao {
     )
     suspend fun findByName(playlistId: Long, name: String, groupName: String): Long?
 
+    /** Canalele playlisturilor active, pe pagini (pentru potrivirea cu EPG-ul), după [afterId]. */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.tvgId, c.tvgName, c.name, c.groupName
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.id > :afterId
+        ORDER BY c.id
+        LIMIT :limit
+        """,
+    )
+    suspend fun channelsForEpg(afterId: Long, limit: Int): List<ChannelEpgRow>
+
     @Insert
     suspend fun insertGroup(group: GroupEntity): Long
 

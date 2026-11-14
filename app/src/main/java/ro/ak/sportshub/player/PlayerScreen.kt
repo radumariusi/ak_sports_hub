@@ -58,14 +58,20 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import ro.ak.sportshub.core.common.player.NumberInput
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
+import ro.ak.sportshub.core.epg.NowNext
+import ro.ak.sportshub.core.epg.Programme
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.ListRow
+import ro.ak.sportshub.ui.components.ProgressLine
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.epg.ScheduleList
+import ro.ak.sportshub.ui.epg.formatRange
+import ro.ak.sportshub.ui.epg.formatTime
 import ro.ak.sportshub.ui.theme.AkColors
 
-private enum class Panel { None, Channels, Menu, Audio, Subtitles }
+private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule }
 
 private const val INFO_MS = 5_000L
 private const val NUMBER_COMMIT_MS = 1_500L
@@ -84,6 +90,7 @@ private val NavigationKeys = setOf(
  * Playerul pe tot ecranul. Telecomanda:
  * ▲ / CH+ canalul următor, ▼ / CH− canalul anterior din grup, ◀ lista canalelor grupului,
  * ▶ / Meniu pistele audio, subtitrările și restul opțiunilor, OK informații (sau reîncearcă după o eroare),
+ * Ghid / EPG programul canalului,
  * cifrele numărul canalului, butonul „ultimul canal” comută între ultimele două canale, Back iese.
  */
 @Composable
@@ -140,7 +147,7 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
             numberInput.clear()
             numberText = ""
         } else {
-            panel = if (panel == Panel.Audio || panel == Panel.Subtitles) Panel.Menu else Panel.None
+            panel = if (panel == Panel.Audio || panel == Panel.Subtitles || panel == Panel.Schedule) Panel.Menu else Panel.None
         }
     }
 
@@ -161,7 +168,8 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
                 infoVisible -> infoVisible = false
                 else -> showInfo()
             }
-            AndroidKeyEvent.KEYCODE_INFO, AndroidKeyEvent.KEYCODE_GUIDE -> showInfo()
+            AndroidKeyEvent.KEYCODE_INFO -> showInfo()
+            AndroidKeyEvent.KEYCODE_GUIDE, AndroidKeyEvent.KEYCODE_TV_DATA_SERVICE -> panel = Panel.Schedule
             AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS ->
                 if (!controller.playPrevious()) toast = "Nu există un canal anterior."
             in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
@@ -274,6 +282,7 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
                     controller.retry()
                 },
                 onChannels = { panel = Panel.Channels },
+                onSchedule = { panel = Panel.Schedule },
                 onExit = onExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
@@ -295,6 +304,11 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
                     controller.select(it, C.TRACK_TYPE_TEXT)
                     panel = Panel.None
                 },
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+            Panel.Schedule -> SchedulePanel(
+                channelId = state.channel?.id,
+                channelName = state.channel?.name.orEmpty(),
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
             Panel.None -> Unit
@@ -336,6 +350,10 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
         }
     }
     val clock = remember(now / 60_000) { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)) }
+    val epg = appContainer().epg
+    val nowNext by produceState<NowNext?>(null, channel.id, now / 60_000) {
+        value = epg.nowNext(listOf(channel.id), now)[channel.id]
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -359,8 +377,26 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                nowNext?.now?.let { p ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+                        Text(text = formatRange(p), fontSize = 15.sp, color = AkColors.Accent)
+                        Spacer(Modifier.width(12.dp))
+                        Text(text = p.title, fontSize = 18.sp, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                        Spacer(Modifier.width(12.dp))
+                        ProgressLine(p.progress(now), Modifier.width(140.dp))
+                    }
+                }
+                nowNext?.next?.let { p ->
+                    Text(
+                        text = "Urmează ${formatTime(p.start)}  ${p.title}",
+                        fontSize = 15.sp,
+                        color = AkColors.TextDim,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
                 Text(
-                    text = "▲▼ canale · ◀ lista grupului · ▶ audio, subtitrări, opțiuni · OK ascunde",
+                    text = "▲▼ canale · ◀ lista grupului · ▶ audio, subtitrări, program, opțiuni · OK ascunde",
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 8.dp),
@@ -435,6 +471,7 @@ private fun MenuPanel(
     onPrevious: () -> Unit,
     onReconnect: () -> Unit,
     onChannels: () -> Unit,
+    onSchedule: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier,
 ) {
@@ -455,6 +492,7 @@ private fun MenuPanel(
                 onClick = onSubtitles,
             )
             ListRow(title = "Canalul anterior", subtitle = previousName ?: "niciunul încă", onClick = onPrevious)
+            ListRow(title = "Programul canalului", subtitle = "EPG: ce rulează acum și mai târziu", onClick = onSchedule)
             ListRow(title = "Lista canalelor din grup", onClick = onChannels)
             ListRow(title = "Reconectează", subtitle = "oprește și pornește din nou stream-ul", onClick = onReconnect)
             ListRow(title = "Ieșire din player", onClick = onExit)
@@ -491,6 +529,37 @@ private fun TrackPanel(
                         null
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SchedulePanel(channelId: Long?, channelName: String, modifier: Modifier) {
+    val epg = appContainer().epg
+    val programmes by produceState<List<Programme>?>(null, channelId) {
+        value = channelId?.let { epg.schedule(it) } ?: emptyList()
+    }
+    val fallbackFocus = remember { FocusRequester() }
+    SidePanel(modifier.width(560.dp)) {
+        Column {
+            SectionLabel("Program · $channelName")
+            val list = programmes
+            when {
+                list == null -> Unit
+                list.isEmpty() -> {
+                    LaunchedEffect(Unit) { runCatching { fallbackFocus.requestFocus() } }
+                    Text(
+                        text = "Fără program pentru acest canal. Adaugă un EPG din Setări → EPG.",
+                        fontSize = 14.sp,
+                        color = AkColors.TextDim,
+                        modifier = Modifier
+                            .padding(14.dp)
+                            .focusRequester(fallbackFocus)
+                            .focusable(),
+                    )
+                }
+                else -> ScheduleList(list, modifier = Modifier.fillMaxHeight())
             }
         }
     }
