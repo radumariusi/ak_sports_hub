@@ -222,6 +222,10 @@ private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, s
                     0 -> "fără surse"
                     1 -> "1 sursă"
                     else -> "$count surse"
+                } + when (val guesses = count - entry.summary.sure) {
+                    0 -> ""
+                    count -> if (count == 1) " presupusă" else " presupuse"
+                    else -> " ($guesses presupuse)"
                 },
                 fontSize = 13.sp,
                 color = if (count == 0) AkColors.TextDim else AkColors.Text,

@@ -27,7 +27,7 @@ private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETIT
 
 /** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
 @Composable
-fun SportsSettingsScreen() {
+fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
     val container = appContainer()
     val store = container.sportsSettings
     val sports = container.sports
@@ -118,6 +118,29 @@ fun SportsSettingsScreen() {
         }
         item {
             ListRow(
+                title = "LiveSoccerTV",
+                subtitle = "Neoficial, opțional: meciurile de fotbal de azi și mâine cu posturile TV (o pagină pe zi, la 3 ore)",
+                onClick = { update(true) { it.copy(liveSoccerTvEnabled = !it.liveSoccerTvEnabled) } },
+                trailing = { SettingValue(if (s.liveSoccerTvEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Sofascore",
+                subtitle = "Neoficial, opțional: programul și scorurile pentru sporturile alese (azi și mâine, la 3 ore), fără posturi TV",
+                onClick = { update(true) { it.copy(sofascoreEnabled = !it.sofascoreEnabled) } },
+                trailing = { SettingValue(if (s.sofascoreEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Dicționar de posturi, drepturi TV și alias-uri",
+                subtitle = "Posturile anunțate fără canal, regulile „competiție → posturi”, alias-urile de echipe și ce s-a învățat",
+                onClick = onOpenKnowledge,
+            )
+        }
+        item {
+            ListRow(
                 title = "Zile cerute",
                 subtitle = "De azi încolo",
                 onClick = { dialog = SportsDialog.DAYS },
@@ -127,12 +150,12 @@ fun SportsSettingsScreen() {
         item {
             ListRow(
                 title = "Actualizează acum",
-                subtitle = status ?: "Cere din nou programul de la TheSportsDB",
+                subtitle = status ?: "Cere din nou programul de la furnizorii activi",
                 onClick = { sports.refreshInBackground(force = true) },
             )
         }
 
-        item { SectionLabel("Sporturi cerute de la TheSportsDB (OK schimbă)") }
+        item { SectionLabel("Sporturi cerute de la TheSportsDB și Sofascore (OK schimbă)") }
         Sport.entries.forEach { sport ->
             item(key = sport.name) {
                 val on = sport in s.sports

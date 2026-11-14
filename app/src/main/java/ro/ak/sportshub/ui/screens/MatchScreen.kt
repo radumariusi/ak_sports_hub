@@ -13,6 +13,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -28,13 +30,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import java.time.Instant
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import ro.ak.sportshub.core.common.ChannelFamilies
+import ro.ak.sportshub.core.common.SearchText
+import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.sports.Confidence
 import ro.ak.sportshub.core.sports.DetailsSchedule
+import ro.ak.sportshub.core.sports.MatchSource
+import ro.ak.sportshub.core.sports.Verdict
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.data.MatchDetailsState
 import ro.ak.sportshub.core.sports.MatchSources
@@ -42,11 +50,13 @@ import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
+import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TabStrip
+import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
 
 private val Tabs = listOf("Surse", "Pre-meci", "Live")
@@ -68,6 +78,10 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
     val revealed by details.revealed.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    /** Sursa pe care ai ținut OK apăsat (meniul „e meciul / nu e”). */
+    var menuFor by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
+    /** Căutarea unui canal de adăugat ca sursă: null = închisă, "" = se cere textul. */
+    var addQuery by remember { mutableStateOf<String?>(null) }
     val firstTab = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
@@ -134,9 +148,10 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(bottom = 6.dp).horizontalScroll(rememberScrollState()),
                     ) {
-                        families.firstOrNull()?.members?.firstOrNull()?.let { best ->
+                        families.firstOrNull { !it.members.first().rejected }?.members?.firstOrNull()?.let { best ->
                             ActionButton(text = "▶ Pornește sursa recomandată", onClick = { onPlay(best.channel.id) })
                         }
+                        ActionButton(text = "+ Adaugă un canal", onClick = { addQuery = "" })
                         val store = container.sportsSettings
                         ActionButton(
                             text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
@@ -159,17 +174,30 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                 if (families.isEmpty()) {
                     item {
                         Text(
-                            text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul " +
-                                "sau când un post anunțat are același nume cu un canal al tău.",
+                            text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
+                                "când un post anunțat are același nume cu un canal al tău (sau e în dicționarul de posturi) " +
+                                "ori după regulile de drepturi TV. Poți adăuga un canal de mână cu „+ Adaugă un canal”.",
                             fontSize = 14.sp,
                             color = AkColors.TextDim,
                             modifier = Modifier.padding(14.dp),
                         )
                     }
                 }
+                var guessesShown = false
+                var rejectedShown = false
                 families.forEach { family ->
+                    val head = family.members.first()
+                    if (head.rejected && !rejectedShown) {
+                        rejectedShown = true
+                        item(key = "t:rejected") { SectionLabel("Respinse de tine (nu e meciul)", modifier = Modifier.padding(top = 14.dp)) }
+                    } else if (!head.rejected && head.confidence.guess && !guessesShown) {
+                        guessesShown = true
+                        item(key = "t:guess") {
+                            SectionLabel("Presupuse, după drepturile TV ale competiției", modifier = Modifier.padding(top = 14.dp))
+                        }
+                    }
                     item(key = "h:" + family.key) {
-                        SectionLabel(family.members.first().channel.name, modifier = Modifier.padding(top = 6.dp))
+                        SectionLabel(head.channel.name, modifier = Modifier.padding(top = 6.dp))
                     }
                     items(family.members, key = { "s:" + it.channel.id }) { s ->
                         val c = s.channel
@@ -178,10 +206,11 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                             title = c.name,
                             subtitle = listOfNotNull(
                                 c.playlistName,
-                                s.confidence.label + (s.station?.takeIf { s.confidence == Confidence.STATION }?.let { ": $it" } ?: ""),
+                                if (s.rejected) "respinsă de tine" else s.confidence.label + (s.station?.let { ": $it" } ?: ""),
                                 if (preferred) "varianta preferată" else null,
                             ).joinToString(" · "),
                             onClick = { onPlay(c.id) },
+                            onLongClick = { menuFor = s },
                             trailing = {
                                 c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                                 QualityBadge(c.quality)
@@ -192,7 +221,8 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                 item {
                     Text(
                         text = "Calitatea și limba sunt cele declarate de playlist. Ordinea urmează preferințele din Setări → Sports Hub" +
-                            if (favorite) " (meci favorit: limbile preferate întâi)." else " (rezoluția întâi).",
+                            (if (favorite) " (meci favorit: limbile preferate întâi)." else " (rezoluția întâi).") +
+                            " OK ținut apăsat pe o sursă: „e meciul” / „nu e meciul”; aplicația ține minte postul sau competiția.",
                         fontSize = 13.sp,
                         color = AkColors.TextDim,
                         modifier = Modifier.padding(14.dp),
@@ -221,4 +251,90 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
             )
         }
     }
+
+    menuFor?.let { src ->
+        val verdict = when {
+            src.rejected -> Verdict.REJECTED
+            src.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
+            else -> null
+        }
+        val options = buildList<Pair<String, Verdict?>> {
+            add("Da, e meciul" to Verdict.CONFIRMED)
+            add("Nu e meciul" to Verdict.REJECTED)
+            if (verdict != null) add("Anulează alegerea" to null)
+        }
+        ChoiceDialog(
+            title = src.channel.name,
+            hint = when (src.origin) {
+                Confidence.STATION -> "Postul anunțat „${src.station}” se leagă (sau nu) de canalul ăsta și la meciurile viitoare."
+                Confidence.RIGHTS, Confidence.LEARNED, Confidence.CONFIRMED ->
+                    "Se ține minte pentru meciurile din ${m.competition ?: "aceeași competiție"}."
+                Confidence.EPG -> "Doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
+            },
+            options = options.map { it.first },
+            selectedIndex = options.indexOfFirst { verdict != null && it.second == verdict },
+            onDismiss = { menuFor = null },
+            onSelect = { i ->
+                container.sports.decide(m, src.groupKey, options[i].second, src)
+                menuFor = null
+            },
+        )
+    }
+
+    when (val q = addQuery) {
+        null -> Unit
+        "" -> TextInputDialog(
+            title = "Adaugă un canal ca sursă",
+            initial = "",
+            hint = "Numele canalului (de exemplu: digi sport 1). Se ține minte pentru competiția meciului.",
+            onDismiss = { addQuery = null },
+            onConfirm = { text -> addQuery = text.trim().ifEmpty { null } },
+        )
+        else -> ChannelPickerDialog(
+            query = q,
+            onDismiss = { addQuery = null },
+            onPick = { c ->
+                container.sports.decide(m, c.groupKey, Verdict.CONFIRMED, null)
+                addQuery = null
+            },
+        )
+    }
 }
+
+/**
+ * Alege un canal după numele căutat [query]: câte un rând pe canal (variantele sunt aceleași),
+ * cu numele original, grupul și playlistul.
+ */
+@Composable
+fun ChannelPickerDialog(query: String, onDismiss: () -> Unit, onPick: (ChannelWithPlaylist) -> Unit) {
+    val container = appContainer()
+    val results by produceState<List<ChannelWithPlaylist>?>(null, query) {
+        val fts = SearchText.ftsQuery(query)
+        value = if (fts == null) {
+            emptyList()
+        } else {
+            val found = container.database.channels().search(fts, PICKER_LIMIT).first()
+            ChannelFamilies.collapse(found) { it.groupKey }.map { it.members.first() }
+        }
+    }
+    val list = results ?: return
+    if (list.isEmpty()) {
+        ChoiceDialog(
+            title = "Niciun canal pentru „$query”",
+            options = listOf("Închide"),
+            selectedIndex = -1,
+            onDismiss = onDismiss,
+            onSelect = { onDismiss() },
+        )
+        return
+    }
+    ChoiceDialog(
+        title = "Canale pentru „$query”",
+        options = list.map { c -> "${c.name}  ·  ${c.groupName}  ·  ${c.playlistName}" },
+        selectedIndex = -1,
+        onDismiss = onDismiss,
+        onSelect = { i -> onPick(list[i]) },
+    )
+}
+
+private const val PICKER_LIMIT = 200

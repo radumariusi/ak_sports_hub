@@ -16,6 +16,7 @@ import ro.ak.sportshub.ui.playlists.PlaylistsScreen
 import ro.ak.sportshub.ui.screens.ChannelScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
 import ro.ak.sportshub.ui.screens.MatchScreen
+import ro.ak.sportshub.ui.screens.SportsKnowledgeScreen
 import ro.ak.sportshub.ui.screens.SportsSettingsScreen
 
 private const val HOME = "home"
@@ -27,6 +28,7 @@ private const val CHANNEL = "channel/{channelId}"
 private const val SCHEDULE = "schedule/{channelId}"
 private const val EPG = "epg"
 private const val SPORTS_SETTINGS = "sports-settings"
+private const val SPORTS_KNOWLEDGE = "sports-knowledge"
 
 @Composable
 fun AppNavigation() {
@@ -61,7 +63,8 @@ fun AppNavigation() {
             )
         }
         composable(EPG) { EpgSettingsScreen() }
-        composable(SPORTS_SETTINGS) { SportsSettingsScreen() }
+        composable(SPORTS_SETTINGS) { SportsSettingsScreen(onOpenKnowledge = { nav.navigate(SPORTS_KNOWLEDGE) }) }
+        composable(SPORTS_KNOWLEDGE) { SportsKnowledgeScreen() }
         composable(
             PLAYER,
             arguments = listOf(

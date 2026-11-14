@@ -33,9 +33,12 @@ data class SportsFavorites(
 
 /** Ce știm despre sursele găsite pentru un meci (pentru filtre și pentru listă). */
 data class SourceSummary(
+    /** Sursele găsite (fără cele respinse de tine), inclusiv presupunerile din drepturile TV. */
     val count: Int = 0,
     val languages: Set<String> = emptySet(),
     val best: Quality = Quality.UNKNOWN,
+    /** Câte din [count] sunt găsite efectiv (EPG, post anunțat, confirmate), nu presupuse. */
+    val sure: Int = count,
 ) {
     companion object {
         val NONE = SourceSummary()
@@ -116,8 +119,12 @@ data class MatchSource<T>(
     val language: String?,
     val quality: Quality,
     val confidence: Confidence,
-    /** Postul anunțat de furnizor, dacă sursa vine din potrivirea pe nume. */
+    /** Postul anunțat de furnizor sau din regula de drepturi, dacă sursa vine din potrivirea pe nume. */
     val station: String? = null,
+    /** Ai spus că nu e meciul: apare la final, marcată. */
+    val rejected: Boolean = false,
+    /** Cum fusese găsită înainte de alegerea ta. */
+    val origin: Confidence = confidence,
 )
 
 object MatchSources {
@@ -125,26 +132,39 @@ object MatchSources {
     /**
      * Sursele unui meci, grupate pe canal și apoi pe variante, în ordinea preferințelor
      * ([SourceRanking]: la favorite limba contează peste prag, la rest primează rezoluția).
-     * La egalitate, potrivirea mai sigură (EPG) vine prima. Nimic nu e ascuns.
+     * Întâi sursele găsite efectiv (confirmate, EPG, post anunțat), apoi presupunerile (învățat, drepturi TV),
+     * apoi cele respinse de tine. În fiecare parte, la egalitate, potrivirea mai sigură vine prima. Nimic nu e ascuns.
      */
     fun <T> order(
         sources: List<MatchSource<T>>,
         isFavorite: Boolean,
         prefs: SourcePreferences,
     ): List<ChannelFamily<MatchSource<T>>> {
-        val byConfidence = sources.sortedBy { it.confidence.ordinal }
-        val ranked = SourceRanking.rank(
-            byConfidence.mapIndexed { i, s -> SourceCandidate(i.toString(), s.language, s.quality) },
-            isFavorite = isFavorite,
-            prefs = prefs,
-        ).map { byConfidence[it.id.toInt()] }
-        return ChannelFamilies.collapse(ranked) { it.groupKey }
+        val tiers = sources.groupBy {
+            when {
+                it.rejected -> 2
+                it.confidence.guess -> 1
+                else -> 0
+            }
+        }
+        return (0..2).flatMap { tier ->
+            val part = tiers[tier].orEmpty().sortedBy { it.confidence.ordinal }
+            val ranked = SourceRanking.rank(
+                part.mapIndexed { i, s -> SourceCandidate(i.toString(), s.language, s.quality) },
+                isFavorite = isFavorite,
+                prefs = prefs,
+            ).map { part[it.id.toInt()] }
+            ChannelFamilies.collapse(ranked) { it.groupKey }
+        }
     }
 
-    fun <T> summary(sources: List<MatchSource<T>>): SourceSummary =
-        if (sources.isEmpty()) SourceSummary.NONE else SourceSummary(
+    fun <T> summary(all: List<MatchSource<T>>): SourceSummary {
+        val sources = all.filterNot { it.rejected }
+        return if (sources.isEmpty()) SourceSummary.NONE else SourceSummary(
             count = sources.size,
             languages = sources.mapNotNull { it.language?.lowercase() }.toSet(),
             best = sources.maxByOrNull { it.quality.rank }?.quality ?: Quality.UNKNOWN,
+            sure = sources.count { !it.confidence.guess },
         )
+    }
 }

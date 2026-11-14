@@ -21,16 +21,31 @@ class StationIndex(groupKeys: Collection<String>) {
         .filter { it.first.isNotEmpty() }
         .groupBy({ it.first }, { it.second to it.third })
 
-    /** Cheile de grupare ale canalelor care sunt postul [station]. */
+    /**
+     * Cheile de grupare ale canalelor care sunt postul [station]. Se încearcă și numele din dicționarul
+     * de posturi ([StationNames]: „BT Sport 1” = „TNT Sports 1”), iar țara scrisă la final
+     * („Digi Sport 1 Romania”, „Sky Sports Main Event (UK)”) se folosește ca țară.
+     */
     fun find(station: TvStation): List<String> {
-        val parsed = ChannelNameParser.parse(station.name)
-        val core = parsed.groupKey.substringAfter(':')
-        val candidates = byKey[compact(core)] ?: return emptyList()
-        val wanted = Countries.codes(station.country) + listOfNotNull(parsed.country?.lowercase())
-        if (wanted.isEmpty()) return candidates.map { it.second }
-        // Canalele fără țară în nume se potrivesc oricum; cele cu altă țară, nu.
-        return candidates.filter { (c, _) -> c == null || c in wanted }.map { it.second }
+        val (name, suffixCountry) = StationNames.splitCountry(station.name)
+        val out = LinkedHashSet<String>()
+        for (variant in StationNames.variants(name)) {
+            val parsed = ChannelNameParser.parse(variant)
+            val core = parsed.groupKey.substringAfter(':')
+            val candidates = byKey[compact(core)] ?: continue
+            val wanted = Countries.codes(station.country ?: suffixCountry) + listOfNotNull(parsed.country?.lowercase())
+            if (wanted.isEmpty()) {
+                candidates.forEach { out += it.second }
+            } else {
+                // Canalele fără țară în nume se potrivesc oricum; cele cu altă țară, nu.
+                candidates.filter { (c, _) -> c == null || c in wanted }.forEach { out += it.second }
+            }
+        }
+        return out.toList()
     }
+
+    /** Există canale cu numele ăsta (fără să conteze țara)? Pentru „posturi fără canal” din dicționar. */
+    fun knows(compactName: String): Boolean = byKey.containsKey(compactName)
 
     companion object {
         private val numbers = mapOf("one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5", "unu" to "1", "doi" to "2", "trei" to "3")
@@ -62,6 +77,9 @@ object Countries {
         "slovenia" to setOf("si"), "bosnia and herzegovina" to setOf("ba"), "north macedonia" to setOf("mk"),
         "mexico" to setOf("mx"), "argentina" to setOf("ar"), "india" to setOf("in"),
     )
+
+    /** Numele [folded] (fără diacritice, litere mici) e o țară cunoscută? */
+    fun isCountry(folded: String): Boolean = folded in map
 
     /** Prefixele de țară pentru numele [country] (gol dacă nu-l știm: atunci nu se filtrează). */
     fun codes(country: String?): Set<String> {

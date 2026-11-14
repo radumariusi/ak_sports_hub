@@ -17,6 +17,8 @@ dependencies {
     api(project(":core:common"))
     // Doar JsonElement (fără plugin de serializare): răspunsurile TheSportsDB se citesc câmp cu câmp.
     implementation(libs.kotlinx.serialization.json)
+    // Paginile HTML (LiveSoccerTV) se citesc cu Jsoup, tolerant la schimbări mici de structură.
+    implementation(libs.jsoup)
     testImplementation(libs.junit)
 }
 
