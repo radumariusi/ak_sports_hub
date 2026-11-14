@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -15,6 +16,7 @@ import ro.ak.sportshub.ui.playlists.PlaylistsScreen
 import ro.ak.sportshub.ui.screens.ChannelScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
 import ro.ak.sportshub.ui.screens.MatchScreen
+import ro.ak.sportshub.ui.screens.SportsSettingsScreen
 
 private const val HOME = "home"
 private const val MATCH = "match/{matchId}"
@@ -24,6 +26,7 @@ private const val PLAYER = "player/{channelId}?zapGroup={zapGroup}"
 private const val CHANNEL = "channel/{channelId}"
 private const val SCHEDULE = "schedule/{channelId}"
 private const val EPG = "epg"
+private const val SPORTS_SETTINGS = "sports-settings"
 
 @Composable
 fun AppNavigation() {
@@ -31,11 +34,12 @@ fun AppNavigation() {
     NavHost(navController = nav, startDestination = HOME) {
         composable(HOME) {
             HomeScreen(
-                onOpenMatch = { id -> nav.navigate("match/$id") },
+                onOpenMatch = { id -> nav.navigate("match/" + Uri.encode(id)) },
                 onOpenPlaylists = { nav.navigate(PLAYLISTS) },
                 onOpenEpg = { nav.navigate(EPG) },
                 onPlayChannel = { id, zapGroup -> nav.navigate("player/$id?zapGroup=$zapGroup") { launchSingleTop = true } },
                 onOpenChannel = { id -> nav.navigate("channel/$id") },
+                onOpenSportsSettings = { nav.navigate(SPORTS_SETTINGS) },
             )
         }
         composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
@@ -57,6 +61,7 @@ fun AppNavigation() {
             )
         }
         composable(EPG) { EpgSettingsScreen() }
+        composable(SPORTS_SETTINGS) { SportsSettingsScreen() }
         composable(
             PLAYER,
             arguments = listOf(
@@ -74,7 +79,10 @@ fun AppNavigation() {
             )
         }
         composable(MATCH) { entry ->
-            MatchScreen(matchId = entry.arguments?.getString("matchId").orEmpty())
+            MatchScreen(
+                matchId = entry.arguments?.getString("matchId").orEmpty(),
+                onPlay = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
+            )
         }
         composable(PLAYLISTS) {
             PlaylistsScreen(

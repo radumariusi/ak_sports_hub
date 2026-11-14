@@ -27,6 +27,7 @@ import ro.ak.sportshub.core.common.ConnectionGate
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.EpgChannelEntity
 import ro.ak.sportshub.core.database.EpgDatabase
+import ro.ak.sportshub.core.database.EpgProgrammeRow
 import ro.ak.sportshub.core.database.EpgMapEntity
 import ro.ak.sportshub.core.database.EpgSourceState
 import ro.ak.sportshub.core.database.PlaylistEntity
@@ -395,6 +396,25 @@ class EpgRepository(
             Programme(it.start, it.stop, it.title, it.subtitle, it.description, it.category)
         }
     }
+
+    // ---------- pentru Sports Hub (doar citire din baza EPG, fără rețea) ----------
+
+    /** Canalele EPG ale canalelor [channelIds] din playlist. */
+    suspend fun epgChannelsOf(channelIds: Collection<Long>): Set<Long> =
+        channelIds.distinct().chunked(IN_CHUNK).flatMap { dao.mapForChannels(it) }.map { it.epgChannelId }.toSet()
+
+    /** Canalele din playlist care au programul canalelor EPG [epgChannelIds]. */
+    suspend fun channelsShowing(epgChannelIds: Collection<Long>): Map<Long, List<Long>> =
+        epgChannelIds.distinct().chunked(IN_CHUNK).flatMap { dao.mapForEpgChannels(it) }
+            .groupBy({ it.epgChannelId }, { it.channelId })
+
+    /** Emisiunile canalelor EPG [epgChannelIds] dintre [from] și [until]. */
+    suspend fun programmesOn(epgChannelIds: Collection<Long>, from: Long, until: Long): List<EpgProgrammeRow> =
+        epgChannelIds.distinct().chunked(IN_CHUNK).flatMap { dao.programmesOn(it, from, until) }
+
+    /** Emisiunile cu categorie de sport de pe orice canal folosit (cel mult [limit]). */
+    suspend fun sportCategoryProgrammes(from: Long, until: Long, limit: Int): List<EpgProgrammeRow> =
+        dao.sportCategoryProgrammes(from, until, limit)
 
     private fun info(p: PlaylistEntity) = PlaylistEpgInfo(
         playlistId = p.id,

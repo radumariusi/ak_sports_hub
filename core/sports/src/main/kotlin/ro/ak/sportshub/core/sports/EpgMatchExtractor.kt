@@ -1,0 +1,142 @@
+package ro.ak.sportshub.core.sports
+
+/**
+ * Recunoaște meciurile în titlurile EPG. Exemple tratate:
+ * `Live: Arsenal v Chelsea`, `Premier League: Arsenal - Chelsea`, `Fotbal: FCSB – CFR Cluj (live)`,
+ * `NBA: Lakers @ Celtics`, `Liga 1 | FCSB vs. Rapid`.
+ *
+ * Reluările, rezumatele și emisiunile de studio nu sunt meciuri. Separatorul „-” e ambiguu („Știri - ediția
+ * de seară”), așa că se acceptă doar pe un canal de sport, cu o categorie de sport sau cu sportul în titlu.
+ */
+object EpgMatchExtractor {
+
+    private val liveMarker = Regex("""(?i)(\(\s*(live|direct|d)\s*\)|\[\s*(live|direct)\s*]|^\s*(live|direct|in direct|în direct)\s*[:|\-–]?\s+|\s+(live|direct)\s*$)""")
+    private val replayWords = listOf(
+        "replay", "reluare", "rezumat", "highlights", "best of", "magazin", "magazine", "preview", "review",
+        "studio", "analysis", "analiza", "stiri", "news", "talk", "show", "goals", "goluri", "classic", "clasic",
+        "documentar", "documentary", "(r)", "[r]", "repeat", "delayed", "deferred", "înregistrare", "inregistrare",
+    )
+    private val strongSeparators = listOf(
+        Regex("""\s+(?i:vs\.?|v\.?)\s+"""),
+        Regex("""\s+@\s+"""),
+    )
+    private val dashSeparator = Regex("""\s+[-–—]\s+""")
+    private val contextSplit = Regex("""\s*[:|]\s+|\s*[:|]\s*(?=\p{Lu})""")
+    private val trailingNoise = Regex("""\s*(\(.*?\)|\[.*?]|,.*|\s+\d+\s*[-:]\s*\d+\s*$)\s*$""")
+    private val nonTeamWords = setOf(
+        "highlights", "magazin", "news", "stiri", "studio", "preview", "rezumat", "analysis", "talk", "show",
+        "episode", "episodul", "sezonul", "season", "film", "serial", "the movie", "part",
+    )
+
+    /**
+     * @param channelIsSport canalul (din playlist) e de sport: atunci se acceptă și separatorul „-”.
+     * @return meciul citit din emisiune, sau null dacă nu arată a meci.
+     */
+    fun extract(b: EpgBroadcast, channelIsSport: Boolean): ExtractedMatch? =
+        extract(b.title, b.category, channelIsSport, context = null)
+            ?: b.subtitle?.let { extract(it, b.category, channelIsSport, context = b.title) }
+
+    fun extract(title: String, category: String?, channelIsSport: Boolean, context: String? = null): ExtractedMatch? {
+        val raw = title.trim()
+        if (raw.isEmpty()) return null
+        val folded = Sport.fold(raw)
+        val lowerRaw = raw.lowercase()
+        if (replayWords.any { w -> if (w.startsWith("(") || w.startsWith("[")) lowerRaw.contains(w) else " $folded ".contains(" $w ") }) {
+            return null
+        }
+
+        var explicitLive = false
+        var text = raw
+        while (true) {
+            val m = liveMarker.find(text) ?: break
+            explicitLive = true
+            text = text.removeRange(m.range).trim()
+        }
+
+        // Contextul (competiția sau sportul) stă înaintea ultimului „:” sau „|”.
+        val segments = text.split(contextSplit).map { it.trim() }.filter { it.isNotEmpty() }
+        val teamIndex = segments.indexOfLast { s -> strongSeparators.any { it.containsMatchIn(s) } || dashSeparator.containsMatchIn(s) }
+        if (teamIndex < 0) return null
+        val contextParts = (listOfNotNull(context) + segments.take(teamIndex)).toMutableList()
+        val teamsPart = segments[teamIndex]
+
+        val strong = strongSeparators.firstOrNull { it.containsMatchIn(teamsPart) }
+        val pieces: List<String>
+        var reversed = false
+        if (strong != null) {
+            pieces = teamsPart.split(strong, limit = 2)
+            reversed = strong.pattern.contains("@")
+            // „Fotbal - Liga 1 - Arsenal v Chelsea”: ce e înainte de ultima liniuță din echipa gazdă e context.
+            val homeParts = pieces[0].split(dashSeparator)
+            if (homeParts.size > 1) {
+                contextParts += homeParts.dropLast(1)
+                return build(homeParts.last(), pieces[1], contextParts, category, explicitLive, reversed, strongSeparator = true, channelIsSport)
+            }
+        } else {
+            val parts = teamsPart.split(dashSeparator)
+            if (parts.size < 2) return null
+            contextParts += parts.dropLast(2)
+            pieces = parts.takeLast(2)
+        }
+        return build(pieces[0], pieces[1], contextParts, category, explicitLive, reversed, strongSeparator = strong != null, channelIsSport)
+    }
+
+    private fun build(
+        homeRaw: String,
+        awayRaw: String,
+        contextParts: List<String>,
+        category: String?,
+        explicitLive: Boolean,
+        reversed: Boolean,
+        strongSeparator: Boolean,
+        channelIsSport: Boolean,
+    ): ExtractedMatch? {
+        val home = cleanTeam(homeRaw) ?: return null
+        val away = cleanTeam(awayRaw) ?: return null
+        if (TeamNames.key(home) == TeamNames.key(away)) return null
+
+        val contextSport = Sport.detect(*contextParts.toTypedArray())
+        val categorySport = Sport.detect(category)
+        val categoryIsSport = category != null && Sport.fold(category).let { c -> SPORT_CATEGORY.any { c.contains(it) } }
+        if (!strongSeparator && !channelIsSport && contextSport == null && categorySport == null && !categoryIsSport) return null
+        if (strongSeparator && !channelIsSport && contextSport == null && categorySport == null && !categoryIsSport && !explicitLive) {
+            // „X v Y” pe un canal oarecare, fără nicio urmă de sport: mai degrabă un film sau o emisiune.
+            return null
+        }
+
+        // Contextul care nu e doar numele sportului e competiția („Premier League”, „Liga 1”).
+        val competition = contextParts
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !isSportName(it) && !isLiveWord(it) }
+            .lastOrNull()
+        return ExtractedMatch(
+            home = if (reversed) away else home,
+            away = if (reversed) home else away,
+            competition = competition,
+            sport = contextSport ?: categorySport ?: Sport.detect(competition),
+            explicitLive = explicitLive,
+        )
+    }
+
+    private fun isSportName(text: String): Boolean {
+        val f = Sport.fold(text)
+        return f in SPORT_CATEGORY || Sport.entries.any { s -> Sport.fold(s.label) == f || s.sportsDbName.lowercase() == f || f in s.keywords.take(3) }
+    }
+
+    private fun isLiveWord(text: String): Boolean = Sport.fold(text) in setOf("live", "direct", "in direct")
+
+    private fun cleanTeam(raw: String): String? {
+        var t = raw.trim()
+        repeat(3) { t = t.replace(trailingNoise, "").trim() }
+        t = t.trim('-', '–', '—', ':', '|', '.', ' ')
+        if (t.length < 2 || t.length > 40) return null
+        if (t.none { it.isLetter() }) return null
+        val words = t.split(Regex("""\s+"""))
+        if (words.size > 5) return null
+        val f = " ${Sport.fold(t)} "
+        if (nonTeamWords.any { f.contains(" $it ") }) return null
+        return t
+    }
+
+    private val SPORT_CATEGORY = listOf("sport", "sports", "sporturi", "football", "fotbal", "soccer")
+}

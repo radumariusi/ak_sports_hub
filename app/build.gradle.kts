@@ -72,6 +72,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:playlist"))
     implementation(project(":core:epg"))
+    implementation(project(":core:sports"))
     implementation(project(":core:database"))
 
     implementation(libs.androidx.core.ktx)

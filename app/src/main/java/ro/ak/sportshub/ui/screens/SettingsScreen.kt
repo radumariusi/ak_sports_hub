@@ -10,7 +10,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import ro.ak.sportshub.BuildConfig
-import ro.ak.sportshub.core.model.SourcePreferences
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
@@ -18,11 +17,11 @@ import ro.ak.sportshub.ui.playlists.formatCount
 
 /** Setările planificate, cu valorile implicite. Devin editabile pe măsură ce apar funcțiile. */
 @Composable
-fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit) {
-    val prefs = remember { SourcePreferences() }
+fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit, onOpenSportsSettings: () -> Unit) {
+    val sports by appContainer().sportsSettings.settings.collectAsStateWithLifecycle()
     val playlists by appContainer().playlists.let { r -> remember { r.observePlaylists() } }.collectAsStateWithLifecycle(initialValue = emptyList())
     val mapped by appContainer().epg.let { r -> remember { r.observeMappedCount() } }.collectAsStateWithLifecycle(initialValue = 0)
-    val languages = prefs.preferredLanguages.joinToString(", ") { it.uppercase() }
+    val languages = sports.sourcePreferences.preferredLanguages.joinToString(", ") { it.uppercase() }
     val variantStore = appContainer().variantStore
     val variants by variantStore.state.collectAsStateWithLifecycle()
 
@@ -75,17 +74,15 @@ fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit) {
             )
         }
 
-        item { SectionLabel("Surse pentru meciuri") }
-        item { row("Limbi preferate", "Au prioritate la aceeași calitate", languages) }
-        item { row("Calitate bună", "Pragul de la care contează limba", prefs.goodQuality.label + " sau mai mult") }
+        item { SectionLabel("Sports Hub") }
         item {
-            row(
-                "Meciuri favorite",
-                "Limbi preferate la calitate bună, apoi alte limbi la calitate bună, apoi restul",
-                "",
+            ListRow(
+                title = "Sports Hub",
+                subtitle = "Limbi preferate, prag de calitate, TheSportsDB, sporturi, echipe și competiții favorite",
+                onClick = onOpenSportsSettings,
+                trailing = { Text(text = languages + " · " + sports.sourcePreferences.goodQuality.label + "+", fontSize = 14.sp) },
             )
         }
-        item { row("Alte meciuri", "Orice limbă, cea mai bună rezoluție întâi", "") }
 
         item { SectionLabel("Despre") }
         item { row("Versiune", "AK Sports Hub", BuildConfig.VERSION_NAME) }

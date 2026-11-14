@@ -146,6 +146,42 @@ interface ChannelDao {
     )
     suspend fun variants(groupKeys: List<String>): List<ChannelWithPlaylist>
 
+    /** Canalele cu id-urile [ids], din playlisturile active (cel mult ~900 pe apel). */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
+               p.name AS playlistName, c.groupKey
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.id IN (:ids)
+        """,
+    )
+    suspend fun byIds(ids: List<Long>): List<ChannelWithPlaylist>
+
+    /** Toate cheile de grupare din playlisturile active (pentru potrivirea pe nume de post). */
+    @Query("SELECT DISTINCT c.groupKey FROM channels c JOIN playlists p ON p.id = c.playlistId WHERE p.enabled = 1")
+    suspend fun activeGroupKeys(): List<String>
+
+    /**
+     * Canale care ar putea fi de sport, după nume și grup (filtrul fin e `SportChannels`).
+     * LIKE în SQLite nu ține cont de literele mari pentru ASCII.
+     */
+    @Query(
+        """
+        SELECT c.id, c.name, c.groupName FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND (
+            c.name LIKE '%sport%' OR c.groupName LIKE '%sport%' OR c.name LIKE '%espn%' OR c.name LIKE '%dazn%'
+            OR c.name LIKE '%bein%' OR c.name LIKE '%arena%' OR c.name LIKE '%football%' OR c.name LIKE '%fotbal%'
+            OR c.name LIKE '%futbol%' OR c.name LIKE '%calcio%' OR c.name LIKE '%soccer%' OR c.name LIKE '%nba%'
+            OR c.name LIKE '%nfl%' OR c.name LIKE '%nhl%' OR c.name LIKE '%mlb%' OR c.name LIKE '%f1%'
+            OR c.name LIKE '%motogp%' OR c.name LIKE '%tennis%' OR c.name LIKE '%golf%' OR c.name LIKE '%ufc%'
+            OR c.name LIKE '%ppv%' OR c.name LIKE '%event%' OR c.name LIKE '%match%' OR c.name LIKE '%laliga%'
+            OR c.name LIKE '%movistar%' OR c.name LIKE '%viaplay%' OR c.name LIKE '%setanta%'
+            OR c.groupName LIKE '%football%' OR c.groupName LIKE '%ppv%' OR c.groupName LIKE '%event%'
+        )
+        """,
+    )
+    suspend fun sportChannelCandidates(): List<ChannelNameRow>
+
     /** Aplică pe loc o corecție manuală (sau o anulează) tuturor intrărilor cu acest nume din playlist. */
     @Query(
         """
