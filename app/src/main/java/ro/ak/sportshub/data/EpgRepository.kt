@@ -143,14 +143,15 @@ class EpgRepository(
 
         val wanted = loadWanted()
         val now = System.currentTimeMillis()
-        if (!wanted.isEmpty) {
-            for (s in active) {
-                if (onlyKey != null && s.key != onlyKey) continue
-                currentCoroutineContext().ensureActive()
-                updateSource(s, wanted, manual, now)
-            }
+        val todo = if (wanted.isEmpty) emptyList() else active.filter { onlyKey == null || it.key == onlyKey }
+        // Potrivirea se reface după fiecare sursă: programul primei surse apare imediat,
+        // fără să aștepte un EPG extern mare care încă se descarcă sau se citește.
+        for (s in todo) {
+            currentCoroutineContext().ensureActive()
+            updateSource(s, wanted, manual, now)
+            rematch(sources)
         }
-        rematch(sources)
+        if (todo.isEmpty()) rematch(sources)
         dao.deleteEndedBefore(now - TimeUnit.HOURS.toMillis(policy.hoursBack.toLong()))
     }
 
