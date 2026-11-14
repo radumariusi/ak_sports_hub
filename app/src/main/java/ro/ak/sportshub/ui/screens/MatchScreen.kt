@@ -14,6 +14,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -25,10 +27,16 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import java.time.Instant
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import ro.ak.sportshub.core.sports.Confidence
+import ro.ak.sportshub.core.sports.DetailsSchedule
+import ro.ak.sportshub.core.sports.Spoilers
+import ro.ak.sportshub.data.MatchDetailsState
 import ro.ak.sportshub.core.sports.MatchSources
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.ui.appContainer
@@ -55,6 +63,10 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
     val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
     val settings by container.sportsSettings.settings.collectAsStateWithLifecycle()
     val variantState by container.variantStore.state.collectAsStateWithLifecycle()
+    val details = container.matchDetails
+    val detailsStates by details.states.collectAsStateWithLifecycle()
+    val revealed by details.revealed.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
 
@@ -69,6 +81,22 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
         return
     }
     val m = entry.match
+    val currentMatch by rememberUpdatedState(m)
+    val detailsState = detailsStates[m.id] ?: MatchDetailsState()
+    val event = detailsState.details.event
+    val liveStatus = listOfNotNull(event?.status, m.status).maxBy { it.ordinal }
+    val hideSpoilers = Spoilers.hide(settings.noSpoilers, m.id in revealed, liveStatus)
+
+    // Pre-meci: se cere o dată la deschidere (doar ce e vechi). Live: la un minut, doar cât stai pe tabul Live.
+    LaunchedEffect(matchId) { details.refreshPreMatch(currentMatch) }
+    LaunchedEffect(matchId, tab == 2) {
+        if (tab != 2) return@LaunchedEffect
+        while (isActive) {
+            details.refreshLive(currentMatch)
+            delay(DetailsSchedule.LIVE_REFRESH_MS)
+        }
+    }
+
     val favorite = settings.favorites.isFavorite(m)
     val families = remember(entry, favorite, settings.sourcePreferences) {
         MatchSources.order(entry.sources, isFavorite = favorite, prefs = settings.sourcePreferences)
@@ -76,8 +104,11 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
         Row {
-            Text(text = m.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-            if (m.isLive) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
+            val hs = event?.homeScore ?: m.homeScore
+            val aw = event?.awayScore ?: m.awayScore
+            val score = if (!hideSpoilers && liveStatus != MatchStatus.SCHEDULED && hs != null && aw != null) "   $hs–$aw" else ""
+            Text(text = m.title + score, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            if (liveStatus == MatchStatus.LIVE) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
             if (favorite) Text(text = "  ★", fontSize = 22.sp, color = AkColors.Accent)
         }
         val start = Instant.ofEpochMilli(m.start).atZone(ZoneId.systemDefault()).format(WhenFormat)
@@ -168,13 +199,25 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                     )
                 }
             }
-            1 -> EmptyState(
-                title = "Pre-meci",
-                hint = "Formă, clasament, meciuri directe și echipe probabile: în etapa următoare.",
+            1 -> PreMatchTab(
+                match = m,
+                state = detailsState,
+                hideSpoilers = hideSpoilers,
+                sportsDbEnabled = settings.sportsDbEnabled,
+                onRefresh = { scope.launch { details.refreshPreMatch(m, force = true) } },
+                onReveal = { details.reveal(m.id) },
+                modifier = Modifier.weight(1f),
             )
-            else -> EmptyState(
-                title = if (m.status == MatchStatus.SCHEDULED) "Meciul n-a început" else "Live",
-                hint = "Scor, minut, evenimente și statistici live, cu opțiunea „fără spoilere”: în etapa următoare.",
+            else -> LiveTab(
+                match = m,
+                state = detailsState,
+                hideSpoilers = hideSpoilers,
+                sportsDbEnabled = settings.sportsDbEnabled,
+                onRefresh = { scope.launch { details.refreshLive(m, force = true) } },
+                onReveal = { details.reveal(m.id) },
+                onHide = { details.hide(m.id) },
+                noSpoilersOn = settings.noSpoilers,
+                modifier = Modifier.weight(1f),
             )
         }
     }

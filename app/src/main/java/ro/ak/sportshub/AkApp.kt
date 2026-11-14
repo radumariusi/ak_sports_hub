@@ -15,6 +15,7 @@ import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
 import ro.ak.sportshub.data.EpgRepository
 import ro.ak.sportshub.data.EpgSettingsStore
+import ro.ak.sportshub.data.MatchDetailsRepository
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
@@ -79,6 +80,9 @@ class AppContainer(app: Application) {
         http = http,
         scope = scope,
     )
+
+    /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http)
 }
 
 class AkApp : Application() {

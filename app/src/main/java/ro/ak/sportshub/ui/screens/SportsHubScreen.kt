@@ -28,6 +28,7 @@ import ro.ak.sportshub.core.sports.MatchFilter
 import ro.ak.sportshub.core.sports.MatchLists
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.MatchTab
+import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.data.MatchEntry
 import ro.ak.sportshub.ui.appContainer
@@ -55,6 +56,7 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
     val snapshot by sports.snapshot.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
     val settings by store.settings.collectAsStateWithLifecycle()
+    val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
 
@@ -125,6 +127,7 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
                     MatchRow(
                         entry = entry,
                         favorite = settings.favorites.isFavorite(entry.match),
+                        hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
                         showDay = currentTab == MatchTab.WEEK || currentTab == MatchTab.FAVORITES,
                         zone = zone,
                         onClick = { onOpenMatch(entry.match.id) },
@@ -195,11 +198,11 @@ private fun summaryLine(visible: Int, total: Int, loading: Boolean): String = wh
 }
 
 @Composable
-private fun MatchRow(entry: MatchEntry, favorite: Boolean, showDay: Boolean, zone: ZoneId, onClick: () -> Unit) {
+private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, showDay: Boolean, zone: ZoneId, onClick: () -> Unit) {
     val m = entry.match
     val start = Instant.ofEpochMilli(m.start).atZone(zone)
     val time = if (showDay) "${start.format(DayFormat)} ${start.format(TimeFormat)}" else start.format(TimeFormat)
-    val score = if (m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED) {
+    val score = if (!hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED) {
         "  ${m.homeScore}–${m.awayScore}"
     } else {
         ""

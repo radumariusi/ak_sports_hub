@@ -28,6 +28,8 @@ data class SportsSettings(
     /** Câte zile (de azi încolo) se cer de la TheSportsDB. */
     val daysAhead: Int = 3,
     val favorites: SportsFavorites = SportsFavorites(),
+    /** „Fără spoilere”: scorul, evenimentele și statisticile meciurilor începute rămân ascunse până le ceri. */
+    val noSpoilers: Boolean = false,
     /** Ultimele filtre folosite (rămân după repornire). */
     val filter: MatchFilter = MatchFilter(),
 )
@@ -76,6 +78,7 @@ class SportsSettingsStore(context: Context) {
                 sportsDbTv = o.optBoolean("sportsDbTv", d.sportsDbTv),
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
+                noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
                 favorites = SportsFavorites(
                     teams = fav?.optJSONArray("teams").strings(),
                     competitions = fav?.optJSONArray("competitions").strings(),
@@ -101,6 +104,7 @@ class SportsSettingsStore(context: Context) {
         put("sportsDbTv", s.sportsDbTv)
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
+        put("noSpoilers", s.noSpoilers)
         put(
             "favorites",
             JSONObject().apply {
