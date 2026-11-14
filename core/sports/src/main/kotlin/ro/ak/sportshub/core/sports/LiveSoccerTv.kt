@@ -84,7 +84,7 @@ object LiveSoccerTv {
         val parts = title.split(teamsSplit, limit = 2).map { it.trim() }
         if (parts.size != 2 || parts.any { it.isEmpty() }) return null
 
-        val rowText = row.text()
+        val rowText = spaced(row)
         val classes = (row.className() + " " + row.select("[class]").joinToString(" ") { it.className() }).lowercase()
         val status = when {
             Regex("""\b(FT|AET|Pen\.?)\b""").containsMatchIn(rowText) -> MatchStatus.FINISHED
@@ -116,6 +116,12 @@ object LiveSoccerTv {
         )
     }
 
+    /**
+     * Textul elementului cu spații între elementele copil: `Element.text()` lipește elementele inline
+     * („<span>21:30</span><span>FT</span>” → „21:30FT”), iar atunci nici ora, nici „FT” nu se mai recunosc.
+     */
+    private fun spaced(e: Element): String = e.select("*").joinToString(" ") { it.ownText() }.trim()
+
     /** Ora de start: atributul cu ms UTC (`dv`, `data-ts`…), altfel primul `HH:mm` din rând, în fusul [zone]. */
     private fun startOf(row: Element, day: LocalDate, zone: ZoneId): Long? {
         for (attr in listOf("dv", "data-ts", "data-time", "data-timestamp", "data-utc")) {
@@ -123,7 +129,7 @@ object LiveSoccerTv {
             return if (v < 100_000_000_000L) v * 1000 else v
         }
         val cell = row.selectFirst(".timecell, .time, td") ?: row
-        val m = timeText.find(cell.text()) ?: timeText.find(row.text()) ?: return null
+        val m = timeText.find(spaced(cell)) ?: timeText.find(spaced(row)) ?: return null
         val t = LocalTime.of(m.groupValues[1].toInt(), m.groupValues[2].toInt())
         return day.atTime(t).atZone(zone).toInstant().toEpochMilli()
     }
