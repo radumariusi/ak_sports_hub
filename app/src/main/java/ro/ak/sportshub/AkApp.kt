@@ -10,8 +10,11 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import ro.ak.sportshub.core.common.ConnectionGate
 import ro.ak.sportshub.core.database.AkDatabase
+import ro.ak.sportshub.core.database.EpgDatabase
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
+import ro.ak.sportshub.data.EpgRepository
+import ro.ak.sportshub.data.EpgSettingsStore
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
@@ -32,10 +35,24 @@ class AppContainer(app: Application) {
 
     val database: AkDatabase = AkDatabase.create(app)
 
+    private val downloader = PlaylistDownloader(http)
+
     val playlists = PlaylistRepository(
         context = app,
         db = database,
-        importer = PlaylistImporter(PlaylistDownloader(http), gate, File(app.cacheDir, "import")),
+        importer = PlaylistImporter(downloader, gate, File(app.cacheDir, "import")),
+        scope = scope,
+    )
+
+    val epgSettings = EpgSettingsStore(app)
+
+    val epg = EpgRepository(
+        context = app,
+        db = database,
+        epgDb = EpgDatabase.create(app),
+        settings = epgSettings,
+        downloader = downloader,
+        gate = gate,
         scope = scope,
     )
 
@@ -51,6 +68,11 @@ class AkApp : Application() {
         container = AppContainer(this)
         PlaylistUpdateWorker.schedule(this)
         // La pornire, ce a rămas în urmă (de exemplu televizorul a stat oprit).
-        container.scope.launch { container.playlists.refreshDue() }
+        container.scope.launch {
+            container.playlists.refreshDue()
+            container.epg.refreshDue()
+        }
+        // Canale noi sau playlisturi șterse: EPG-ul se recitește din fișierele salvate și se refac potrivirile.
+        container.scope.launch { container.playlists.changes.collect { container.epg.onPlaylistsChanged() } }
     }
 }

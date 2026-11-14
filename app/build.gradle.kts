@@ -71,6 +71,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:common"))
     implementation(project(":core:playlist"))
+    implementation(project(":core:epg"))
     implementation(project(":core:database"))
 
     implementation(libs.androidx.core.ktx)

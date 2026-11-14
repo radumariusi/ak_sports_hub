@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -73,10 +75,15 @@ fun ListRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     selected: Boolean = false,
+    /** OK ținut apăsat (de exemplu programul canalului). */
+    onLongClick: (() -> Unit)? = null,
+    /** Cât s-a scurs din emisiunea curentă (0–1); o linie subțire sub text. */
+    progress: Float? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Surface(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
@@ -96,9 +103,23 @@ fun ListRow(
                 if (subtitle != null) {
                     Text(text = subtitle, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
                 }
+                if (progress != null) ProgressLine(progress, Modifier.padding(top = 4.dp).width(160.dp))
             }
             if (trailing != null) trailing()
         }
+    }
+}
+
+/** O bară subțire de progres (cât s-a scurs din emisiune). */
+@Composable
+fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.height(3.dp).background(Color(0x40FFFFFF), RoundedCornerShape(2.dp))) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .height(3.dp)
+                .background(AkColors.Accent, RoundedCornerShape(2.dp)),
+        )
     }
 }
 

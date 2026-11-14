@@ -263,6 +263,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
         val pid = channel.playlistId.toString()
         if (lease.heldFor != pid) {
+            // O descărcare EPG de pe serverul furnizorului cedează locul playerului (se reia mai târziu).
+            container.epg.yieldConnection(channel.playlistId)
             _state.update { it.copy(status = PlaybackStatus.Waiting("Se așteaptă conexiunea playlistului…")) }
         }
         if (!lease.acquire(pid, LEASE_TIMEOUT_MS)) {

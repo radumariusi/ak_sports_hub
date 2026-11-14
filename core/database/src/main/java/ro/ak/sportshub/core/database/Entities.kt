@@ -148,3 +148,13 @@ data class PlayableChannel(
     val playlistName: String,
     val playlistEnabled: Boolean,
 )
+
+/** Ce trebuie pentru potrivirea unui canal cu EPG-ul. */
+data class ChannelEpgRow(
+    val id: Long,
+    val playlistId: Long,
+    val tvgId: String?,
+    val tvgName: String?,
+    val name: String,
+    val groupName: String,
+)

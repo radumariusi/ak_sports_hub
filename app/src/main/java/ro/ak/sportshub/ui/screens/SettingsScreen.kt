@@ -14,12 +14,14 @@ import ro.ak.sportshub.core.model.SourcePreferences
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.playlists.formatCount
 
 /** Setările planificate, cu valorile implicite. Devin editabile pe măsură ce apar funcțiile. */
 @Composable
-fun SettingsScreen(onOpenPlaylists: () -> Unit) {
+fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit) {
     val prefs = remember { SourcePreferences() }
     val playlists by appContainer().playlists.let { r -> remember { r.observePlaylists() } }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val mapped by appContainer().epg.let { r -> remember { r.observeMappedCount() } }.collectAsStateWithLifecycle(initialValue = 0)
     val languages = prefs.preferredLanguages.joinToString(", ") { it.uppercase() }
 
     @Composable
@@ -37,7 +39,14 @@ fun SettingsScreen(onOpenPlaylists: () -> Unit) {
                 trailing = { Text(text = playlists.size.toString(), fontSize = 14.sp) },
             )
         }
-        item { row("EPG extern", "Surse XMLTV suplimentare (etapa 4)", "0") }
+        item {
+            ListRow(
+                title = "EPG (programul TV)",
+                subtitle = "Din playlisturi și externe, actualizare automată, decalaj orar",
+                onClick = onOpenEpg,
+                trailing = { Text(text = formatCount(mapped) + " canale", fontSize = 14.sp) },
+            )
+        }
 
         item { SectionLabel("Surse pentru meciuri") }
         item { row("Limbi preferate", "Au prioritate la aceeași calitate", languages) }

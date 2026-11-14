@@ -7,6 +7,9 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +51,11 @@ class PlaylistRepository(
     private val locks = ConcurrentHashMap<Long, Mutex>()
     private val _refreshing = MutableStateFlow<Set<Long>>(emptySet())
 
+    private val _changes = MutableSharedFlow<Long>(extraBufferCapacity = 16)
+
+    /** Id-ul unui playlist ale cărui canale s-au schimbat (import, ștergere, activare); pentru EPG. */
+    val changes: SharedFlow<Long> = _changes.asSharedFlow()
+
     /** Playlisturile care se actualizează chiar acum. */
     val refreshing: StateFlow<Set<Long>> = _refreshing.asStateFlow()
 
@@ -69,10 +77,14 @@ class PlaylistRepository(
             old.password != playlist.password || old.streamFormat != playlist.streamFormat ||
             old.userAgent != playlist.userAgent
         dao.update(if (sourceChanged) playlist.copy(etag = null, lastModified = null) else playlist)
+        if (old?.enabled != playlist.enabled) _changes.tryEmit(playlist.id)
         return playlist.id
     }
 
-    suspend fun delete(id: Long) = db.playlists().delete(id)
+    suspend fun delete(id: Long) {
+        db.playlists().delete(id)
+        _changes.tryEmit(id)
+    }
 
     /** Pornește actualizarea fără să blocheze ecranul; rezultatul apare în lista de playlisturi. */
     fun refreshInBackground(id: Long, force: Boolean = false) {
@@ -168,6 +180,7 @@ class PlaylistRepository(
                         expiresAt = outcome.account?.expiresAt ?: fresh.expiresAt,
                     ),
                 )
+                _changes.tryEmit(id)
                 RefreshResult.Done(outcome.channels, outcome.skipped)
             }
         }

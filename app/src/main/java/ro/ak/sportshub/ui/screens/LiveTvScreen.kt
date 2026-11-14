@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +35,7 @@ import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.common.SearchText
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.GroupWithPlaylist
+import ro.ak.sportshub.core.epg.NowNext
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
@@ -42,6 +44,8 @@ import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
+import ro.ak.sportshub.ui.epg.nowNextLine
+import ro.ak.sportshub.ui.epg.rememberMinuteClock
 import ro.ak.sportshub.ui.playlists.formatCount
 import ro.ak.sportshub.ui.theme.AkColors
 
@@ -59,7 +63,7 @@ private const val SEARCH_LIMIT = 500
  * Căutarea are un singur câmp și un comutator: grupuri și canale, doar canale sau doar grupuri.
  */
 @Composable
-fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit) {
+fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onOpenSchedule: (Long) -> Unit) {
     val container = appContainer()
     val dao = container.database.channels()
 
@@ -206,14 +210,19 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit) {
             SectionLabel(title)
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
-                    channels.isNotEmpty() -> ChannelList(channels, showGroup = showingSearch) { c -> onPlayChannel(c.id) }
+                    channels.isNotEmpty() -> ChannelList(
+                        channels,
+                        showGroup = showingSearch,
+                        onClick = { c -> onPlayChannel(c.id) },
+                        onLongClick = { c -> onOpenSchedule(c.id) },
+                    )
                     showingSearch -> EmptyState(title = "Niciun canal găsit", hint = "Încearcă alt cuvânt sau doar începutul lui.")
                     selectedGroup == 0L -> EmptyState(title = "Alege un grup", hint = "Sau caută un canal după nume.")
                     else -> EmptyState(title = "Grupul e gol", hint = "Actualizează playlistul din Setări.")
                 }
             }
             Text(
-                text = message ?: "Calitatea și limba sunt cele declarate de playlist.",
+                text = message ?: "Ține apăsat OK pe un canal pentru programul lui. Calitatea și limba sunt cele declarate de playlist.",
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(top = 6.dp),
@@ -240,17 +249,28 @@ private fun ChannelList(
     channels: List<ChannelWithPlaylist>,
     showGroup: Boolean,
     onClick: (ChannelWithPlaylist) -> Unit,
+    onLongClick: (ChannelWithPlaylist) -> Unit,
 ) {
+    val epg = appContainer().epg
+    val now = rememberMinuteClock()
+    // Acum / urmează pentru canalele afișate, reîmprospătat în fiecare minut.
+    val nowNext by produceState(emptyMap<Long, NowNext>(), channels, now) {
+        value = epg.nowNext(channels.map { it.id }, now)
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(channels, key = { it.id }) { c ->
+            val nn = nowNext[c.id]
+            val meta = buildList {
+                if (showGroup) add(c.groupName)
+                add(c.playlistName)
+                c.catchupDays?.let { add("înapoi în timp: $it zile") }
+            }.joinToString(" · ")
             ListRow(
                 title = (c.number?.let { "$it  " } ?: "") + c.name,
-                subtitle = buildList {
-                    if (showGroup) add(c.groupName)
-                    add(c.playlistName)
-                    c.catchupDays?.let { add("înapoi în timp: $it zile") }
-                }.joinToString(" · "),
+                subtitle = nowNextLine(nn)?.let { if (showGroup) "$it · ${c.groupName}" else it } ?: meta,
+                progress = nn?.now?.progress(now),
                 onClick = { onClick(c) },
+                onLongClick = { onLongClick(c) },
                 trailing = {
                     c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                     QualityBadge(c.quality)

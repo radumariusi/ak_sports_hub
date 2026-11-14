@@ -12,8 +12,8 @@ import java.util.concurrent.TimeUnit
 import ro.ak.sportshub.AkApp
 
 /**
- * Actualizarea programată a playlisturilor. Rulează la 2 ore și reîncarcă doar playlisturile
- * al căror interval (setat pe fiecare playlist) a trecut. Nu așteaptă după player: dacă un playlist
+ * Actualizarea programată a playlisturilor și a EPG-ului. Rulează la 2 ore și reîncarcă doar ce are
+ * intervalul trecut (setat pe fiecare playlist, respectiv în setările EPG). Nu așteaptă după player: dacă un playlist
  * e folosit, rămâne pentru rularea următoare.
  */
 class PlaylistUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -21,6 +21,7 @@ class PlaylistUpdateWorker(context: Context, params: WorkerParameters) : Corouti
     override suspend fun doWork(): Result {
         val app = applicationContext as AkApp
         app.container.playlists.refreshDue()
+        app.container.epg.refreshDue()
         return Result.success()
     }
 
