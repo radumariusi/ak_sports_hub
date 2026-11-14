@@ -12,12 +12,13 @@ import ro.ak.sportshub.core.common.ConnectionGate
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
+import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
 
 /** Dependențele aplicației, create o singură dată (fără bibliotecă de injecție, deocamdată). */
 class AppContainer(app: Application) {
-    /** Un singur proces, o singură poartă: playerul (etapa 3) și actualizările folosesc aceeași. */
+    /** Un singur proces, o singură poartă: playerul și actualizările folosesc aceeași. */
     val gate = ConnectionGate()
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -37,6 +38,8 @@ class AppContainer(app: Application) {
         importer = PlaylistImporter(PlaylistDownloader(http), gate, File(app.cacheDir, "import")),
         scope = scope,
     )
+
+    val playerHistory = PlayerHistory(app, database.channels())
 }
 
 class AkApp : Application() {

@@ -76,6 +76,59 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE id = :id")
     suspend fun get(id: Long): ChannelEntity?
 
+    /** Tot ce îi trebuie playerului pentru un canal. */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.groupId, c.name, c.groupName, c.streamUrl, c.quality, c.language,
+               c.number, c.catchupDays, COALESCE(c.userAgent, p.userAgent) AS userAgent,
+               p.name AS playlistName, p.enabled AS playlistEnabled
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE c.id = :id
+        """,
+    )
+    suspend fun playable(id: Long): PlayableChannel?
+
+    /** Canalele unui grup, o singură dată (lista din player). */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
+               p.name AS playlistName
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE c.groupId = :groupId
+        ORDER BY c.position
+        """,
+    )
+    suspend fun channelsInGroup(groupId: Long): List<ChannelWithPlaylist>
+
+    /** Ordinea pentru zapping (CH+/CH−): canalele grupului, ca în playlist. */
+    @Query("SELECT id FROM channels WHERE groupId = :groupId ORDER BY position")
+    suspend fun channelIdsInGroup(groupId: Long): List<Long>
+
+    /** Canalul cu numărul [number], de preferat din [preferredPlaylistId]. */
+    @Query(
+        """
+        SELECT c.id FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.number = :number
+        ORDER BY (c.playlistId = :preferredPlaylistId) DESC, p.sortOrder, p.id, c.position
+        LIMIT 1
+        """,
+    )
+    suspend fun findByNumber(number: Int, preferredPlaylistId: Long): Long?
+
+    /**
+     * Regăsește un canal după actualizarea playlistului (id-urile se schimbă la fiecare import):
+     * după nume și grup, apoi doar după nume.
+     */
+    @Query(
+        """
+        SELECT id FROM channels
+        WHERE playlistId = :playlistId AND name = :name
+        ORDER BY (groupName = :groupName) DESC, position
+        LIMIT 1
+        """,
+    )
+    suspend fun findByName(playlistId: Long, name: String, groupName: String): Long?
+
     @Insert
     suspend fun insertGroup(group: GroupEntity): Long
 

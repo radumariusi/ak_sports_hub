@@ -28,7 +28,7 @@ import ro.ak.sportshub.ui.theme.AkColors
 private val Sections = listOf("Sports Hub", "Live TV", "Setări")
 
 @Composable
-fun HomeScreen(onOpenMatch: (String) -> Unit, onOpenPlaylists: () -> Unit) {
+fun HomeScreen(onOpenMatch: (String) -> Unit, onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
@@ -55,7 +55,7 @@ fun HomeScreen(onOpenMatch: (String) -> Unit, onOpenPlaylists: () -> Unit) {
         Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             when (section) {
                 0 -> SportsHubScreen(onOpenMatch = onOpenMatch)
-                1 -> LiveTvScreen(onOpenPlaylists = onOpenPlaylists)
+                1 -> LiveTvScreen(onOpenPlaylists = onOpenPlaylists, onPlayChannel = onPlayChannel)
                 else -> SettingsScreen(onOpenPlaylists = onOpenPlaylists)
             }
         }

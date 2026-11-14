@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.common.SearchText
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.GroupWithPlaylist
@@ -57,13 +59,15 @@ private const val SEARCH_LIMIT = 500
  * Căutarea are un singur câmp și un comutator: grupuri și canale, doar canale sau doar grupuri.
  */
 @Composable
-fun LiveTvScreen(onOpenPlaylists: () -> Unit) {
+fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit) {
     val container = appContainer()
     val dao = container.database.channels()
 
     val playlists by remember { container.playlists.observePlaylists() }.collectAsStateWithLifecycle(initialValue = null)
     val refreshing by container.playlists.refreshing.collectAsStateWithLifecycle()
     val groups by remember { dao.observeGroups() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val lastChannel by container.playerHistory.last.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     var selectedGroup by rememberSaveable { mutableLongStateOf(0L) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -109,6 +113,25 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit) {
                 .padding(vertical = 8.dp),
         ) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                lastChannel?.let { ref ->
+                    item {
+                        ListRow(
+                            title = "Ultimul canal",
+                            subtitle = ref.name,
+                            onClick = {
+                                scope.launch {
+                                    val id = container.playerHistory.resolve(ref)
+                                    if (id != null) {
+                                        onPlayChannel(id)
+                                    } else {
+                                        container.playerHistory.forget(ref)
+                                        message = "${ref.name} nu mai există în playlist."
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
                 item {
                     ListRow(
                         title = if (query.isEmpty()) "Caută" else "Caută: $query",
@@ -183,9 +206,7 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit) {
             SectionLabel(title)
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
-                    channels.isNotEmpty() -> ChannelList(channels, showGroup = showingSearch) { c ->
-                        message = "${c.name}: playerul vine în etapa 3."
-                    }
+                    channels.isNotEmpty() -> ChannelList(channels, showGroup = showingSearch) { c -> onPlayChannel(c.id) }
                     showingSearch -> EmptyState(title = "Niciun canal găsit", hint = "Încearcă alt cuvânt sau doar începutul lui.")
                     selectedGroup == 0L -> EmptyState(title = "Alege un grup", hint = "Sau caută un canal după nume.")
                     else -> EmptyState(title = "Grupul e gol", hint = "Actualizează playlistul din Setări.")

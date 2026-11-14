@@ -17,6 +17,8 @@ android {
         targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1.$versionCode"
+        // Televizoarele și boxurile sunt ARM; fără x86 APK-ul rămâne mic (decodorul FFmpeg are biblioteci native).
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
 
     signingConfigs {
@@ -60,6 +62,7 @@ kotlin {
         freeCompilerArgs.addAll(
             "-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api",
             "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+            "-opt-in=androidx.media3.common.util.UnstableApi",
         )
     }
 }
@@ -80,4 +83,10 @@ dependencies {
     implementation(libs.androidx.tv.material)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.core)
+
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.datasource.okhttp)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.ffmpeg)
 }
