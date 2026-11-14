@@ -59,6 +59,9 @@ private enum class SearchMode(val label: String, val groups: Boolean, val channe
 
 private const val SEARCH_LIMIT = 500
 
+/** „Grupul” canalelor favorite din coloana din stânga. */
+private const val FAVORITES = -1L
+
 /**
  * Live TV: grupuri în stânga, canale în dreapta, totul ca liste de text.
  * Căutarea are un singur câmp și un comutator: grupuri și canale, doar canale sau doar grupuri.
@@ -88,9 +91,20 @@ fun LiveTvScreen(
     val ftsQuery = SearchText.ftsQuery(query)
     val searching = ftsQuery != null
 
-    val groupChannels by remember(selectedGroup) {
+    val favoriteKeys by container.channelFavorites.keys.collectAsStateWithLifecycle()
+    val inGroup by remember(selectedGroup) {
         if (selectedGroup > 0) dao.observeChannelsInGroup(selectedGroup) else flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+    // Favoritele: toate variantele canalelor marcate, în ordinea în care le-ai adăugat (din baza locală).
+    val favoriteChannels by produceState(emptyList<ChannelWithPlaylist>(), selectedGroup, favoriteKeys, refreshing) {
+        value = if (selectedGroup == FAVORITES) {
+            val families = container.variants.families(favoriteKeys)
+            favoriteKeys.flatMap { families[it].orEmpty() }
+        } else {
+            emptyList()
+        }
+    }
+    val groupChannels = if (selectedGroup == FAVORITES) favoriteChannels else inGroup
     val searchResults by remember(ftsQuery, mode.channels) {
         if (ftsQuery != null && mode.channels) dao.search(ftsQuery, SEARCH_LIMIT) else flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -140,6 +154,18 @@ fun LiveTvScreen(
                             },
                         )
                     }
+                }
+                item {
+                    ListRow(
+                        title = "★ Canale favorite",
+                        subtitle = if (favoriteKeys.isEmpty()) "OK ținut apăsat pe un canal → Adaugă la favorite" else null,
+                        selected = selectedGroup == FAVORITES && !(searching && mode.channels),
+                        onClick = {
+                            selectedGroup = FAVORITES
+                            if (searching && mode.channels) query = ""
+                        },
+                        trailing = { Text(text = favoriteKeys.size.toString(), fontSize = 13.sp, color = AkColors.TextDim) },
+                    )
                 }
                 item {
                     ListRow(
@@ -209,6 +235,7 @@ fun LiveTvScreen(
             val title = when {
                 showingSearch -> "Canale găsite pentru „$query”: " +
                     (if (channels.size >= SEARCH_LIMIT) "primele $SEARCH_LIMIT" else formatCount(channels.size))
+                selectedGroup == FAVORITES -> "Canale favorite"
                 selectedGroup > 0 -> groups.firstOrNull { it.id == selectedGroup }?.name ?: "Canale"
                 else -> "Canale"
             }
@@ -219,11 +246,15 @@ fun LiveTvScreen(
                         channels,
                         showGroup = showingSearch,
                         // Din căutare, CH+/CH− rămân în grupul canalului; din grup, în grupul ales.
-                        onClick = { c -> onPlayChannel(c.id, if (showingSearch) 0L else selectedGroup) },
+                        onClick = { c -> onPlayChannel(c.id, if (showingSearch || selectedGroup == FAVORITES) 0L else selectedGroup) },
                         onLongClick = { c -> onOpenChannel(c.id) },
                     )
                     showingSearch -> EmptyState(title = "Niciun canal găsit", hint = "Încearcă alt cuvânt sau doar începutul lui.")
                     selectedGroup == 0L -> EmptyState(title = "Alege un grup", hint = "Sau caută un canal după nume.")
+                    selectedGroup == FAVORITES -> EmptyState(
+                        title = "Niciun canal favorit",
+                        hint = "Ține apăsat OK pe un canal și alege „Adaugă la favorite”.",
+                    )
                     else -> EmptyState(title = "Grupul e gol", hint = "Actualizează playlistul din Setări.")
                 }
             }

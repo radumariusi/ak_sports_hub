@@ -41,6 +41,7 @@ import ro.ak.sportshub.core.common.player.Zapping
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.PlayableChannel
 import ro.ak.sportshub.core.model.SourcePreferences
+import ro.ak.sportshub.core.playlist.Catchup
 
 /** Ce arată playerul în bara de stare. */
 sealed interface PlaybackStatus {
@@ -66,7 +67,12 @@ data class PlayerUiState(
     val variantCount: Int = 0,
     /** Mesaj scurt (de exemplu trecerea automată la altă variantă). */
     val notice: Notice? = null,
+    /** Se redă din arhivă (catch-up), de la această oră; null = live. */
+    val archiveFrom: Long? = null,
 )
+
+/** O porțiune din arhiva canalului (catch-up): de la [start] la [end], în ms UTC. */
+data class Archive(val start: Long, val end: Long)
 
 /** Un mesaj de afișat o dată; [id] deosebește două mesaje cu același text. */
 data class Notice(val text: String, val id: Long = System.nanoTime())
@@ -134,6 +140,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private var lastStopAt = 0L
     private var forceHls = false
     private var stoppedInBackground = false
+    /** Arhiva cerută (catch-up) sau null pentru live. Zapping-ul și canalul anterior revin la live. */
+    private var archive: Archive? = null
 
     init {
         player.addListener(object : Player.Listener {
@@ -160,14 +168,15 @@ class PlayerController(context: Context, private val container: AppContainer) {
      * Pornește un canal ales de tine. [zapGroup] e grupul listei din care l-ai ales
      * (0 = grupul canalului); fără argument rămâne grupul curent.
      */
-    fun play(channelId: Long, zapGroup: Long = zapGroupId) {
+    fun play(channelId: Long, zapGroup: Long = zapGroupId, archive: Archive? = null) {
+        this.archive = archive
         cancelJobs()
         playJob = scope.launch { start(channelId, zapGroup, failoverStep = false) }
     }
 
     /** Reîncearcă canalul curent de la zero (după o eroare sau la cerere). */
     fun retry() {
-        _state.value.channel?.let { play(it.id) }
+        _state.value.channel?.let { play(it.id, archive = archive) }
     }
 
     /** CH+ (step = 1) sau CH− (step = −1) în grupul canalului curent. */
@@ -339,7 +348,12 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 audioTracks = 0,
                 textTracks = 0,
                 variantCount = variantOrder.size,
+                archiveFrom = archive?.start,
             )
+        }
+        if (archive != null && streamUrl(channel) == null) {
+            fail("Canalul nu are arhivă (catch-up merge doar pe serverele Xtream care o oferă).")
+            return
         }
         history.visit(channel)
         // Alegerile de piste ale canalului vechi nu se aplică noului stream.
@@ -368,11 +382,19 @@ class PlayerController(context: Context, private val container: AppContainer) {
         if (since < SWITCH_GAP_MS) delay(SWITCH_GAP_MS - since)
     }
 
+    /** Adresa de redat: live sau arhiva cerută (în fusul orar al serverului). Conține parola: nu se loghează. */
+    private fun streamUrl(channel: PlayableChannel): String? {
+        val a = archive ?: return channel.streamUrl
+        if ((channel.catchupDays ?: 0) <= 0) return null
+        return Catchup.archiveUrl(channel.streamUrl, a.start, Catchup.minutes(a.start, a.end), container.catchup.zoneFor(channel.playlistId))
+    }
+
     private fun prepare(channel: PlayableChannel) {
+        val url = streamUrl(channel) ?: return fail("Canalul nu are arhivă.")
         dataSources.setUserAgent(channel.userAgent ?: DEFAULT_USER_AGENT)
         val item = MediaItem.Builder()
-            .setUri(channel.streamUrl)
-            .apply { if (forceHls || isHls(channel.streamUrl)) setMimeType(MimeTypes.APPLICATION_M3U8) }
+            .setUri(url)
+            .apply { if (forceHls || isHls(url)) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
         _state.update { it.copy(status = PlaybackStatus.Connecting) }
         player.setMediaItem(item)
@@ -414,7 +436,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 }
             }
             // Un stream live care „se termină” înseamnă că serverul a închis conexiunea.
-            Player.STATE_ENDED -> scheduleRetry("Serverul a închis stream-ul.")
+            Player.STATE_ENDED -> if (archive != null) fail("Înregistrarea s-a terminat.") else scheduleRetry("Serverul a închis stream-ul.")
             else -> Unit
         }
     }
@@ -482,7 +504,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
         }
     }
 
-    private fun nextVariant(): Long? = if (variantStore.current.autoFailover) failover?.next() else null
+    /** Din arhivă nu se trece la alte variante (pot să nu aibă aceeași arhivă). */
+    private fun nextVariant(): Long? = if (variantStore.current.autoFailover && archive == null) failover?.next() else null
 
     /**
      * Varianta curentă nu merge: trece la următoarea variantă neîncercată a canalului (una câte una),

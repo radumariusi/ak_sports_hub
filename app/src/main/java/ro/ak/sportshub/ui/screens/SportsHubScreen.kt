@@ -30,6 +30,8 @@ import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.MatchTab
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.core.sports.Sport
+import ro.ak.sportshub.core.sports.TeamCalendar
+import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.data.MatchEntry
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
@@ -74,6 +76,21 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
         MatchLists.sort(inTab.map { it.match }).mapNotNull { byId[it.id] }
     }
 
+    // Tabul Favorite: calendarul fiecărei echipe favorite (următoarele 5 meciuri), apoi restul favoritelor.
+    val calendar: List<Pair<String, List<MatchEntry>>> = remember(snapshot, settings, tab) {
+        if (currentTab != MatchTab.FAVORITES || settings.favorites.teams.isEmpty()) {
+            emptyList()
+        } else {
+            val byId = snapshot.matches.associateBy { it.match.id }
+            TeamCalendar.build(settings.favorites.teams, snapshot.matches.map { it.match }, now)
+                .map { (team, ms) -> team to ms.mapNotNull { byId[it.id] } }
+        }
+    }
+    val otherFavorites = remember(visible, calendar) {
+        val shown = calendar.flatMap { it.second }.map { it.match.id }.toSet()
+        if (calendar.isEmpty()) visible else visible.filterNot { it.match.id in shown }
+    }
+
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -106,7 +123,7 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
         )
 
-        if (visible.isEmpty()) {
+        if (visible.isEmpty() && calendar.isEmpty()) {
             EmptyState(
                 title = when {
                     snapshot.loading -> "Se caută meciurile…"
@@ -123,7 +140,33 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
             )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(visible, key = { it.match.id }) { entry ->
+                calendar.forEach { (team, entries) ->
+                    item(key = "team:$team") { SectionLabel("$team · următoarele meciuri", modifier = Modifier.padding(top = 6.dp)) }
+                    if (entries.isEmpty()) {
+                        item(key = "team-empty:$team") {
+                            Text(
+                                text = "Niciun meci în zilele din program.",
+                                fontSize = 13.sp,
+                                color = AkColors.TextDim,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    items(entries, key = { "team:$team:" + it.match.id }) { entry ->
+                        MatchRow(
+                            entry = entry,
+                            favorite = true,
+                            hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
+                            showDay = true,
+                            zone = zone,
+                            onClick = { onOpenMatch(entry.match.id) },
+                        )
+                    }
+                }
+                if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) {
+                    item(key = "others") { SectionLabel("Alte meciuri favorite", modifier = Modifier.padding(top = 6.dp)) }
+                }
+                items(otherFavorites, key = { it.match.id }) { entry ->
                     MatchRow(
                         entry = entry,
                         favorite = settings.favorites.isFavorite(entry.match),

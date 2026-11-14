@@ -49,6 +49,8 @@ class PlaylistRepository(
     private val scope: CoroutineScope,
     /** Corecțiile manuale ale variantelor, aplicate la fiecare import. */
     corrections: (playlistId: Long) -> Map<String, ChannelCorrection> = { emptyMap() },
+    /** Fusul orar al serverului Xtream, aflat la actualizare (pentru catch-up). */
+    private val onServerZone: (playlistId: Long, timezone: String?) -> Unit = { _, _ -> },
 ) {
     private val sink = RoomImportSink(db, corrections)
     private val locks = ConcurrentHashMap<Long, Mutex>()
@@ -170,6 +172,7 @@ class PlaylistRepository(
                 RefreshResult.Unchanged
             }
             is ImportOutcome.Imported -> {
+                outcome.account?.let { onServerZone(id, it.timezone) }
                 dao.update(
                     fresh.copy(
                         lastUpdated = now,

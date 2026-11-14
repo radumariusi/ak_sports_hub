@@ -30,7 +30,7 @@ private sealed interface ScheduleState {
 
 /** Programul unui canal, deschis din Live TV (OK ținut apăsat pe canal). */
 @Composable
-fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit) {
+fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit, onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> }) {
     val container = appContainer()
     val state by produceState<ScheduleState>(ScheduleState.Loading, channelId) {
         value = ScheduleState.Ready(container.database.channels().playable(channelId), container.epg.schedule(channelId))
@@ -46,7 +46,11 @@ fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit) {
             if (channel != null) ActionButton(text = "Pornește canalul", onClick = { onPlay(channel.id) })
         }
         Text(
-            text = listOfNotNull(channel?.groupName, channel?.playlistName).joinToString(" · "),
+            text = listOfNotNull(
+                channel?.groupName,
+                channel?.playlistName,
+                channel?.catchupDays?.takeIf { it > 0 }?.let { "arhivă $it zile: OK pe o emisiune începută o pornește de la început" },
+            ).joinToString(" · "),
             fontSize = 14.sp,
             color = AkColors.TextDim,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -60,7 +64,12 @@ fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit) {
                 "Niciun EPG nu are acest canal. Adaugă un EPG extern din Setări → EPG.",
             )
             programmes.isEmpty() -> EmptyState("Fără emisiuni", "EPG-ul nu are emisiuni pentru zilele următoare.")
-            else -> ScheduleList(programmes, modifier = Modifier.weight(1f))
+            else -> ScheduleList(
+                programmes,
+                modifier = Modifier.weight(1f),
+                archiveDays = channel.catchupDays,
+                onPlayArchive = { p -> onPlayArchive(channel.id, p.start, p.stop) },
+            )
         }
     }
 }

@@ -16,7 +16,7 @@ android {
         minSdk = 23
         targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1.$versionCode"
+        versionName = "1.0.$versionCode"
         // Televizoarele și boxurile sunt ARM; fără x86 APK-ul rămâne mic (decodorul FFmpeg are biblioteci native).
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
@@ -48,6 +48,18 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests {
+            // Capturile de ecran (Robolectric + Roborazzi) au nevoie de resursele aplicației.
+            isIncludeAndroidResources = true
+            all { test ->
+                test.systemProperty("roborazzi.test.record", "true")
+                test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                test.maxHeapSize = "2g"
+            }
+        }
     }
 
     lint {
@@ -91,4 +103,14 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.media3.ffmpeg)
+
+    // Capturile de ecran din CI (workflow-ul „Capturi”): doar în teste, nu în APK.
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.kotlinx.coroutines.core)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

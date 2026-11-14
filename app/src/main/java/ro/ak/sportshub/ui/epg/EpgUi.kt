@@ -28,6 +28,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import ro.ak.sportshub.core.epg.NowNext
 import ro.ak.sportshub.core.epg.Programme
+import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.theme.AkColors
@@ -80,7 +81,14 @@ fun rememberMinuteClock(): Long {
  * descrierea emisiunii cu focus apare sub listă.
  */
 @Composable
-fun ScheduleList(programmes: List<Programme>, modifier: Modifier = Modifier, focusOnStart: Boolean = true) {
+fun ScheduleList(
+    programmes: List<Programme>,
+    modifier: Modifier = Modifier,
+    focusOnStart: Boolean = true,
+    /** Câte zile de arhivă are canalul (catch-up); emisiunile începute din fereastră pornesc cu OK. */
+    archiveDays: Int? = null,
+    onPlayArchive: ((Programme) -> Unit)? = null,
+) {
     val now = rememberMinuteClock()
     // Rândurile: titluri de zi și emisiuni.
     val rows = remember(programmes) {
@@ -115,17 +123,22 @@ fun ScheduleList(programmes: List<Programme>, modifier: Modifier = Modifier, foc
                     is String -> SectionLabel(row, modifier = Modifier.padding(top = 6.dp))
                     is Programme -> {
                         val onAir = row.isOnAir(now)
+                        val playable = onPlayArchive != null && Catchup.isAvailable(archiveDays, row.start, now)
                         ListRow(
                             title = "${formatTime(row.start)}  ${row.title}",
                             subtitle = listOfNotNull(
                                 if (onAir) "ACUM" else null,
+                                if (playable) (if (onAir) "OK: de la început" else "OK: din arhivă") else null,
                                 row.subtitle,
                                 row.category,
                                 formatRange(row),
                             ).joinToString(" · "),
                             selected = onAir,
                             progress = if (onAir) row.progress(now) else null,
-                            onClick = { focused = index },
+                            onClick = {
+                                focused = index
+                                if (playable) onPlayArchive?.invoke(row)
+                            },
                             modifier = Modifier
                                 .onFocusChanged { if (it.isFocused) focused = index }
                                 .then(if (index == currentIndex) Modifier.focusRequester(focus) else Modifier),

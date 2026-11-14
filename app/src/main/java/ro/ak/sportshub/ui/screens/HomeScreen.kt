@@ -35,6 +35,7 @@ fun HomeScreen(
     onPlayChannel: (channelId: Long, zapGroup: Long) -> Unit,
     onOpenChannel: (Long) -> Unit,
     onOpenSportsSettings: () -> Unit,
+    onOpenBackup: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
@@ -63,7 +64,12 @@ fun HomeScreen(
             when (section) {
                 0 -> SportsHubScreen(onOpenMatch = onOpenMatch, onOpenSettings = onOpenSportsSettings)
                 1 -> LiveTvScreen(onOpenPlaylists = onOpenPlaylists, onPlayChannel = onPlayChannel, onOpenChannel = onOpenChannel)
-                else -> SettingsScreen(onOpenPlaylists = onOpenPlaylists, onOpenEpg = onOpenEpg, onOpenSportsSettings = onOpenSportsSettings)
+                else -> SettingsScreen(
+                    onOpenPlaylists = onOpenPlaylists,
+                    onOpenEpg = onOpenEpg,
+                    onOpenSportsSettings = onOpenSportsSettings,
+                    onOpenBackup = onOpenBackup,
+                )
             }
         }
     }

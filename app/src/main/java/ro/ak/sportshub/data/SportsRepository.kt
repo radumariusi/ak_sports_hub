@@ -405,3 +405,16 @@ class SportsRepository(
         val DAY_IN_NAME = Regex("""\d{4}-\d{2}-\d{2}""")
     }
 }
+
+/** Sursa care pornește direct (prima găsită, în ordinea preferințelor tale), fără cele respinse. */
+fun MatchEntry.bestSource(settings: SportsSettings): ChannelWithPlaylist? =
+    MatchSources.order(sources, isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
+        .firstOrNull { !it.members.first().rejected }
+        ?.members?.firstOrNull()?.channel
+
+/** Prima sursă (în aceeași ordine) al cărei canal are arhivă (catch-up), pentru „de la început”. */
+fun MatchEntry.archiveSource(settings: SportsSettings): ChannelWithPlaylist? =
+    MatchSources.order(sources, isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
+        .flatMap { it.members }
+        .firstOrNull { !it.rejected && (it.channel.catchupDays ?: 0) > 0 }
+        ?.channel
