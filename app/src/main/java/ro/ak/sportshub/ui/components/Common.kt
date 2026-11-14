@@ -153,3 +153,31 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(horizontal = 14.dp, vertical = 6.dp),
     )
 }
+
+/** Buton text compact, pentru acțiuni (Salvează, Actualizează…). */
+@Composable
+fun ActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = AkColors.Panel,
+            contentColor = if (danger) AkColors.Live else AkColors.Text,
+            focusedContainerColor = if (danger) AkColors.Live else AkColors.Focus,
+            focusedContentColor = AkColors.OnFocus,
+            disabledContainerColor = AkColors.Panel,
+            disabledContentColor = AkColors.TextDim,
+        ),
+    ) {
+        Text(text = text, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    }
+}
