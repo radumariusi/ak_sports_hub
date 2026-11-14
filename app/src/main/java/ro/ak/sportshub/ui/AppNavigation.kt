@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ro.ak.sportshub.core.database.PlaylistType
+import ro.ak.sportshub.player.PlayerScreen
 import ro.ak.sportshub.ui.playlists.PlaylistEditScreen
 import ro.ak.sportshub.ui.playlists.PlaylistsScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
@@ -16,6 +17,7 @@ private const val HOME = "home"
 private const val MATCH = "match/{matchId}"
 private const val PLAYLISTS = "playlists"
 private const val PLAYLIST_EDIT = "playlist/{id}?type={type}"
+private const val PLAYER = "player/{channelId}"
 
 @Composable
 fun AppNavigation() {
@@ -25,6 +27,13 @@ fun AppNavigation() {
             HomeScreen(
                 onOpenMatch = { id -> nav.navigate("match/$id") },
                 onOpenPlaylists = { nav.navigate(PLAYLISTS) },
+                onPlayChannel = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
+            )
+        }
+        composable(PLAYER, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
+            PlayerScreen(
+                channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                onExit = { nav.popBackStack() },
             )
         }
         composable(MATCH) { entry ->

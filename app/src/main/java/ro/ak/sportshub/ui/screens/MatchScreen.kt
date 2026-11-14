@@ -74,7 +74,7 @@ fun MatchScreen(matchId: String) {
                         ListRow(
                             title = source.channelName,
                             subtitle = source.playlist + if (index == 0) " · sursa preferată" else "",
-                            onClick = { message = "Playerul vine în etapa 3: ${source.channelName}" },
+                            onClick = { message = "Meciurile sunt exemple; sursele reale apar în etapa 6: ${source.channelName}" },
                             trailing = {
                                 Badge(text = source.language.uppercase(), color = AkColors.Focus)
                                 QualityBadge(source.quality)

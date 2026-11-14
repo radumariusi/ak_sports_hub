@@ -19,6 +19,8 @@ Aplicație IPTV pentru Android TV (uz personal), cu Sports Hub. Planul și etape
 - Numele normalizat (`ChannelNameParser.groupKey`) e doar cheie de grupare; în UI apar numele original și eticheta de calitate.
 - Furnizorii permit o singură conexiune pe playlist: orice acces la rețea al unui playlist trece prin `ConnectionGate`; nimic în fundal cât rulează playerul pe același playlist.
 - Playlisturi: M3U și Xtream Codes (`PlaylistSource`).
+- Player (`app/.../player`, logica pură în `core/common/.../player`): un singur ExoPlayer; la schimbarea canalului stream-ul vechi se oprește complet, urmează o pauză (`SWITCH_GAP_MS`), apoi pornește cel nou. Cât rulează, playerul ține permisul playlistului prin `StreamLease`; în fundal sau la ieșire îl eliberează. Reconectarea (`ReconnectBackoff`) e secvențială, cu pauze crescătoare. Fără preîncărcare sau previzualizare de stream-uri.
+- Id-urile canalelor se schimbă la fiecare import: canalele ținute minte (ultimul canal) se păstrează ca `ChannelRef` (playlist + nume + grup), niciodată ca adresă de stream.
 - Preferințe de surse (`SourcePreferences`, `SourceRanking`): nicio sursă nu e ascunsă, se schimbă doar ordinea. Favorite: EN/RO 4K → EN/RO FHD → altă limbă 4K → altă limbă FHD → EN/RO HD/SD → restul. Alte meciuri: după rezoluție, în orice limbă. Limbile și pragul (FHD) sunt setări, nu constante.
 - Ecranul unui meci e o fereastră de previzualizare cu taburile Surse / Pre-meci / Live; playerul pornește abia la alegerea unei surse.
 - Semnare: secretele `AK_KEYSTORE_BASE64`, `AK_KEYSTORE_PASSWORD`, `AK_KEY_ALIAS`, `AK_KEY_PASSWORD`; fără ele CI semnează cu cheia de debug.

@@ -131,3 +131,20 @@ data class ChannelWithPlaylist(
     val catchupDays: Int?,
     val playlistName: String,
 )
+
+/** Un canal pregătit pentru player (cu user-agentul efectiv și starea playlistului). */
+data class PlayableChannel(
+    val id: Long,
+    val playlistId: Long,
+    val groupId: Long,
+    val name: String,
+    val groupName: String,
+    val streamUrl: String,
+    val quality: Quality,
+    val language: String?,
+    val number: Int?,
+    val catchupDays: Int?,
+    val userAgent: String?,
+    val playlistName: String,
+    val playlistEnabled: Boolean,
+)
