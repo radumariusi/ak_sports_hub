@@ -73,6 +73,16 @@ fun SportsSettingsScreen() {
             )
         }
 
+        item { SectionLabel("Afișare") }
+        item {
+            ListRow(
+                title = "Fără spoilere",
+                subtitle = "Ascunde scorul, evenimentele și statisticile meciurilor începute; le poți arăta pe fiecare meci",
+                onClick = { update(false) { it.copy(noSpoilers = !it.noSpoilers) } },
+                trailing = { SettingValue(if (s.noSpoilers) "Da" else "Nu") },
+            )
+        }
+
         item { SectionLabel("Surse de meciuri") }
         item {
             ListRow(

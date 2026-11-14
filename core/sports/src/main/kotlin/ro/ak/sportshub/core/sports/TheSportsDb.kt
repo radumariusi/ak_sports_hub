@@ -109,13 +109,13 @@ object TheSportsDb {
     private fun isCancelled(raw: String?): Boolean =
         raw?.trim()?.lowercase() in setOf("canc", "pst", "abd", "cancelled", "postponed", "abandoned", "susp", "int")
 
-    private fun firstArray(body: String): List<JsonElement> {
+    internal fun firstArray(body: String): List<JsonElement> {
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return emptyList()
         if (root is JsonArray) return root
         val obj = runCatching { root.jsonObject }.getOrNull() ?: return emptyList()
         return obj.values.firstOrNull { it is JsonArray } as? JsonArray ?: emptyList()
     }
 
-    private fun JsonObject.str(name: String): String? =
+    internal fun JsonObject.str(name: String): String? =
         (this[name] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
 }
