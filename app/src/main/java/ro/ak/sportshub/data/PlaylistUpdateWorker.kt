@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 import ro.ak.sportshub.AkApp
 
 /**
- * Actualizarea programată a playlisturilor și a EPG-ului. Rulează la 2 ore și reîncarcă doar ce are
+ * Actualizarea programată a playlisturilor, a EPG-ului și a programului meciurilor (TheSportsDB). Rulează la 2 ore și reîncarcă doar ce are
  * intervalul trecut (setat pe fiecare playlist, respectiv în setările EPG). Nu așteaptă după player: dacă un playlist
  * e folosit, rămâne pentru rularea următoare.
  */
@@ -22,6 +22,7 @@ class PlaylistUpdateWorker(context: Context, params: WorkerParameters) : Corouti
         val app = applicationContext as AkApp
         app.container.playlists.refreshDue()
         app.container.epg.refreshDue()
+        app.container.sports.refreshDue()
         return Result.success()
     }
 

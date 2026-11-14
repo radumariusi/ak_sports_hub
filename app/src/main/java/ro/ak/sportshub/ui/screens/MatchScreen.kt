@@ -1,16 +1,18 @@
 package ro.ak.sportshub.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -20,39 +22,67 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
-import ro.ak.sportshub.data.DemoData
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import ro.ak.sportshub.core.sports.Confidence
+import ro.ak.sportshub.core.sports.MatchSources
+import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.ui.appContainer
+import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.theme.AkColors
 
 private val Tabs = listOf("Surse", "Pre-meci", "Live")
+private val WhenFormat = DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm", Locale.forLanguageTag("ro"))
 
 /**
- * Fereastra de previzualizare a unui meci: se deschide înainte de player.
- * Taburi: sursele găsite, statistici dinaintea meciului, date live.
+ * Fereastra de previzualizare a unui meci: se deschide înainte de player, iar playerul pornește
+ * abia când alegi o sursă. Sursele sunt grupate pe canal și apoi pe variante (calitate, limbă,
+ * încredere), în ordinea preferințelor tale; nimic nu e ascuns.
  */
 @Composable
-fun MatchScreen(matchId: String) {
-    val match = remember(matchId) { DemoData.match(matchId) }
+fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
+    val container = appContainer()
+    val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
+    val settings by container.sportsSettings.settings.collectAsStateWithLifecycle()
+    val variantState by container.variantStore.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var message by remember { mutableStateOf<String?>(null) }
     val firstTab = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
 
-    if (match == null) {
-        EmptyState(title = "Meciul nu a fost găsit", hint = "Apasă Înapoi.")
+    val entry = remember(snapshot, matchId) { snapshot.matches.firstOrNull { it.match.id == matchId } }
+    if (entry == null) {
+        EmptyState(
+            title = if (snapshot.loading) "Se încarcă meciul…" else "Meciul nu mai e în listă",
+            hint = "Apasă Înapoi.",
+        )
         return
+    }
+    val m = entry.match
+    val favorite = settings.favorites.isFavorite(m)
+    val families = remember(entry, favorite, settings.sourcePreferences) {
+        MatchSources.order(entry.sources, isFavorite = favorite, prefs = settings.sourcePreferences)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Text(text = match.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Row {
+            Text(text = m.title, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            if (m.isLive) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
+            if (favorite) Text(text = "  ★", fontSize = 22.sp, color = AkColors.Accent)
+        }
+        val start = Instant.ofEpochMilli(m.start).atZone(ZoneId.systemDefault()).format(WhenFormat)
         Text(
-            text = "${match.time} · ${match.sport} · ${match.competition}",
+            text = listOfNotNull(start, m.sport?.label, m.competition, m.venue).joinToString(" · "),
             fontSize = 14.sp,
             color = AkColors.TextDim,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -64,38 +94,87 @@ fun MatchScreen(matchId: String) {
             firstTabModifier = Modifier.focusRequester(firstTab),
         )
         when (tab) {
-            0 -> {
-                val sources = remember(match) { match.sources }
-                LazyColumn(
-                    modifier = Modifier.padding(top = 10.dp).weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    itemsIndexed(sources) { index, source ->
+            0 -> LazyColumn(
+                modifier = Modifier.padding(top = 10.dp).weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                item {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 6.dp).horizontalScroll(rememberScrollState()),
+                    ) {
+                        families.firstOrNull()?.members?.firstOrNull()?.let { best ->
+                            ActionButton(text = "▶ Pornește sursa recomandată", onClick = { onPlay(best.channel.id) })
+                        }
+                        val store = container.sportsSettings
+                        ActionButton(
+                            text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
+                            onClick = { store.toggleFavoriteTeam(m.home) },
+                        )
+                        if (m.away.isNotBlank()) {
+                            ActionButton(
+                                text = (if (settings.favorites.isTeam(m.away)) "★ " else "☆ ") + m.away,
+                                onClick = { store.toggleFavoriteTeam(m.away) },
+                            )
+                        }
+                        m.competition?.let { c ->
+                            ActionButton(
+                                text = (if (settings.favorites.isCompetition(c)) "★ " else "☆ ") + c,
+                                onClick = { store.toggleFavoriteCompetition(c) },
+                            )
+                        }
+                    }
+                }
+                if (families.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul " +
+                                "sau când un post anunțat are același nume cu un canal al tău.",
+                            fontSize = 14.sp,
+                            color = AkColors.TextDim,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+                }
+                families.forEach { family ->
+                    item(key = "h:" + family.key) {
+                        SectionLabel(family.members.first().channel.name, modifier = Modifier.padding(top = 6.dp))
+                    }
+                    items(family.members, key = { "s:" + it.channel.id }) { s ->
+                        val c = s.channel
+                        val preferred = variantState.preferred[c.groupKey]?.let { it.playlistId == c.playlistId && it.name == c.name } == true
                         ListRow(
-                            title = source.channelName,
-                            subtitle = source.playlist + if (index == 0) " · sursa preferată" else "",
-                            onClick = { message = "Meciurile sunt exemple; sursele reale apar în etapa 6: ${source.channelName}" },
+                            title = c.name,
+                            subtitle = listOfNotNull(
+                                c.playlistName,
+                                s.confidence.label + (s.station?.takeIf { s.confidence == Confidence.STATION }?.let { ": $it" } ?: ""),
+                                if (preferred) "varianta preferată" else null,
+                            ).joinToString(" · "),
+                            onClick = { onPlay(c.id) },
                             trailing = {
-                                Badge(text = source.language.uppercase(), color = AkColors.Focus)
-                                QualityBadge(source.quality)
+                                c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
+                                QualityBadge(c.quality)
                             },
                         )
                     }
                 }
-                Text(
-                    text = message
-                        ?: "Calitatea și limba sunt cele declarate de playlist. Sunt ordonate după preferințele din Setări.",
-                    fontSize = 13.sp,
-                    color = AkColors.TextDim,
-                )
+                item {
+                    Text(
+                        text = "Calitatea și limba sunt cele declarate de playlist. Ordinea urmează preferințele din Setări → Sports Hub" +
+                            if (favorite) " (meci favorit: limbile preferate întâi)." else " (rezoluția întâi).",
+                        fontSize = 13.sp,
+                        color = AkColors.TextDim,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                }
             }
             1 -> EmptyState(
                 title = "Pre-meci",
-                hint = "Formă, clasament, meciuri directe și echipe probabile. Vine odată cu sursele de meciuri.",
+                hint = "Formă, clasament, meciuri directe și echipe probabile: în etapa următoare.",
             )
             else -> EmptyState(
-                title = "Live",
-                hint = "Scor, minut, evenimente și statistici live, cu opțiunea „fără spoilere”.",
+                title = if (m.status == MatchStatus.SCHEDULED) "Meciul n-a început" else "Live",
+                hint = "Scor, minut, evenimente și statistici live, cu opțiunea „fără spoilere”: în etapa următoare.",
             )
         }
     }

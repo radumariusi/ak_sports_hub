@@ -146,6 +146,35 @@ interface ChannelDao {
     )
     suspend fun variants(groupKeys: List<String>): List<ChannelWithPlaylist>
 
+    /** Canalele cu id-urile [ids], din playlisturile active (cel mult ~900 pe apel). */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
+               p.name AS playlistName, c.groupKey
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.id IN (:ids)
+        """,
+    )
+    suspend fun byIds(ids: List<Long>): List<ChannelWithPlaylist>
+
+    /** Toate cheile de grupare din playlisturile active (pentru potrivirea pe nume de post). */
+    @Query("SELECT DISTINCT c.groupKey FROM channels c JOIN playlists p ON p.id = c.playlistId WHERE p.enabled = 1")
+    suspend fun activeGroupKeys(): List<String>
+
+    /**
+     * Numele și grupurile canalelor active, pe pagini, după [afterId] (filtrul de sport e `SportChannels`).
+     * Fără lanțuri lungi de OR în SQL: parserul de interogări al Room se blochează pe ele la compilare.
+     */
+    @Query(
+        """
+        SELECT c.id, c.name, c.groupName FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.id > :afterId
+        ORDER BY c.id
+        LIMIT :limit
+        """,
+    )
+    suspend fun channelNames(afterId: Long, limit: Int): List<ChannelNameRow>
+
     /** Aplică pe loc o corecție manuală (sau o anulează) tuturor intrărilor cu acest nume din playlist. */
     @Query(
         """

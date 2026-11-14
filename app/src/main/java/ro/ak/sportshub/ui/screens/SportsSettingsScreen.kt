@@ -1,0 +1,237 @@
+package ro.ak.sportshub.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Text
+import ro.ak.sportshub.core.model.Quality
+import ro.ak.sportshub.core.sports.Sport
+import ro.ak.sportshub.data.SportsSettings
+import ro.ak.sportshub.ui.appContainer
+import ro.ak.sportshub.ui.components.ChoiceDialog
+import ro.ak.sportshub.ui.components.ListRow
+import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.components.TextInputDialog
+
+private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS }
+
+/** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
+@Composable
+fun SportsSettingsScreen() {
+    val container = appContainer()
+    val store = container.sportsSettings
+    val sports = container.sports
+    val s by store.settings.collectAsStateWithLifecycle()
+    val status by sports.status.collectAsStateWithLifecycle()
+    var dialog by remember { mutableStateOf<SportsDialog?>(null) }
+
+    // Schimbările care privesc TheSportsDB cer din nou doar ce lipsește (fără să forțeze descărcarea).
+    val update: (Boolean, (SportsSettings) -> SportsSettings) -> Unit = { refetch, transform ->
+        store.update(transform)
+        if (refetch) sports.refreshInBackground(force = false)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        item { Text(text = "Sports Hub", fontSize = 24.sp, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp)) }
+
+        item { SectionLabel("Ordinea surselor") }
+        item {
+            ListRow(
+                title = "Limbi preferate",
+                subtitle = "La meciurile favorite contează peste prag; la celelalte doar la aceeași rezoluție",
+                onClick = { dialog = SportsDialog.LANGUAGES },
+                trailing = { SettingValue(s.sourcePreferences.preferredLanguages.joinToString(", ") { it.uppercase() }) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Calitate bună",
+                subtitle = "Pragul de la care limba preferată urcă în față, la meciurile favorite",
+                onClick = { dialog = SportsDialog.QUALITY },
+                trailing = { SettingValue(s.sourcePreferences.goodQuality.label + " sau mai mult") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Cum se ordonează",
+                subtitle = "Favorite: limbi preferate 4K, FHD → alte limbi 4K, FHD → limbi preferate HD/SD → restul. " +
+                    "Alte meciuri: rezoluția întâi, orice limbă. Nicio sursă nu e ascunsă.",
+                onClick = {},
+            )
+        }
+
+        item { SectionLabel("Surse de meciuri") }
+        item {
+            ListRow(
+                title = "EPG-ul tău",
+                subtitle = "Mereu activ: emisiunile de pe canalele de sport care arată a meci (de exemplu „Arsenal v Chelsea”)",
+                onClick = {},
+                trailing = { SettingValue("Da") },
+            )
+        }
+        item {
+            ListRow(
+                title = "TheSportsDB",
+                subtitle = "Programul meciurilor, cerut rar (azi și mâine la 3 ore, restul la 12 ore)",
+                onClick = { update(true) { it.copy(sportsDbEnabled = !it.sportsDbEnabled) } },
+                trailing = { SettingValue(if (s.sportsDbEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Posturi TV de la TheSportsDB",
+                subtitle = "Pentru potrivirea pe nume de post; cu cheia gratuită datele sunt puține",
+                onClick = { update(true) { it.copy(sportsDbTv = !it.sportsDbTv) } },
+                trailing = { SettingValue(if (s.sportsDbTv) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Cheie TheSportsDB",
+                subtitle = "123 e cheia gratuită; o cheie proprie dă mai multe rezultate",
+                onClick = { dialog = SportsDialog.KEY },
+                trailing = { SettingValue(if (s.sportsDbKey == "123") "gratuită" else "proprie") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Zile cerute",
+                subtitle = "De azi încolo",
+                onClick = { dialog = SportsDialog.DAYS },
+                trailing = { SettingValue(s.daysAhead.toString()) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Actualizează acum",
+                subtitle = status ?: "Cere din nou programul de la TheSportsDB",
+                onClick = { sports.refreshInBackground(force = true) },
+            )
+        }
+
+        item { SectionLabel("Sporturi cerute de la TheSportsDB (OK schimbă)") }
+        Sport.entries.forEach { sport ->
+            item(key = sport.name) {
+                val on = sport in s.sports
+                ListRow(
+                    title = sport.label,
+                    onClick = {
+                        update(true) { st ->
+                            st.copy(sports = if (on) st.sports - sport else Sport.entries.filter { it in st.sports || it == sport })
+                        }
+                    },
+                    trailing = { SettingValue(if (on) "Da" else "Nu") },
+                )
+            }
+        }
+
+        item { SectionLabel("Favorite") }
+        item {
+            ListRow(
+                title = "Echipe favorite",
+                subtitle = s.favorites.teams.joinToString(", ").ifEmpty { "Niciuna. Le poți marca și din ecranul unui meci" },
+                onClick = { dialog = SportsDialog.TEAMS },
+                trailing = { SettingValue(s.favorites.teams.size.toString()) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Competiții favorite",
+                subtitle = s.favorites.competitions.joinToString(", ").ifEmpty { "Niciuna" },
+                onClick = { dialog = SportsDialog.COMPETITIONS },
+                trailing = { SettingValue(s.favorites.competitions.size.toString()) },
+            )
+        }
+    }
+
+    when (dialog) {
+        SportsDialog.LANGUAGES -> TextInputDialog(
+            title = "Limbi preferate",
+            initial = s.sourcePreferences.preferredLanguages.joinToString(", "),
+            hint = "Coduri de limbă, în ordinea preferinței (de exemplu: en, ro)",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                val langs = text.split(',', ' ', ';').map { it.trim().lowercase() }.filter { it.length in 2..3 }.distinct()
+                if (langs.isNotEmpty()) update(false) { it.copy(sourcePreferences = it.sourcePreferences.copy(preferredLanguages = langs)) }
+                dialog = null
+            },
+        )
+        SportsDialog.QUALITY -> {
+            val options = listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD)
+            ChoiceDialog(
+                title = "Calitate bună",
+                options = options.map { it.label + " sau mai mult" },
+                selectedIndex = options.indexOf(s.sourcePreferences.goodQuality),
+                onDismiss = { dialog = null },
+                onSelect = { i ->
+                    update(false) { it.copy(sourcePreferences = it.sourcePreferences.copy(goodQuality = options[i])) }
+                    dialog = null
+                },
+            )
+        }
+        SportsDialog.KEY -> TextInputDialog(
+            title = "Cheie TheSportsDB",
+            initial = s.sportsDbKey,
+            hint = "Gol = cheia gratuită 123",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                update(true) { it.copy(sportsDbKey = text.ifBlank { "123" }) }
+                dialog = null
+            },
+        )
+        SportsDialog.DAYS -> {
+            val options = (1..7).toList()
+            ChoiceDialog(
+                title = "Zile cerute de la TheSportsDB",
+                options = options.map { if (it == 1) "1 zi (azi)" else "$it zile" },
+                selectedIndex = options.indexOf(s.daysAhead),
+                onDismiss = { dialog = null },
+                onSelect = { i ->
+                    update(true) { it.copy(daysAhead = options[i]) }
+                    dialog = null
+                },
+            )
+        }
+        SportsDialog.TEAMS -> TextInputDialog(
+            title = "Echipe favorite",
+            initial = s.favorites.teams.joinToString(", "),
+            hint = "Separate prin virgulă (de exemplu: FCSB, Arsenal, Man Utd)",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                update(false) { it.copy(favorites = it.favorites.copy(teams = list)) }
+                dialog = null
+            },
+        )
+        SportsDialog.COMPETITIONS -> TextInputDialog(
+            title = "Competiții favorite",
+            initial = s.favorites.competitions.joinToString(", "),
+            hint = "Numele ca în listă, separate prin virgulă (de exemplu: Premier League, Liga 1)",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                update(false) { it.copy(favorites = it.favorites.copy(competitions = list)) }
+                dialog = null
+            },
+        )
+        null -> Unit
+    }
+}
+
+@Composable
+private fun SettingValue(text: String) {
+    Text(text = text, fontSize = 14.sp)
+}

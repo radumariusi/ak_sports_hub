@@ -18,6 +18,8 @@ import ro.ak.sportshub.data.EpgSettingsStore
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
+import ro.ak.sportshub.data.SportsRepository
+import ro.ak.sportshub.data.SportsSettingsStore
 import ro.ak.sportshub.data.VariantRepository
 import ro.ak.sportshub.data.VariantStore
 
@@ -41,7 +43,9 @@ class AppContainer(app: Application) {
 
     val variantStore = VariantStore(app)
 
-    val variants = VariantRepository(database.channels(), variantStore)
+    val sportsSettings = SportsSettingsStore(app)
+
+    val variants = VariantRepository(database.channels(), variantStore) { sportsSettings.current.sourcePreferences }
 
     val playlists = PlaylistRepository(
         context = app,
@@ -64,6 +68,17 @@ class AppContainer(app: Application) {
     )
 
     val playerHistory = PlayerHistory(app, database.channels())
+
+    val sports = SportsRepository(
+        context = app,
+        db = database,
+        epg = epg,
+        playlists = playlists,
+        variantStore = variantStore,
+        settings = sportsSettings,
+        http = http,
+        scope = scope,
+    )
 }
 
 class AkApp : Application() {
@@ -79,6 +94,9 @@ class AkApp : Application() {
             container.playlists.refreshDue()
             container.epg.refreshDue()
         }
+        // Sports Hub: lista se recalculează la orice schimbare; programul meciurilor se cere doar dacă e vechi.
+        container.sports.start()
+        container.scope.launch { container.sports.refreshDue() }
         // Canale noi sau playlisturi șterse: EPG-ul se recitește din fișierele salvate și se refac potrivirile.
         container.scope.launch { container.playlists.changes.collect { container.epg.onPlaylistsChanged() } }
     }

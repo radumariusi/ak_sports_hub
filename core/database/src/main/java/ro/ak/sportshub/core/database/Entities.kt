@@ -161,3 +161,10 @@ data class ChannelEpgRow(
     val name: String,
     val groupName: String,
 )
+
+/** Numele și grupul unui canal (pentru recunoașterea canalelor de sport). */
+data class ChannelNameRow(
+    val id: Long,
+    val name: String,
+    val groupName: String,
+)

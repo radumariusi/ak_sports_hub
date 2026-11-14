@@ -107,6 +107,20 @@ data class EpgMapEntity(
     val epgChannelId: Long,
 )
 
+/** O emisiune, cu canalul ei EPG (pentru recunoașterea meciurilor). */
+data class EpgProgrammeRow(
+    val id: Long,
+    val epgChannelId: Long,
+    val start: Long,
+    val stop: Long,
+    val title: String,
+    val subtitle: String?,
+    val category: String?,
+)
+
+/** Legătura canal din playlist → canal EPG. */
+data class EpgMapRow(val channelId: Long, val epgChannelId: Long)
+
 /** O emisiune a unui canal din playlist (pentru acum / urmează). */
 data class ChannelProgrammeRow(
     val channelId: Long,
@@ -200,6 +214,35 @@ interface EpgDao {
         """,
     )
     suspend fun programmesFor(channelIds: List<Long>, from: Long, until: Long): List<ChannelProgrammeRow>
+
+    /** Canalele EPG ale canalelor [channelIds] din playlist. */
+    @Query("SELECT channelId, epgChannelId FROM epg_map WHERE channelId IN (:channelIds)")
+    suspend fun mapForChannels(channelIds: List<Long>): List<EpgMapRow>
+
+    /** Canalele din playlist care au programul canalelor EPG [epgChannelIds]. */
+    @Query("SELECT channelId, epgChannelId FROM epg_map WHERE epgChannelId IN (:epgChannelIds)")
+    suspend fun mapForEpgChannels(epgChannelIds: List<Long>): List<EpgMapRow>
+
+    /** Emisiunile canalelor EPG [epgChannelIds] dintre [from] și [until]. */
+    @Query(
+        """
+        SELECT id, epgChannelId, start, stop, title, subtitle, category FROM programmes
+        WHERE epgChannelId IN (:epgChannelIds) AND stop > :from AND start < :until
+        """,
+    )
+    suspend fun programmesOn(epgChannelIds: List<Long>, from: Long, until: Long): List<EpgProgrammeRow>
+
+    /** Emisiunile cu categorie de sport, de pe canalele folosite de playlisturi, dintre [from] și [until]. */
+    @Query(
+        """
+        SELECT id, epgChannelId, start, stop, title, subtitle, category FROM programmes
+        WHERE stop > :from AND start < :until
+          AND (category LIKE '%sport%' OR category LIKE '%football%' OR category LIKE '%fotbal%' OR category LIKE '%soccer%')
+          AND epgChannelId IN (SELECT epgChannelId FROM epg_map)
+        LIMIT :limit
+        """,
+    )
+    suspend fun sportCategoryProgrammes(from: Long, until: Long, limit: Int): List<EpgProgrammeRow>
 
     /** Programul complet al unui canal EPG, de la [from]. */
     @Query("SELECT * FROM programmes WHERE epgChannelId = :epgChannelId AND stop > :from ORDER BY start")
