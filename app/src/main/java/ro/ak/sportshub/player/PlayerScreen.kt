@@ -1,6 +1,7 @@
 package ro.ak.sportshub.player
 
 import android.view.KeyEvent as AndroidKeyEvent
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -56,6 +57,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import ro.ak.sportshub.R
 import ro.ak.sportshub.core.common.player.NumberInput
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.epg.NowNext
@@ -218,7 +220,8 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                // TextureView (din layout): imaginea apare sigur sub straturile Compose; vezi player_view.xml.
+                (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     useController = false
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
