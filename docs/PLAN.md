@@ -137,7 +137,7 @@ Normalizarea echipelor: fără diacritice, fără `FC`, `CF`, `AFC`, `SC`, `CS`,
   - **Live**: scor, minut, evenimente (goluri, cartonașe, schimbări), statistici (posesie, șuturi etc.). Respectă opțiunea „fără spoilere”.
   - Datele pentru Pre-meci și Live vin de la TheSportsDB și, opțional, Sofascore; dacă o sursă nu are date pentru un meci, tabul arată doar ce există.
 - **Filtre**: sport, competiție, echipă, limbă audio, calitate minimă, „doar meciuri cu surse găsite”. Filtrele se pot salva ca presetări.
-- **Preferințe de limbă (setări în aplicație)**: implicit engleză sau română. Pentru echipele și competițiile favorite se arată întâi sursele EN/RO. Dacă pentru un meci nu există surse EN/RO, se acceptă și alte limbi, dar doar de la o calitate minimă (implicit FHD). Toate pragurile se pot schimba.
+- **Ordinea surselor (setări în aplicație)**: limbile preferate sunt implicit engleza și româna, iar pragul de „calitate bună” e FHD. Nicio sursă nu e ascunsă, se schimbă doar ordinea. Pentru meciurile favorite: EN/RO 4K, EN/RO FHD, altă limbă 4K, altă limbă FHD, apoi EN/RO HD și SD, apoi orice limbă HD și SD. Pentru restul meciurilor primează rezoluția, în orice limbă; dacă singura sursă e SD în franceză, o vezi pe aceea. Limbile și pragul se pot schimba.
 - **Favorite**: echipe, competiții, sporturi, canale.
 
 ## 6. Etapele (fiecare într-un fir nou, fiecare cu PR propriu)
@@ -189,7 +189,7 @@ Respinsă: multi-view (playlisturile au o singură conexiune).
 
 - Playlisturi: și M3U, și Xtream Codes.
 - O singură conexiune pe playlist; fără verificarea stream-urilor.
-- Limbi preferate: engleză și română; alte limbi doar de la FHD în sus, când nu există EN/RO (setări în aplicație).
+- Limbi preferate: engleză și română. La favorite, EN/RO de la FHD în sus au prioritate, apoi alte limbi de la FHD în sus, apoi HD/SD. La restul meciurilor primează rezoluția, în orice limbă (setări în aplicație).
 - Ideile în plus sunt acceptate, fără multi-view.
 - Meciul se deschide într-o fereastră de previzualizare cu Surse, Pre-meci și Live.
 - Etapa 1 e aprobată și pornește într-un fir nou.
