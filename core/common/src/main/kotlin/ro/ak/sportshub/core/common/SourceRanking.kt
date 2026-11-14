@@ -13,12 +13,16 @@ data class SourceCandidate(
 object SourceRanking {
 
     /**
-     * Ordonează sursele unui meci după preferințe și le scoate pe cele care nu sunt permise.
+     * Ordonează sursele unui meci după preferințe. Nu scoate nimic din listă: dacă singura sursă
+     * e SD într-o altă limbă, apare și aceea.
      *
-     * - Meci favorit: doar limbile preferate. Dacă nu există niciuna, se arată totuși restul,
-     *   ca să nu rămână meciul fără surse.
-     * - Alte meciuri: limbile preferate; dacă niciuna nu are măcar calitatea minimă (implicit FHD),
-     *   intră și sursele în alte limbi care au cel puțin acea calitate.
+     * Meci favorit (implicit EN/RO, prag FHD):
+     * 1. limbă preferată 4K, apoi FHD
+     * 2. altă limbă 4K, apoi FHD
+     * 3. limbă preferată HD, SD
+     * 4. altă limbă HD, SD
+     *
+     * Alt meci: după rezoluție, în orice limbă; la aceeași rezoluție, limbile preferate întâi.
      */
     fun rank(
         candidates: List<SourceCandidate>,
@@ -28,20 +32,24 @@ object SourceRanking {
         val preferred = prefs.preferredLanguages.map { it.lowercase() }
         fun langIndex(c: SourceCandidate): Int =
             preferred.indexOf(c.language?.lowercase()).let { if (it < 0) Int.MAX_VALUE else it }
-        fun isPreferred(c: SourceCandidate) = langIndex(c) != Int.MAX_VALUE
+        fun tier(c: SourceCandidate): Int {
+            val good = c.quality.isAtLeast(prefs.goodQuality)
+            val pref = langIndex(c) != Int.MAX_VALUE
+            return when {
+                good && pref -> 0
+                good -> 1
+                pref -> 2
+                else -> 3
+            }
+        }
 
-        val (inPreferred, others) = candidates.partition(::isPreferred)
         val byQualityThenLanguage = compareByDescending<SourceCandidate> { it.quality.rank }
-            .thenBy { if (isPreferred(it)) 0 else 1 }
             .thenBy(::langIndex)
 
-        val min = prefs.minQualityBeforeOtherLanguages
-        val allowed = when {
-            inPreferred.isEmpty() -> candidates
-            isFavorite && prefs.favoritesPreferredOnly -> inPreferred
-            inPreferred.any { it.quality.isAtLeast(min) } -> inPreferred
-            else -> inPreferred + others.filter { it.quality.isAtLeast(min) }
+        return if (isFavorite) {
+            candidates.sortedWith(compareBy<SourceCandidate>(::tier).then(byQualityThenLanguage))
+        } else {
+            candidates.sortedWith(byQualityThenLanguage)
         }
-        return allowed.sortedWith(byQualityThenLanguage)
     }
 }

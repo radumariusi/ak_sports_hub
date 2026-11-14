@@ -17,6 +17,6 @@ Aplicație IPTV pentru Android TV (uz personal), cu Sports Hub. Planul și etape
 - Numele normalizat (`ChannelNameParser.groupKey`) e doar cheie de grupare; în UI apar numele original și eticheta de calitate.
 - Furnizorii permit o singură conexiune pe playlist: orice acces la rețea al unui playlist trece prin `ConnectionGate`; nimic în fundal cât rulează playerul pe același playlist.
 - Playlisturi: M3U și Xtream Codes (`PlaylistSource`).
-- Preferințe de surse (`SourcePreferences`, `SourceRanking`): favorite doar EN/RO; restul EN/RO, iar dacă lipsește o sursă EN/RO de cel puțin FHD intră și alte limbi, tot de la FHD în sus. Sunt setări, nu constante.
+- Preferințe de surse (`SourcePreferences`, `SourceRanking`): nicio sursă nu e ascunsă, se schimbă doar ordinea. Favorite: EN/RO 4K → EN/RO FHD → altă limbă 4K → altă limbă FHD → EN/RO HD/SD → restul. Alte meciuri: după rezoluție, în orice limbă. Limbile și pragul (FHD) sunt setări, nu constante.
 - Ecranul unui meci e o fereastră de previzualizare cu taburile Surse / Pre-meci / Live; playerul pornește abia la alegerea unei surse.
 - Semnare: secretele `AK_KEYSTORE_BASE64`, `AK_KEYSTORE_PASSWORD`, `AK_KEY_ALIAS`, `AK_KEY_PASSWORD`; fără ele CI semnează cu cheia de debug.

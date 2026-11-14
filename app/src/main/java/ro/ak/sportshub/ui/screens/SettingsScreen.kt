@@ -29,21 +29,16 @@ fun SettingsScreen() {
         item { row("EPG extern", "Surse XMLTV suplimentare", "0") }
 
         item { SectionLabel("Surse pentru meciuri") }
-        item { row("Limbi preferate", "Ordinea în care sunt alese sursele", languages) }
+        item { row("Limbi preferate", "Au prioritate la aceeași calitate", languages) }
+        item { row("Calitate bună", "Pragul de la care contează limba", prefs.goodQuality.label + " sau mai mult") }
         item {
             row(
                 "Meciuri favorite",
-                "Doar limbile preferate",
-                if (prefs.favoritesPreferredOnly) "Da" else "Nu",
+                "Limbi preferate la calitate bună, apoi alte limbi la calitate bună, apoi restul",
+                "",
             )
         }
-        item {
-            row(
-                "Alte meciuri",
-                "Alte limbi doar dacă lipsește o sursă preferată de cel puțin această calitate",
-                prefs.minQualityBeforeOtherLanguages.label,
-            )
-        }
+        item { row("Alte meciuri", "Orice limbă, cea mai bună rezoluție întâi", "") }
 
         item { SectionLabel("Despre") }
         item { row("Versiune", "AK Sports Hub", BuildConfig.VERSION_NAME) }
