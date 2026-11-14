@@ -41,7 +41,6 @@ core/common           normalizare text, alias-uri, timp și fusuri orare
 feature/playlists     import M3U / Xtream, parsare, actualizare programată
 feature/epg           XMLTV (inclusiv .gz), potrivire canal ↔ EPG
 feature/channels      grupare duplicate, variante de calitate, favorite
-feature/probe         verificare reală rezoluție / codec / limbi audio
 feature/player        ExoPlayer, zapping, overlay, piste audio, failover
 feature/sports        surse de meciuri, potrivire meci ↔ canale, filtre
 feature/settings      setări, backup / restore
@@ -70,29 +69,34 @@ Exemplul tău: „Sky Sport Main Event” apare de ~20 de ori (UHD, FHD, HD, SD)
 
 ### Gruparea
 
-1. **Normalizare nume**: se scot etichetele de calitate și zgomotul (`UHD`, `4K`, `FHD`, `1080p`, `HD`, `720p`, `SD`, `HEVC`, `H265`, `50FPS`, `ᴴᴰ`, `ᵁᴴᴰ`, `RAW`, `VIP`, `BACKUP`, `(1)`, paranteze, prefixe de țară ca `UK:`, `RO|`, `|DE|`), se uniformizează diacriticele și majusculele.
+1. **Cheia de grupare** (numele normalizat): din numele canalului se scot etichetele de calitate și zgomotul (`UHD`, `4K`, `FHD`, `1080p`, `HD`, `720p`, `SD`, `HEVC`, `H265`, `50FPS`, `ᴴᴰ`, `ᵁᴴᴰ`, `RAW`, `VIP`, `BACKUP`, `(1)`, paranteze, prefixe de țară ca `UK:`, `RO|`, `|DE|`), se uniformizează diacriticele și majusculele. Cheia asta servește **doar** ca să știm că „Sky Sport Main Event UHD” și „SKY SPORT MAIN EVENT FHD” sunt același canal. Numele original și eticheta de calitate rămân afișate la fiecare variantă, ca să vezi mereu ce calitate alegi.
 2. **Cheia canalului** = numele normalizat + țara (din prefix sau din grup). Dacă există `tvg-id`, acesta are prioritate.
 3. **Potrivire aproximativă** (Jaro-Winkler) doar ca sugestie, pentru nume care diferă puțin („Sky Sports Main Event” / „SkySp Main Event”).
 4. **Corecții manuale**: poți uni sau separa grupuri; corecțiile se salvează și se aplică la fiecare actualizare.
 
 ### Variantele
 
-Fiecare canal grupat are o listă de variante (sursă, playlist, calitate, limbă audio, stare). Alegi **varianta preferată** pentru acel canal; dacă ea pică, playerul trece automat la următoarea, în ordinea calității.
+Fiecare canal grupat are o listă de variante, fiecare cu numele ei original, playlistul, calitatea, limba audio și starea. Alegi **varianta preferată** pentru acel canal; dacă ea pică, playerul trece automat la următoarea, în ordinea calității, oprind-o mai întâi pe cea veche.
 
-### Verificarea reală a calității
+### Calitatea și limba: doar din informațiile primite
 
-Playlistul poate minți, așa că o verificăm:
+Decizie (Radu, etapa 0): **nu verificăm stream-urile**. Calitatea și limba se iau din ce dă playlistul:
 
-- **HLS**: citim playlistul master; atributele `RESOLUTION`, `CODECS`, `FRAME-RATE` și pistele `EXT-X-MEDIA` (cu `LANGUAGE`) ne dau totul fără să descărcăm video.
-- **MPEG-TS**: descărcăm primii ~1–2 MB, citim tabelele PAT/PMT (codec, piste audio cu codul de limbă ISO 639) și SPS-ul H.264/HEVC (rezoluția reală).
-- Rezultatul se salvează cu data verificării și se refolosește (de exemplu 7 zile).
-- **Atenție la limita de conexiuni**: multe servicii IPTV permit 1–2 conexiuni simultane. Verificarea rulează una câte una, cu pauze, **niciodată cât rulează playerul**, și se poate porni manual pe un canal sau un grup.
+- **Calitatea**: din numele canalului (`UHD`/`4K`, `FHD`/`1080`, `HD`/`720`, `SD`), din numele grupului sau din atributele M3U, când există. Fără etichetă → „necunoscută”.
+- **Limba**: din prefixul canalului sau grupului (`UK`, `EN`, `RO`, `DE`…), din `tvg-language` / `tvg-country`, sau din categoria Xtream.
+- Dacă eticheta e greșită, o poți corecta manual pe varianta respectivă; corecția se păstrează la actualizări.
+- Pe același stream pot exista mai multe piste audio; în player, ExoPlayer o alege automat pe cea preferată (fără conexiuni suplimentare).
 
-Afișare: etichete scurte `4K`, `FHD`, `HD`, `SD`, plus `✓` când e verificată și `?` când vine doar din nume.
+Afișare: etichete scurte `4K`, `FHD`, `HD`, `SD` și codul limbii, lângă numele original al variantei.
 
-### Limba audio
+### O singură conexiune pe playlist
 
-Din prefixul canalului sau grupului (`UK`, `DE`, `RO`, `EN`…), din `tvg-language` și, cel mai sigur, din pistele audio găsite la verificare. Pe același stream pot exista mai multe limbi; playerul o alege automat pe cea preferată.
+Playlisturile tale permit **o singură conexiune**. Reguli stricte în tot codul:
+
+- Nicio verificare, previzualizare sau preîncărcare de stream în fundal.
+- La schimbarea canalului, stream-ul vechi se **oprește și se eliberează complet** înainte să pornească cel nou (cu o mică pauză, ca serverul să închidă sesiunea).
+- Descărcarea playlistului și a EPG-ului (fișiere, nu stream-uri) se face separat de player; la Xtream, cererile API sunt rare și secvențiale.
+- Failover-ul încearcă variantele **una câte una**, niciodată în paralel.
 
 ## 5. Sports Hub
 
@@ -108,7 +112,7 @@ Arhitectura e pe **furnizori interschimbabili**: fiecare sursă e un modul separ
 | **Sofascore / ESPN** (API-uri neoficiale JSON) | meciuri live, scoruri, multe sporturi; Sofascore are și posturi TV pe țări | multe sporturi | neoficiale, se pot schimba sau bloca oricând |
 | **football-data.org** (API gratuit) | program fiabil pentru ~12 competiții mari | fotbal | fără informații TV |
 
-Recomandarea: în etapa 7 pornim cu **EPG + TheSportsDB** (stabile, legale). În etapa 8 adăugăm **LiveSoccerTV** și eventual **Sofascore** ca furnizori opționali, dezactivabili, cu cereri rare (de exemplu o dată la 3 ore, o pagină pe zi), cache local și user-agent de browser, rulate doar pe televizorul tău, pentru uz personal. Dacă un site se schimbă sau blochează, se strică doar acel furnizor; repararea lui e o sarcină mică, separată.
+Recomandarea: în etapa 6 pornim cu **EPG + TheSportsDB** (stabile, legale). În etapa 8 adăugăm **LiveSoccerTV** și eventual **Sofascore** ca furnizori opționali, dezactivabili, cu cereri rare (de exemplu o dată la 3 ore, o pagină pe zi), cache local și user-agent de browser, rulate doar pe televizorul tău, pentru uz personal. Dacă un site se schimbă sau blochează, se strică doar acel furnizor; repararea lui e o sarcină mică, separată.
 
 Despre legalitate: datele de program (cine joacă, când, pe ce post) sunt fapte publice, dar termenii unor site-uri interzic extragerea automată. Pentru uz personal, cu volum mic, riscul practic e blocarea accesului, nu altceva. De aceea furnizorii neoficiali sunt opționali, iar aplicația funcționează și fără ei.
 
@@ -127,8 +131,13 @@ Normalizarea echipelor: fără diacritice, fără `FC`, `CF`, `AFC`, `SC`, `CS`,
 
 - **Taburi**: LIVE · Azi · Mâine · Săptămâna asta · Favorite.
 - **Lista meciurilor**: oră, sport, competiție, echipe, scor (dacă e live), numărul de surse găsite.
-- **Ecranul meciului**: toate sursele, grupate pe canal și apoi pe variante (calitate, limbă, încredere), ordonate după preferințele tale. OK pornește direct sursa preferată.
+- **Fereastra de previzualizare a meciului** (se deschide când selectezi un meci), cu taburi:
+  - **Surse**: toate canalele găsite, grupate pe canal și apoi pe variante (calitate, limbă, încredere), ordonate după preferințele tale. OK pornește sursa aleasă; un buton pornește direct sursa preferată.
+  - **Pre-meci**: forma recentă a echipelor, meciurile directe, clasamentul, echipele probabile sau oficiale (când apar), arbitru, stadion.
+  - **Live**: scor, minut, evenimente (goluri, cartonașe, schimbări), statistici (posesie, șuturi etc.). Respectă opțiunea „fără spoilere”.
+  - Datele pentru Pre-meci și Live vin de la TheSportsDB și, opțional, Sofascore; dacă o sursă nu are date pentru un meci, tabul arată doar ce există.
 - **Filtre**: sport, competiție, echipă, limbă audio, calitate minimă, „doar meciuri cu surse găsite”. Filtrele se pot salva ca presetări.
+- **Preferințe de limbă (setări în aplicație)**: implicit engleză sau română. Pentru echipele și competițiile favorite se arată întâi sursele EN/RO. Dacă pentru un meci nu există surse EN/RO, se acceptă și alte limbi, dar doar de la o calitate minimă (implicit FHD). Toate pragurile se pot schimba.
 - **Favorite**: echipe, competiții, sporturi, canale.
 
 ## 6. Etapele (fiecare într-un fir nou, fiecare cu PR propriu)
@@ -140,13 +149,15 @@ Normalizarea echipelor: fără diacritice, fără `FC`, `CF`, `AFC`, `SC`, `CS`,
 | **2** | Playlisturi: import M3U (URL / fișier) și Xtream, filtrare doar live, Room + FTS, liste grupuri/canale, căutare, actualizare programată | îți vezi canalele și cauți în ele |
 | **3** | Player: ExoPlayer, zapping, overlay info, piste audio și subtitrări, ultimul canal, reconectare | te uiți la TV |
 | **4** | EPG: din playlist (`url-tvg`) și extern, XMLTV/.gz, potrivire canal ↔ EPG, acum/urmează, programul canalului | vezi programul |
-| **5** | Gruparea duplicatelor, variante de calitate, varianta preferată, failover, limbă din nume, corecții manuale | Sky Sport Main Event apare o dată, cu 20 de variante |
-| **6** | Verificarea reală: rezoluție, codec, limbi audio; coadă în fundal care respectă limita de conexiuni | etichete `FHD ✓` corecte |
-| **7** | Sports Hub I: meciuri din EPG + TheSportsDB, taburi, filtre, potrivire EPG și pe nume de post | apeși pe un meci și vezi sursele |
+| **5** | Gruparea duplicatelor, variante (calitate și limbă din playlist), varianta preferată, failover secvențial, corecții manuale | Sky Sport Main Event apare o dată, cu 20 de variante etichetate |
+| **6** | Sports Hub I: meciuri din EPG + TheSportsDB, taburi, filtre, preferințe de limbă, potrivire EPG și pe nume de post | apeși pe un meci și vezi sursele |
+| **7** | Previzualizarea meciului: taburile Surse, Pre-meci (statistici) și Live (scor, evenimente, statistici), modul „fără spoilere” | vezi statistici înainte să pornești meciul |
 | **8** | Sports Hub II: LiveSoccerTV (și opțional Sofascore), dicționar de posturi și alias-uri, reguli de drepturi TV, învățare din confirmări | mai multe meciuri cu surse găsite |
-| **9** | Favorite, notificări înainte de meci, rândul de pe ecranul principal Android TV, backup/restore setări, finisare | aplicația de zi cu zi |
+| **9** | Favorite, notificări înainte de meci, rândul de pe ecranul principal Android TV, catch-up, backup/restore setări, finisare | aplicația de zi cu zi |
 
-Etapele 2–6 pot fi reordonate dacă vrei Sports Hub mai devreme: minimul pentru etapa 7 este 2 + 3 + 4.
+Etapele 2–5 pot fi reordonate dacă vrei Sports Hub mai devreme: minimul pentru etapa 6 este 2 + 3 + 4.
+
+Verificarea reală a calității și a limbii (citirea stream-urilor) a fost scoasă din plan: playlisturile au o singură conexiune, iar informațiile din playlist sunt suficiente.
 
 ## 7. Igiena repo-ului (să nu depășim limitele GitHub)
 
@@ -160,24 +171,25 @@ Repo-ul e privat, deci contul gratuit are aproximativ 2.000 de minute de Actions
 6. **Ramuri**: după merge, ramura se șterge automat. Setarea trebuie activată o singură dată de tine: Settings → General → Pull Requests → „Automatically delete head branches”.
 7. **Cheia de semnare** stă doar în GitHub Secrets (din etapa 1), niciodată în repo.
 
-## 8. Idei în plus
+## 8. Idei în plus (acceptate)
 
-Ordonate după cât de utile cred că îți sunt:
-
-1. **Failover automat**: dacă varianta preferată se blochează, trece singur la următoarea variantă a aceluiași canal, fără să ieși din player.
+1. **Failover automat**: dacă varianta preferată se blochează, trece singur la următoarea variantă a aceluiași canal, fără să ieși din player (una câte una, cu o singură conexiune).
 2. **Notificări pentru meciurile favorite**: cu 10 minute înainte apare o notificare pe TV; un buton te duce direct pe sursa preferată.
 3. **Rând pe ecranul principal Android TV**: „Meciurile tale de azi”, direct din launcher.
 4. **Scor live în overlay** când te uiți la un meci, cu opțiune „fără spoilere” (ascunde scorurile).
-5. **Multi-view** (2 meciuri pe ecran), doar dacă playlistul permite 2 conexiuni.
-6. **Catch-up / înapoi în timp** pe canalele Xtream care îl suportă (meciul început de 20 de minute îl vezi de la început).
-7. **Starea surselor**: canalele care nu au mers la ultima verificare apar marcate și coboară în listă.
-8. **Backup / restore** al setărilor, favoritelor, alias-urilor și corecțiilor într-un fișier, ca să muți totul pe alt televizor în câteva secunde.
-9. **Profil de limbă pe sport**: de exemplu fotbal în română sau engleză, F1 în engleză, tenis indiferent.
-10. **Calendarul echipelor favorite**: următoarele 5 meciuri ale fiecărei echipe, cu sursele deja găsite.
+5. **Catch-up / înapoi în timp** pe canalele Xtream care îl suportă (meciul început de 20 de minute îl vezi de la început).
+6. **Starea surselor**: variantele care nu au pornit când le-ai folosit ultima oară apar marcate și coboară în listă (doar din redare, fără verificări în fundal).
+7. **Backup / restore** al setărilor, favoritelor, alias-urilor și corecțiilor într-un fișier, ca să muți totul pe alt televizor în câteva secunde.
+8. **Profil de limbă pe sport**: de exemplu fotbal în română sau engleză, F1 în engleză, tenis indiferent.
+9. **Calendarul echipelor favorite**: următoarele 5 meciuri ale fiecărei echipe, cu sursele deja găsite.
 
-## 9. Ce îți cer pentru etapa 1
+Respinsă: multi-view (playlisturile au o singură conexiune).
 
-Aprobarea planului (sau modificări) și răspunsul la două întrebări care pot aștepta până la etapa 2:
+## 9. Decizii luate (14.11.2026)
 
-- Playlisturile tale sunt M3U simple, Xtream Codes, sau amândouă?
-- Ce țări și limbi te interesează pentru meciuri (de exemplu RO, UK, DE)? Asta decide ce pagini de posturi TV citim în etapa 8.
+- Playlisturi: și M3U, și Xtream Codes.
+- O singură conexiune pe playlist; fără verificarea stream-urilor.
+- Limbi preferate: engleză și română; alte limbi doar de la FHD în sus, când nu există EN/RO (setări în aplicație).
+- Ideile în plus sunt acceptate, fără multi-view.
+- Meciul se deschide într-o fereastră de previzualizare cu Surse, Pre-meci și Live.
+- Etapa 1 e aprobată și pornește într-un fir nou.
