@@ -44,6 +44,17 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
+      # Artefactele nu se pot descărca din mediul în care lucrează Claude; capturile apar și în log (JPEG, base64).
+      - name: Capturile în log
+        run: |
+          for f in app/build/outputs/roborazzi/*.png; do
+            j="${f%.png}.jpg"
+            convert "$f" -quality 85 "$j" 2>/dev/null || cp "$f" "$j"
+            echo "=====CAPTURA $(basename "$j")====="
+            base64 -w 0 "$j"; echo
+            echo "=====SFARSIT====="
+          done
+
       - name: Raportul testelor (dacă au picat)
         if: failure()
         uses: actions/upload-artifact@v4
