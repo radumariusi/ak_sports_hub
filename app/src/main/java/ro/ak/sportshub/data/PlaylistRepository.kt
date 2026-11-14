@@ -21,6 +21,7 @@ import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.PlaylistEntity
 import ro.ak.sportshub.core.database.PlaylistType
 import ro.ak.sportshub.core.database.RoomImportSink
+import ro.ak.sportshub.core.model.ChannelCorrection
 import ro.ak.sportshub.core.playlist.CacheTag
 import ro.ak.sportshub.core.playlist.ImportOutcome
 import ro.ak.sportshub.core.playlist.ImportSource
@@ -46,8 +47,10 @@ class PlaylistRepository(
     private val db: AkDatabase,
     private val importer: PlaylistImporter,
     private val scope: CoroutineScope,
+    /** Corecțiile manuale ale variantelor, aplicate la fiecare import. */
+    corrections: (playlistId: Long) -> Map<String, ChannelCorrection> = { emptyMap() },
 ) {
-    private val sink = RoomImportSink(db)
+    private val sink = RoomImportSink(db, corrections)
     private val locks = ConcurrentHashMap<Long, Mutex>()
     private val _refreshing = MutableStateFlow<Set<Long>>(emptySet())
 

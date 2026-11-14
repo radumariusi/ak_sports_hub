@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import ro.ak.sportshub.core.common.SearchText
+import ro.ak.sportshub.core.model.ChannelCorrection
+import ro.ak.sportshub.core.model.ChannelLabels
 import ro.ak.sportshub.core.playlist.ImportSink
 import ro.ak.sportshub.core.playlist.ImportedChannel
 import ro.ak.sportshub.core.playlist.PlaylistHeader
@@ -29,8 +31,15 @@ abstract class AkDatabase : RoomDatabase() {
     }
 }
 
-/** Salvează canalele unui playlist în Room, înlocuindu-le atomic pe cele vechi. */
-class RoomImportSink(private val db: AkDatabase) : ImportSink {
+/**
+ * Salvează canalele unui playlist în Room, înlocuindu-le atomic pe cele vechi.
+ * [corrections] dă corecțiile manuale ale playlistului (după numele original al canalului),
+ * aplicate din nou la fiecare import.
+ */
+class RoomImportSink(
+    private val db: AkDatabase,
+    private val corrections: (playlistId: Long) -> Map<String, ChannelCorrection> = { emptyMap() },
+) : ImportSink {
 
     override suspend fun replaceChannels(
         playlistId: String,
@@ -39,6 +48,7 @@ class RoomImportSink(private val db: AkDatabase) : ImportSink {
     ): Int {
         val pid = playlistId.toLong()
         val dao = db.channels()
+        val fixes = corrections(pid)
         return db.withTransaction {
             dao.deleteChannels(pid)
             dao.deleteGroups(pid)
@@ -57,6 +67,9 @@ class RoomImportSink(private val db: AkDatabase) : ImportSink {
                     ),
                 ).also { groupIds[groupName] = it }
 
+                val labels = ChannelLabels(c.groupKey, c.quality, c.language).let { l ->
+                    fixes[c.source.name]?.applyTo(l) ?: l
+                }
                 batch += ChannelEntity(
                     playlistId = pid,
                     groupId = groupId,
@@ -66,10 +79,10 @@ class RoomImportSink(private val db: AkDatabase) : ImportSink {
                     tvgId = c.source.tvgId,
                     tvgName = c.source.tvgName,
                     logo = c.source.logo,
-                    quality = c.quality,
-                    language = c.language,
+                    quality = labels.quality,
+                    language = labels.language,
                     country = c.country,
-                    groupKey = c.groupKey,
+                    groupKey = labels.groupKey,
                     catchupDays = c.source.catchupDays,
                     userAgent = c.source.userAgent,
                     number = c.source.number,

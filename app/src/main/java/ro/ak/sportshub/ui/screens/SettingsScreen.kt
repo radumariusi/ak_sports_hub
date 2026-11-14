@@ -23,6 +23,8 @@ fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit) {
     val playlists by appContainer().playlists.let { r -> remember { r.observePlaylists() } }.collectAsStateWithLifecycle(initialValue = emptyList())
     val mapped by appContainer().epg.let { r -> remember { r.observeMappedCount() } }.collectAsStateWithLifecycle(initialValue = 0)
     val languages = prefs.preferredLanguages.joinToString(", ") { it.uppercase() }
+    val variantStore = appContainer().variantStore
+    val variants by variantStore.state.collectAsStateWithLifecycle()
 
     @Composable
     fun row(title: String, subtitle: String, value: String) {
@@ -45,6 +47,31 @@ fun SettingsScreen(onOpenPlaylists: () -> Unit, onOpenEpg: () -> Unit) {
                 subtitle = "Din playlisturi și externe, actualizare automată, decalaj orar",
                 onClick = onOpenEpg,
                 trailing = { Text(text = formatCount(mapped) + " canale", fontSize = 14.sp) },
+            )
+        }
+
+        item { SectionLabel("Canale și variante") }
+        item {
+            ListRow(
+                title = "Grupează variantele",
+                subtitle = "Același canal în 4K / FHD / HD / SD apare o singură dată; OK pornește varianta preferată",
+                onClick = { variantStore.update { it.copy(groupVariants = !it.groupVariants) } },
+                trailing = { Text(text = if (variants.groupVariants) "Da" else "Nu", fontSize = 14.sp) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Trecere automată la altă variantă",
+                subtitle = "Dacă o variantă nu pornește, încearcă următoarea, una câte una",
+                onClick = { variantStore.update { it.copy(autoFailover = !it.autoFailover) } },
+                trailing = { Text(text = if (variants.autoFailover) "Da" else "Nu", fontSize = 14.sp) },
+            )
+        }
+        item {
+            row(
+                "Alegerile tale",
+                "Variante preferate și corecții (calitate, limbă, unire, separare). Se schimbă din ecranul canalului",
+                "${variants.preferred.size} preferate · ${variants.corrections.size} corecții",
             )
         }
 

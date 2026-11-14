@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import ro.ak.sportshub.core.model.Quality
 
 @Dao
 interface PlaylistDao {
@@ -50,7 +51,7 @@ interface ChannelDao {
     @Query(
         """
         SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
-               p.name AS playlistName
+               p.name AS playlistName, c.groupKey
         FROM channels c JOIN playlists p ON p.id = c.playlistId
         WHERE c.groupId = :groupId
         ORDER BY c.position
@@ -62,7 +63,7 @@ interface ChannelDao {
     @Query(
         """
         SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
-               p.name AS playlistName
+               p.name AS playlistName, c.groupKey
         FROM channels c
         JOIN channels_fts ON c.id = channels_fts.rowid
         JOIN playlists p ON p.id = c.playlistId
@@ -81,7 +82,7 @@ interface ChannelDao {
         """
         SELECT c.id, c.playlistId, c.groupId, c.name, c.groupName, c.streamUrl, c.quality, c.language,
                c.number, c.catchupDays, COALESCE(c.userAgent, p.userAgent) AS userAgent,
-               p.name AS playlistName, p.enabled AS playlistEnabled
+               p.name AS playlistName, p.enabled AS playlistEnabled, c.groupKey
         FROM channels c JOIN playlists p ON p.id = c.playlistId
         WHERE c.id = :id
         """,
@@ -92,7 +93,7 @@ interface ChannelDao {
     @Query(
         """
         SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
-               p.name AS playlistName
+               p.name AS playlistName, c.groupKey
         FROM channels c JOIN playlists p ON p.id = c.playlistId
         WHERE c.groupId = :groupId
         ORDER BY c.position
@@ -128,6 +129,31 @@ interface ChannelDao {
         """,
     )
     suspend fun findByName(playlistId: Long, name: String, groupName: String): Long?
+
+    /**
+     * Toate variantele canalelor cu cheile [groupKeys], din playlisturile active, în ordinea
+     * playlisturilor și apoi a poziției (ordinea finală o dă `VariantOrder`).
+     * Cel mult ~900 de chei pe apel (limita SQLite de parametri).
+     */
+    @Query(
+        """
+        SELECT c.id, c.playlistId, c.name, c.groupName, c.quality, c.language, c.number, c.catchupDays,
+               p.name AS playlistName, c.groupKey
+        FROM channels c JOIN playlists p ON p.id = c.playlistId
+        WHERE p.enabled = 1 AND c.groupKey IN (:groupKeys)
+        ORDER BY p.sortOrder, p.id, c.position
+        """,
+    )
+    suspend fun variants(groupKeys: List<String>): List<ChannelWithPlaylist>
+
+    /** Aplică pe loc o corecție manuală (sau o anulează) tuturor intrărilor cu acest nume din playlist. */
+    @Query(
+        """
+        UPDATE channels SET groupKey = :groupKey, quality = :quality, language = :language
+        WHERE playlistId = :playlistId AND name = :name
+        """,
+    )
+    suspend fun relabel(playlistId: Long, name: String, groupKey: String, quality: Quality, language: String?)
 
     /** Canalele playlisturilor active, pe pagini (pentru potrivirea cu EPG-ul), după [afterId]. */
     @Query(
