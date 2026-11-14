@@ -23,7 +23,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import ro.ak.sportshub.core.common.LoadFormat
+import ro.ak.sportshub.core.common.LoadProgress
+import ro.ak.sportshub.core.common.LoadReporter
+import ro.ak.sportshub.core.common.LoadTask
 import ro.ak.sportshub.core.common.ConnectionGate
+import ro.ak.sportshub.core.common.CountingInputStream
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.EpgChannelEntity
 import ro.ak.sportshub.core.database.EpgDatabase
@@ -53,6 +58,11 @@ import ro.ak.sportshub.core.playlist.CacheTag
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistException
 
+/** Spațiul ocupat pe televizor, în octeți. */
+data class DiskUsage(val epgFiles: Long, val epgDatabase: Long, val channelsDatabase: Long) {
+    val total: Long get() = epgFiles + epgDatabase + channelsDatabase
+}
+
 /**
  * EPG-ul: descărcare (din playlist, de la furnizorul Xtream sau extern), citire XMLTV în flux,
  * potrivire canal ↔ EPG și interogări pentru „acum / urmează” și programul canalului.
@@ -71,9 +81,12 @@ class EpgRepository(
     private val downloader: PlaylistDownloader,
     private val gate: ConnectionGate,
     private val scope: CoroutineScope,
+    /** Încărcările în curs, cu numărătorile lor (pentru ecran). */
+    private val progress: LoadProgress = LoadProgress(),
 ) {
     private val dao = epgDb.epg()
     private val dir = File(context.noBackupFilesDir, "epg")
+    private val appContext = context.applicationContext
     private val mutex = Mutex()
     private val pending = AtomicBoolean(false)
     private val downloads = ConcurrentHashMap<Long, Job>()
@@ -86,6 +99,22 @@ class EpgRepository(
         combine(db.playlists().observeAll(), settings.settings) { playlists, s -> EpgSources.resolve(playlists.map(::info), s) }
 
     fun observeStates(): Flow<List<EpgSourceState>> = dao.observeStates()
+
+    /** Încărcările în curs (playlisturi, surse EPG, potrivire), cu numărătorile lor. */
+    val loads: StateFlow<List<LoadTask>> = progress.tasks
+
+    /** Cât ocupă pe televizor fișierele EPG păstrate și cele două baze de date. */
+    suspend fun diskUsage(): DiskUsage = withContext(Dispatchers.IO) {
+        fun database(name: String): Long {
+            val main = appContext.getDatabasePath(name)
+            return listOf(main, File(main.path + "-wal"), File(main.path + "-shm"), File(main.path + "-journal")).sumOf { it.length() }
+        }
+        DiskUsage(
+            epgFiles = dir.listFiles()?.sumOf { it.length() } ?: 0L,
+            epgDatabase = database("ak-epg.db"),
+            channelsDatabase = database("ak-sports-hub.db"),
+        )
+    }
 
     /** Câte canale din playlisturi au program. */
     fun observeMappedCount(): Flow<Int> = dao.observeMappedCount()
@@ -155,7 +184,10 @@ class EpgRepository(
         dao.deleteEndedBefore(now - TimeUnit.HOURS.toMillis(policy.hoursBack.toLong()))
     }
 
-    private suspend fun updateSource(s: EpgSource, wanted: WantedKeys, manual: Boolean, now: Long) {
+    private suspend fun updateSource(s: EpgSource, wanted: WantedKeys, manual: Boolean, now: Long) =
+        progress.track("epg-${s.key}", "EPG · ${s.label}", "se verifică") { report -> updateSource(s, wanted, manual, now, report) }
+
+    private suspend fun updateSource(s: EpgSource, wanted: WantedKeys, manual: Boolean, now: Long, report: LoadReporter) {
         val policy = settings.current.policy
         val file = File(dir, "${s.key}.xml")
         val tmp = File(dir, "${s.key}.tmp")
@@ -168,8 +200,9 @@ class EpgRepository(
             policy.isDue(state.lastUpdated, state.lastAttempt, state.lastError != null, now)
         if (due) {
             _status.value = "Se descarcă: ${s.label}"
+            report.phase("se descarcă")
             val previous = if (!manual && candidate != null) CacheTag(state.etag, state.lastModified) else null
-            when (val r = download(s, tmp, previous, manual)) {
+            when (val r = download(s, tmp, previous, manual, report)) {
                 Download.Busy -> Unit // playlistul e folosit de player: rămâne pentru rularea următoare
                 Download.NotModified -> state = state.copy(lastUpdated = now, lastAttempt = now, lastError = null)
                 is Download.Saved -> {
@@ -190,8 +223,9 @@ class EpgRepository(
         if (!fresh && state.parseSignature == signature) return
 
         _status.value = "Se citește programul: ${s.label}"
+        report.phase("se citește programul")
         state = try {
-            val stats = parse(s, input, wanted, now)
+            val stats = parse(s, input, wanted, now, report)
             if (fresh) {
                 file.delete()
                 if (!tmp.renameTo(file)) tmp.copyTo(file, overwrite = true).also { tmp.delete() }
@@ -229,10 +263,10 @@ class EpgRepository(
         data class Failed(val message: String) : Download
     }
 
-    private suspend fun download(s: EpgSource, target: File, previous: CacheTag?, manual: Boolean): Download {
+    private suspend fun download(s: EpgSource, target: File, previous: CacheTag?, manual: Boolean, report: LoadReporter): Download {
         val userAgent = s.playlistId?.let { db.playlists().get(it)?.userAgent }
         val block: suspend () -> PlaylistDownloader.Result = {
-            downloader.download(s.url, target, userAgent, previous, what = "EPG-ul")
+            downloader.download(s.url, target, userAgent, previous, what = "EPG-ul", onBytes = report::bytes)
         }
         return try {
             val result = if (!s.gated || s.playlistId == null) {
@@ -273,7 +307,7 @@ class EpgRepository(
     private class ParseResult(val stats: XmltvStats, val channelsKept: Int)
 
     /** Înlocuiește atomic programul sursei: o eroare la mijloc lasă programul vechi neatins. */
-    private suspend fun parse(s: EpgSource, file: File, wanted: WantedKeys, now: Long): ParseResult {
+    private suspend fun parse(s: EpgSource, file: File, wanted: WantedKeys, now: Long, report: LoadReporter): ParseResult {
         val ctx = currentCoroutineContext()
         val policy = settings.current.policy
         val parser = XmltvParser(
@@ -284,8 +318,9 @@ class EpgRepository(
         )
         return epgDb.runInTransaction<ParseResult> {
             dao.deleteChannelsBlocking(s.key)
-            val sink = RoomSink(s.key, wanted)
-            val stats = file.inputStream().use { parser.parse(it, sink) }
+            val sink = RoomSink(s.key, wanted, report)
+            val total = file.length()
+            val stats = CountingInputStream(file.inputStream()) { read -> report.bytes(read, total) }.use { parser.parse(it, sink) }
             sink.flush()
             dao.fillMissingStopsBlocking(s.key)
             ParseResult(stats, sink.channelCount)
@@ -293,9 +328,14 @@ class EpgRepository(
     }
 
     /** Scrie în loturi canalele EPG folosite și emisiunile lor. */
-    private inner class RoomSink(private val key: String, private val wanted: WantedKeys) : XmltvSink {
+    private inner class RoomSink(
+        private val key: String,
+        private val wanted: WantedKeys,
+        private val report: LoadReporter,
+    ) : XmltvSink {
         private val ids = HashMap<String, Long>()
         private val batch = ArrayList<ProgrammeEntity>(BATCH)
+        private var programmes = 0L
         val channelCount: Int get() = ids.size
 
         override fun onChannel(channel: XmltvChannel) {
@@ -303,6 +343,7 @@ class EpgRepository(
             ids[channel.id] = dao.insertChannelBlocking(
                 EpgChannelEntity(sourceKey = key, xmltvId = channel.id, displayNames = channel.displayNames.joinToString("\n")),
             )
+            report.count("canale", ids.size.toLong())
         }
 
         override fun wantsProgrammes(channelId: String): Boolean {
@@ -310,6 +351,7 @@ class EpgRepository(
             // Emisiuni pentru un canal nedeclarat în <channel>, dar cerut prin tvg-id.
             if (!wanted.wantsId(channelId)) return false
             ids[channelId] = dao.insertChannelBlocking(EpgChannelEntity(sourceKey = key, xmltvId = channelId, displayNames = ""))
+            report.count("canale", ids.size.toLong())
             return true
         }
 
@@ -324,6 +366,7 @@ class EpgRepository(
                 description = programme.description,
                 category = programme.category,
             )
+            report.count("emisiuni", ++programmes)
             if (batch.size >= BATCH) flush()
         }
 
@@ -347,7 +390,12 @@ class EpgRepository(
     }
 
     /** Reface tabelul canal → canal EPG pentru toate playlisturile active. */
-    private suspend fun rematch(sources: List<EpgSource>) {
+    private suspend fun rematch(sources: List<EpgSource>) =
+        progress.track("epg-potrivire", "Potrivirea canalelor cu programul", "se potrivesc canalele") { report ->
+            rematch(sources, report)
+        }
+
+    private suspend fun rematch(sources: List<EpgSource>, report: LoadReporter) {
         _status.value = "Se potrivesc canalele cu programul…"
         val playlists = db.playlists().all().filter { it.enabled }
         dao.deleteMapExcept(playlists.map { it.id }.ifEmpty { listOf(-1L) })
@@ -357,6 +405,9 @@ class EpgRepository(
         val matcher = EpgMatcher(epgChannels)
         val priorities = playlists.associate { it.id to EpgSources.priorityFor(it.id, sources) }
         val rows = HashMap<Long, MutableList<EpgMapEntity>>()
+        val totalChannels = playlists.sumOf { it.channelCount.toLong() }
+        var checked = 0L
+        var matched = 0L
         if (epgChannels.isNotEmpty()) {
             var after = 0L
             while (true) {
@@ -364,13 +415,20 @@ class EpgRepository(
                 val page = db.channels().channelsForEpg(after, PAGE)
                 for (c in page) {
                     val priority = priorities[c.playlistId] ?: continue
-                    val m = matcher.match(ChannelForEpg(c.id, c.tvgId, c.tvgName, c.name, c.groupName), priority) ?: continue
-                    rows.getOrPut(c.playlistId) { ArrayList() } += EpgMapEntity(c.id, c.playlistId, m.ref)
+                    checked++
+                    val m = matcher.match(ChannelForEpg(c.id, c.tvgId, c.tvgName, c.name, c.groupName), priority)
+                    if (m != null) {
+                        matched++
+                        rows.getOrPut(c.playlistId) { ArrayList() } += EpgMapEntity(c.id, c.playlistId, m.ref)
+                    }
                 }
+                report.phase("se potrivesc canalele: ${LoadFormat.count(checked)} din ${LoadFormat.count(totalChannels)}")
+                report.count("cu program", matched)
                 if (page.size < PAGE) break
                 after = page.last().id
             }
         }
+        report.phase("se salvează potrivirile")
         epgDb.withTransaction {
             for (p in playlists) {
                 dao.deleteMap(p.id)

@@ -34,6 +34,8 @@ class PlaylistDownloader(private val client: OkHttpClient) {
         previous: CacheTag? = null,
         /** Ce se descarcă, pentru mesajul de eroare („playlistul”, „EPG-ul”). */
         what: String = "playlistul",
+        /** Progresul: octeți primiți și mărimea totală (−1 dacă nu se știe). */
+        onBytes: (read: Long, total: Long) -> Unit = { _, _ -> },
     ): Result = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).apply {
             userAgent?.let { header("User-Agent", it) }
@@ -46,6 +48,8 @@ class PlaylistDownloader(private val client: OkHttpClient) {
                 if (response.code == 304) return@withContext Result.NotModified
                 if (!response.isSuccessful) throw httpError(response.code)
                 val body = response.body ?: throw PlaylistException("Serverul a trimis un răspuns gol.")
+                val total = body.contentLength()
+                var read = 0L
                 target.outputStream().buffered().use { out ->
                     body.byteStream().use { input ->
                         val buffer = ByteArray(64 * 1024)
@@ -54,6 +58,8 @@ class PlaylistDownloader(private val client: OkHttpClient) {
                             val n = input.read(buffer)
                             if (n < 0) break
                             out.write(buffer, 0, n)
+                            read += n
+                            onBytes(read, total)
                         }
                     }
                 }
