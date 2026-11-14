@@ -67,7 +67,7 @@ enum class Sport(
             return entries.firstOrNull { s -> s.keywords.any { k -> padded.contains(" $k ") } }
         }
 
-        internal fun fold(text: String): String =
+        fun fold(text: String): String =
             ChannelNameParser.fold(text).replace(Regex("""[^a-z0-9]+"""), " ").trim()
     }
 }
