@@ -81,9 +81,31 @@ class PlaylistRepository(
         val sourceChanged = old == null || old.url != playlist.url || old.username != playlist.username ||
             old.password != playlist.password || old.streamFormat != playlist.streamFormat ||
             old.userAgent != playlist.userAgent
-        dao.update(if (sourceChanged) playlist.copy(etag = null, lastModified = null) else playlist)
+        // Ecranul de editare poate ține o copie veche: starea importului (canale, EPG declarat, expirare)
+        // rămâne cea din bază, ca o salvare să nu șteargă ce a adus ultima actualizare.
+        val merged = if (old == null) playlist else playlist.copy(
+            lastUpdated = old.lastUpdated,
+            lastAttempt = old.lastAttempt,
+            lastError = old.lastError,
+            etag = old.etag,
+            lastModified = old.lastModified,
+            channelCount = old.channelCount,
+            skippedCount = old.skippedCount,
+            epgUrls = old.epgUrls,
+            expiresAt = old.expiresAt,
+            sortOrder = old.sortOrder,
+        )
+        dao.update(if (sourceChanged) merged.copy(etag = null, lastModified = null) else merged)
         if (old?.enabled != playlist.enabled) _changes.tryEmit(playlist.id)
         return playlist.id
+    }
+
+    /** Activează sau oprește un playlist (canalele lui apar sau nu în liste, EPG și Sports Hub). */
+    suspend fun setEnabled(id: Long, enabled: Boolean) {
+        val p = db.playlists().get(id) ?: return
+        if (p.enabled == enabled) return
+        db.playlists().update(p.copy(enabled = enabled))
+        _changes.tryEmit(id)
     }
 
     suspend fun delete(id: Long) {

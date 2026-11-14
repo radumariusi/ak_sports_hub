@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -143,6 +144,10 @@ class SportsRepository(
     /** Fișierele de la furnizori, citite o dată (cheia: cale + data modificării). */
     private val parsedFiles = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<SportEvent>>>()
     private val _status = MutableStateFlow<String?>(null)
+    private val _health = MutableStateFlow<Map<String, ProviderHealth>>(emptyMap())
+
+    /** Cum a mers ultima rundă de cereri la fiecare furnizor (cheia: [providerOf]) și câte meciuri a dat. */
+    val health: StateFlow<Map<String, ProviderHealth>> = _health.asStateFlow()
 
     val snapshot: StateFlow<SportsSnapshot> = _snapshot.asStateFlow()
 
@@ -250,7 +255,7 @@ class SportsRepository(
             if (tvOk > 0) changed = true
             errors += tvFailed
         }
-        _status.value = if (errors > 0) "$errors cereri nereușite; se folosesc datele salvate." else null
+        _status.value = if (errors > 0) failureSummary() else null
         return changed
     }
 
@@ -260,10 +265,41 @@ class SportsRepository(
         var failed = 0
         jobs.forEachIndexed { i, job ->
             _status.value = "$label (${i + 1}/${jobs.size})…"
-            if (download(job)) ok++ else failed++
+            var result = download(job)
+            // Prea multe cereri sau serverul ocupat: o singură reîncercare, după o pauză lungă.
+            if (result is Download.Failed && result.retry) {
+                delay(RETRY_GAP_MS)
+                result = download(job)
+            }
+            record(providerOf(job.url), result)
+            if (result == Download.Ok) ok++ else failed++
             if (i < jobs.lastIndex) delay(REQUEST_GAP_MS) // cereri rare, una câte una
         }
         return ok to failed
+    }
+
+    private fun record(provider: String, result: Download) {
+        _health.update { all ->
+            val old = all[provider] ?: ProviderHealth()
+            val now = System.currentTimeMillis()
+            // O rundă nouă (după mai mult de 10 minute) pornește numărătoarea de la zero.
+            val base = if (now - old.at > ROUND_MS) old.copy(ok = 0, failed = 0, lastError = null) else old
+            all + (
+                provider to when (result) {
+                    Download.Ok -> base.copy(ok = base.ok + 1, at = now, lastSuccess = now)
+                    is Download.Failed -> base.copy(failed = base.failed + 1, at = now, lastError = result.reason)
+                }
+                )
+        }
+    }
+
+    /** „12 cereri nereușite (TheSportsDB 10, LiveSoccerTV 2)…”, din runda curentă. */
+    private fun failureSummary(): String {
+        val now = System.currentTimeMillis()
+        val parts = _health.value.filter { (_, h) -> h.failed > 0 && now - h.at <= ROUND_MS }
+        val total = parts.values.sumOf { it.failed }
+        val detail = parts.entries.joinToString(", ") { (p, h) -> "${providerLabel(p)} ${h.failed}" }
+        return "$total cereri nereușite ($detail); se folosesc datele salvate. Detalii: Setări → Sports Hub."
     }
 
     // ---------- Sofascore: posturile TV ----------
@@ -389,21 +425,30 @@ class SportsRepository(
 
     private fun isStale(f: File, maxAge: Long) = !f.exists() || System.currentTimeMillis() - f.lastModified() > maxAge
 
-    private fun download(job: Job): Boolean = runCatching {
+    private sealed interface Download {
+        data object Ok : Download
+        data class Failed(val reason: String, val retry: Boolean = false) : Download
+    }
+
+    private fun download(job: Job): Download = try {
         val target = job.file
         val request = Request.Builder().url(job.url)
             .header("Accept", if (job.html != null) "text/html,application/xhtml+xml" else "application/json")
             .apply { if (job.html != null || job.url.contains("sofascore")) header("User-Agent", BROWSER_UA) }
             .build()
         http.newCall(request).execute().use { r ->
-            if (!r.isSuccessful) return false
-            val body = r.body?.string() ?: return false
+            if (!r.isSuccessful) {
+                return Download.Failed(httpReason(r.code), retry = r.code == 429 || r.code >= 500)
+            }
+            val body = r.body?.string() ?: return Download.Failed("răspuns gol")
             // O pagină de eroare (sau de verificare anti-robot) nu înlocuiește fișierul bun de dinainte.
             if (job.html != null) {
-                if (!job.html.invoke(body)) return false
+                if (!job.html.invoke(body)) return Download.Failed("pagină de verificare anti-robot sau cu alt format")
             } else {
                 val trimmed = body.trimStart()
-                if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false
+                if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+                    return Download.Failed(if (trimmed.isEmpty()) "răspuns gol" else "răspunsul nu e JSON (limită sau cheie)", retry = true)
+                }
             }
             val tmp = File(target.parentFile, target.name + ".tmp")
             tmp.writeText(body)
@@ -411,9 +456,25 @@ class SportsRepository(
                 target.delete()
                 tmp.renameTo(target)
             }
-            true
+            Download.Ok
         }
-    }.getOrDefault(false)
+    } catch (e: java.net.UnknownHostException) {
+        Download.Failed("fără rețea sau adresă blocată (DNS)")
+    } catch (e: java.net.SocketTimeoutException) {
+        Download.Failed("timp depășit", retry = true)
+    } catch (e: javax.net.ssl.SSLException) {
+        Download.Failed("eroare de conexiune securizată (SSL)")
+    } catch (e: Exception) {
+        Download.Failed("eroare de rețea (${e.javaClass.simpleName})")
+    }
+
+    private fun httpReason(code: Int): String = when (code) {
+        403 -> "HTTP 403: acces refuzat (blocare anti-robot)"
+        404 -> "HTTP 404: pagina nu există"
+        429 -> "HTTP 429: prea multe cereri"
+        in 500..599 -> "HTTP $code: eroare la server"
+        else -> "HTTP $code"
+    }
 
     /** Fișierele zilelor dinainte de [keepFrom] se șterg. */
     private fun cleanup(keepFrom: LocalDate) {
@@ -497,6 +558,10 @@ class SportsRepository(
         val until = now + WINDOW_AHEAD_MS
 
         val (events, tv) = cachedEvents(s)
+        val counts = events.groupingBy { it.provider }.eachCount()
+        _health.update { all ->
+            (all.keys + counts.keys).associateWith { p -> (all[p] ?: ProviderHealth()).copy(events = counts[p] ?: 0) }
+        }
         val scan = scanCache ?: scanChannels().also { scanCache = it }
         val broadcasts = loadBroadcasts(scan.sportEpg, from, until)
         val zone = s.eventZoneId()
@@ -634,6 +699,8 @@ class SportsRepository(
         val FRESH_NEAR_MS = TimeUnit.HOURS.toMillis(3)
         val FRESH_FAR_MS = TimeUnit.HOURS.toMillis(12)
         const val REQUEST_GAP_MS = 2_500L
+        const val RETRY_GAP_MS = 15_000L
+        val ROUND_MS = TimeUnit.MINUTES.toMillis(10)
         val WINDOW_BACK_MS = TimeUnit.HOURS.toMillis(12)
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
         const val IN_CHUNK = 500
@@ -662,3 +729,35 @@ fun MatchEntry.archiveSource(settings: SportsSettings): ChannelWithPlaylist? =
         .flatMap { it.members }
         .firstOrNull { !it.rejected && (it.channel.catchupDays ?: 0) > 0 }
         ?.channel
+
+/** Starea unui furnizor de meciuri: cererile ultimei runde, motivul ultimei erori și câte meciuri are salvate. */
+data class ProviderHealth(
+    val ok: Int = 0,
+    val failed: Int = 0,
+    val lastError: String? = null,
+    /** Ultima cerere (ms). */
+    val at: Long = 0,
+    val lastSuccess: Long? = null,
+    /** Meciurile citite acum din fișierele salvate ale furnizorului. */
+    val events: Int = 0,
+)
+
+/** Furnizorul unei adrese (aceleași chei ca `SportEvent.provider`). */
+fun providerOf(url: String): String {
+    val u = url.lowercase()
+    return when {
+        "thesportsdb" in u -> TheSportsDb.PROVIDER
+        "livesoccertv" in u -> "livesoccertv"
+        "sofascore" in u -> "sofascore"
+        "futbolenlatv" in u -> FutbolEnLaTv.PROVIDER
+        else -> "altul"
+    }
+}
+
+fun providerLabel(provider: String): String = when (provider) {
+    TheSportsDb.PROVIDER -> "TheSportsDB"
+    "livesoccertv" -> "LiveSoccerTV"
+    "sofascore" -> "Sofascore"
+    FutbolEnLaTv.PROVIDER -> "FutbolEnLaTV"
+    else -> provider
+}

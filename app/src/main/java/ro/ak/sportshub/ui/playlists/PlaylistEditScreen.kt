@@ -237,7 +237,11 @@ fun PlaylistEditScreen(playlistId: Long, newType: PlaylistType, onClose: () -> U
                 ListRow(
                     title = "Activ",
                     subtitle = "Canalele playlisturilor inactive nu apar în liste",
-                    onClick = { draft = draft.copy(enabled = !draft.enabled) },
+                    onClick = {
+                        draft = draft.copy(enabled = !draft.enabled)
+                        message = if (draft.enabled) "Activ: canalele lui apar după salvare."
+                        else "Atenție: un playlist inactiv își ascunde canalele din Live TV, EPG și Sports Hub. Salvează ca să aplici."
+                    },
                     trailing = { Text(text = if (draft.enabled) "Da" else "Nu", fontSize = 14.sp) },
                 )
             }
