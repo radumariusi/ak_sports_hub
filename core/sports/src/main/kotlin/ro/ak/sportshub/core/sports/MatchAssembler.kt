@@ -10,7 +10,11 @@ import kotlin.math.abs
  * 1. meciurile furnizorilor se deduplică (aceleași echipe, ora ± 15 minute);
  * 2. fiecare emisiune EPG recunoscută se leagă de meciul cu aceleași echipe și o oră compatibilă
  *    (emisiunea poate începe cu până la 3 ore înainte, cu studioul, și trebuie să prindă începutul);
- * 3. emisiunile rămase devin meciuri „doar din EPG”, strânse pe echipe.
+ * 3. emisiunile rămase devin meciuri „doar din EPG”, strânse pe echipe;
+ * 4. canalele EVENT / PPV din playlist ([EventSlot]) se leagă de meciul lor; cele rămase devin meciuri
+ *    „doar din playlist”.
+ *
+ * Evenimentele fără două echipe (curse, etape, gale) se compară după nume cu [EventNames].
  */
 object MatchAssembler {
 
@@ -27,6 +31,7 @@ object MatchAssembler {
         broadcasts: List<MatchBroadcast>,
         now: Long,
         tv: List<TheSportsDb.TvListing> = emptyList(),
+        slots: List<EventSlot> = emptyList(),
     ): List<Match> {
         val stationsById = tv.groupBy({ it.eventId }, { it.station })
         val merged = dedupe(events.map { e ->
@@ -42,10 +47,13 @@ object MatchAssembler {
             val best = merged.indices
                 .filter { i ->
                     val e = merged[i]
-                    e.away.isNotBlank() &&
-                        TeamNames.samePair(e.home, e.away, x.home, x.away) &&
-                        b.start >= e.start - BROADCAST_LEAD_MS && b.start <= e.start + BROADCAST_LATE_MS &&
-                        b.stop > e.start
+                    b.start >= e.start - BROADCAST_LEAD_MS && b.start <= e.start + BROADCAST_LATE_MS && b.stop > e.start &&
+                        if (x.away.isBlank()) {
+                            e.away.isBlank() && sameEvent(e.home, sportOf(e), e.start, x.home, x.sport, b.start, BROADCAST_LEAD_MS) &&
+                                EventNames.same(e.home, x.home) != false
+                        } else {
+                            e.away.isNotBlank() && TeamNames.samePair(e.home, e.away, x.home, x.away)
+                        }
                 }
                 .minByOrNull { abs(merged[it].start - b.start) }
             if (best != null) attached.getOrPut(best) { ArrayList() } += mb else loose += mb
@@ -53,7 +61,101 @@ object MatchAssembler {
 
         val fromEvents = merged.mapIndexed { i, e -> fromEvent(e, attached[i].orEmpty(), now) }
         val fromEpg = cluster(loose).map { fromBroadcasts(it, now) }
-        return (fromEvents + fromEpg).sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
+        return attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
+    }
+
+    private fun sportOf(e: SportEvent): Sport? = Sport.fromSportsDb(e.sport) ?: Sport.detect(e.competition, e.home)
+
+    /** Evenimente fără echipe: același sport, ora la cel mult [window], nume compatibile. */
+    private fun sameEvent(a: String, sa: Sport?, ta: Long, b: String, sb: Sport?, tb: Long, window: Long): Boolean =
+        EventNames.match(a, sa, ta, b, sb, tb, window)
+
+    /**
+     * Leagă canalele EVENT / PPV de meciuri: aceleași echipe (sau același eveniment) și ora din nume
+     * cu cel mult o oră înainte de start sau 30 de minute după. Un canal fără oră se leagă doar dacă
+     * un singur meci din următoarele 24 de ore se potrivește. Cele rămase devin meciuri „doar din playlist”.
+     */
+    private fun attachSlots(matches: List<Match>, slots: List<EventSlot>, now: Long): List<Match> {
+        if (slots.isEmpty()) return matches
+        val extra = HashMap<Int, MutableList<Long>>()
+        val loose = ArrayList<EventSlot>()
+        for (slot in slots) {
+            val home = slot.home ?: continue
+            val away = slot.away.orEmpty()
+            val candidates = matches.indices.filter { i ->
+                val m = matches[i]
+                val timeOk = slot.start?.let { it >= m.start - SLOT_LEAD_MS && it <= m.start + BROADCAST_LATE_MS }
+                    ?: (m.end > now - SLOT_LEAD_MS && m.start < now + SLOT_UNTIMED_MS)
+                timeOk && sameAs(m, home, away, slot.sport, slot.start ?: m.start)
+            }
+            val best = when {
+                candidates.isEmpty() -> null
+                slot.start != null -> candidates.minBy { abs(matches[it].start - slot.start) }
+                candidates.size == 1 -> candidates.single()
+                else -> null
+            }
+            if (best != null) extra.getOrPut(best) { ArrayList() } += slot.channelId else if (slot.start != null) loose += slot
+        }
+        val updated = matches.mapIndexed { i, m ->
+            val ids = extra[i] ?: return@mapIndexed m
+            m.copy(eventChannels = (m.eventChannels + ids).distinct(), providers = m.providers + EVENT_PROVIDER)
+        }
+        return updated + clusterSlots(loose).map { fromSlots(it, now) }
+    }
+
+    private fun sameAs(m: Match, home: String, away: String, sport: Sport?, start: Long): Boolean =
+        if (away.isBlank()) {
+            m.away.isBlank() && EventNames.same(m.home, home) != false &&
+                sameEvent(m.home, m.sport, m.start, home, sport, start, SLOT_LEAD_MS)
+        } else {
+            m.away.isNotBlank() && TeamNames.samePair(m.home, m.away, home, away)
+        }
+
+    private fun clusterSlots(slots: List<EventSlot>): List<List<EventSlot>> {
+        val groups = ArrayList<MutableList<EventSlot>>()
+        for (s in slots.sortedBy { it.start }) {
+            val g = groups.firstOrNull { g ->
+                val f = g.first()
+                val fs = f.start ?: return@firstOrNull false
+                val ss = s.start ?: return@firstOrNull false
+                if (f.away.isNullOrBlank() != s.away.isNullOrBlank()) return@firstOrNull false
+                if (s.away.isNullOrBlank()) {
+                    sameEvent(f.home.orEmpty(), f.sport, fs, s.home.orEmpty(), s.sport, ss, DEDUP_WINDOW_MS)
+                } else {
+                    abs(fs - ss) <= DEDUP_WINDOW_MS && TeamNames.samePair(f.home.orEmpty(), f.away.orEmpty(), s.home.orEmpty(), s.away.orEmpty())
+                }
+            }
+            if (g == null) groups += mutableListOf(s) else g += s
+        }
+        return groups
+    }
+
+    private fun fromSlots(slots: List<EventSlot>, now: Long): Match {
+        val first = slots.first()
+        val start = slots.minOf { it.start ?: Long.MAX_VALUE }
+        val sport = slots.firstNotNullOfOrNull { it.sport }
+        val end = start + (sport?.typicalDurationMs ?: Sport.DEFAULT_DURATION_MS)
+        val status = when {
+            now < start -> MatchStatus.SCHEDULED
+            now < end -> MatchStatus.LIVE
+            else -> MatchStatus.FINISHED
+        }
+        val home = first.home.orEmpty()
+        val away = first.away.orEmpty()
+        val key = if (away.isBlank()) EventNames.key(home) else listOf(TeamNames.key(home), TeamNames.key(away)).sorted().joinToString("|")
+        val day = Instant.ofEpochMilli(start).atOffset(ZoneOffset.UTC).toLocalDate()
+        return Match(
+            id = "$EVENT_PROVIDER:$key:$day",
+            sport = sport,
+            competition = slots.firstNotNullOfOrNull { it.competition },
+            home = home,
+            away = away,
+            start = start,
+            end = end,
+            status = status,
+            providers = setOf(EVENT_PROVIDER),
+            eventChannels = slots.map { it.channelId }.distinct(),
+        )
     }
 
     /** Aceleași echipe și ora ± 15 minute: același meci (de la furnizori diferiți sau dublat). */
@@ -63,7 +165,9 @@ object MatchAssembler {
             val i = out.indexOfFirst { o ->
                 abs(o.start - e.start) <= DEDUP_WINDOW_MS && (
                     (o.provider == e.provider && o.providerId == e.providerId) ||
-                        (o.away.isNotBlank() && e.away.isNotBlank() && TeamNames.samePair(o.home, o.away, e.home, e.away))
+                        (o.away.isNotBlank() && e.away.isNotBlank() && TeamNames.samePair(o.home, o.away, e.home, e.away)) ||
+                        (o.away.isBlank() && e.away.isBlank() && EventNames.same(o.home, e.home) == true &&
+                            sameEvent(o.home, sportOf(o), o.start, e.home, sportOf(e), e.start, DEDUP_WINDOW_MS))
                     )
             }
             if (i < 0) out += e else out[i] = mergeEvents(out[i], e)
@@ -119,8 +223,14 @@ object MatchAssembler {
         for (mb in loose.sortedBy { it.broadcast.start }) {
             val g = groups.firstOrNull { g ->
                 val first = g.first()
-                abs(first.broadcast.start - mb.broadcast.start) <= EPG_CLUSTER_MS &&
-                    TeamNames.samePair(first.extracted.home, first.extracted.away, mb.extracted.home, mb.extracted.away)
+                val a = first.extracted
+                val b = mb.extracted
+                abs(first.broadcast.start - mb.broadcast.start) <= EPG_CLUSTER_MS && when {
+                    a.away.isBlank() != b.away.isBlank() -> false
+                    a.away.isBlank() ->
+                        sameEvent(a.home, a.sport, first.broadcast.start, b.home, b.sport, mb.broadcast.start, DEDUP_WINDOW_MS)
+                    else -> TeamNames.samePair(a.home, a.away, b.home, b.away)
+                }
             }
             if (g == null) groups += mutableListOf(mb) else g += mb
         }
@@ -138,10 +248,14 @@ object MatchAssembler {
             now >= end -> MatchStatus.FINISHED
             else -> MatchStatus.SCHEDULED
         }
-        val keys = listOf(TeamNames.key(first.home), TeamNames.key(first.away)).sorted()
+        val key = if (first.away.isBlank()) {
+            EventNames.key(first.home)
+        } else {
+            listOf(TeamNames.key(first.home), TeamNames.key(first.away)).sorted().joinToString("|")
+        }
         val day = Instant.ofEpochMilli(start).atOffset(ZoneOffset.UTC).toLocalDate()
         return Match(
-            id = "$EPG_PROVIDER:${keys.joinToString("|")}:$day",
+            id = "$EPG_PROVIDER:$key:$day",
             sport = mbs.firstNotNullOfOrNull { it.extracted.sport },
             competition = mbs.firstNotNullOfOrNull { it.extracted.competition },
             home = first.home,
@@ -155,4 +269,9 @@ object MatchAssembler {
     }
 
     const val EPG_PROVIDER = "epg"
+
+    /** Meciurile găsite în numele canalelor EVENT / PPV din playlist. */
+    const val EVENT_PROVIDER = "playlist"
+    private val SLOT_LEAD_MS = TimeUnit.HOURS.toMillis(1)
+    private val SLOT_UNTIMED_MS = TimeUnit.HOURS.toMillis(24)
 }

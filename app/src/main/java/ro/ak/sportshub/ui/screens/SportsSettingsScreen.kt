@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.sports.Sport
+import ro.ak.sportshub.data.EventZones
 import ro.ak.sportshub.data.SportsSettings
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ChoiceDialog
@@ -23,7 +24,7 @@ import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
 
-private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS }
+private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE }
 
 /** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
 @Composable
@@ -127,9 +128,42 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "Sofascore",
-                subtitle = "Neoficial, opțional: programul și scorurile pentru sporturile alese (azi și mâine, la 3 ore), fără posturi TV",
+                subtitle = "Neoficial, opțional: programul și scorurile pentru sporturile alese (azi și mâine, la 3 ore)",
                 onClick = { update(true) { it.copy(sofascoreEnabled = !it.sofascoreEnabled) } },
                 trailing = { SettingValue(if (s.sofascoreEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Posturi TV de la Sofascore",
+                subtitle = "Posturile pe țară, toate sporturile, doar din țările canalelor tale; cel mult 25 de meciuri pe rundă " +
+                    "(favoritele, apoi cele fără sursă sigură). Merge doar cu Sofascore pornit",
+                onClick = { update(true) { it.copy(sofascoreTv = !it.sofascoreTv) } },
+                trailing = { SettingValue(if (!s.sofascoreEnabled) "oprit" else if (s.sofascoreTv) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "FutbolEnLaTV",
+                subtitle = "Neoficial, opțional: ~18 sporturi pe zi (fotbal, baschet, F1, MotoGP, ciclism, MMA, golf…) cu posturile din Spania; o pagină la 3 ore",
+                onClick = { update(true) { it.copy(futbolEnLaTvEnabled = !it.futbolEnLaTvEnabled) } },
+                trailing = { SettingValue(if (s.futbolEnLaTvEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Canale EVENT / PPV din playlisturi",
+                subtitle = "Meciul citit din numele canalului („EVENT 03: UFC 310 20:00”), ca sursă sigură și în tabul Evenimente. Fără rețea",
+                onClick = { update(false) { it.copy(eventChannels = !it.eventChannels) } },
+                trailing = { SettingValue(if (s.eventChannels) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Fusul orelor din numele canalelor EVENT",
+                subtitle = "Pentru orele scrise fără fus („20:00”); „20:00 UK” sau „7 PM ET” se citesc oricum corect",
+                onClick = { dialog = SportsDialog.EVENT_ZONE },
+                trailing = { SettingValue(EventZones.firstOrNull { it.first == s.eventZone }?.second ?: s.eventZone) },
             )
         }
         item {
@@ -257,6 +291,16 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 update(false) { it.copy(favorites = it.favorites.copy(competitions = list)) }
+                dialog = null
+            },
+        )
+        SportsDialog.EVENT_ZONE -> ChoiceDialog(
+            title = "Fusul orelor din numele canalelor EVENT",
+            options = EventZones.map { it.second },
+            selectedIndex = EventZones.indexOfFirst { it.first == s.eventZone },
+            onDismiss = { dialog = null },
+            onSelect = { i ->
+                update(false) { it.copy(eventZone = EventZones[i].first) }
                 dialog = null
             },
         )

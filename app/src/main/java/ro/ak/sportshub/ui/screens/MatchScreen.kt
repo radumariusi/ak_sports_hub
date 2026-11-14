@@ -42,6 +42,9 @@ import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.sports.Confidence
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.MatchSource
+import ro.ak.sportshub.core.sports.SourceDiagnosis
+import ro.ak.sportshub.core.sports.StationNames
+import ro.ak.sportshub.core.sports.StationOutcome
 import ro.ak.sportshub.core.sports.Verdict
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.data.MatchDetailsState
@@ -88,6 +91,10 @@ fun MatchScreen(
     var menuFor by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
     /** Căutarea unui canal de adăugat ca sursă: null = închisă, "" = se cere textul. */
     var addQuery by remember { mutableStateOf<String?>(null) }
+    /** „De ce nu are sursă?”: în locul listei de surse apar posturile anunțate și ce s-a găsit pentru ele. */
+    var showWhy by rememberSaveable { mutableStateOf(false) }
+    /** Postul anunțat pe care îl legi de un canal: (post, căutare); căutarea null = se cere textul. */
+    var linkStation by remember { mutableStateOf<Pair<String, String?>?>(null) }
     val firstTab = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
@@ -145,7 +152,14 @@ fun MatchScreen(
             firstTabModifier = Modifier.focusRequester(firstTab),
         )
         when (tab) {
-            0 -> LazyColumn(
+            0 -> if (showWhy) {
+                WhyNoSource(
+                    entry = entry,
+                    onBack = { showWhy = false },
+                    onLink = { station -> linkStation = station to null },
+                    modifier = Modifier.weight(1f),
+                )
+            } else LazyColumn(
                 modifier = Modifier.padding(top = 10.dp).weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -170,11 +184,18 @@ fun MatchScreen(
                             }
                         }
                         ActionButton(text = "+ Adaugă un canal", onClick = { addQuery = "" })
-                        val store = container.sportsSettings
                         ActionButton(
-                            text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
-                            onClick = { store.toggleFavoriteTeam(m.home) },
+                            text = if (entry.summary.sure == 0) "? De ce nu are sursă" else "? De unde vin sursele",
+                            onClick = { showWhy = true },
                         )
+                        val store = container.sportsSettings
+                        // La o cursă sau o gală „echipa” e numele evenimentului: nu se poate marca drept echipă favorită.
+                        if (!m.isSingleEvent) {
+                            ActionButton(
+                                text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
+                                onClick = { store.toggleFavoriteTeam(m.home) },
+                            )
+                        }
                         if (m.away.isNotBlank()) {
                             ActionButton(
                                 text = (if (settings.favorites.isTeam(m.away)) "★ " else "☆ ") + m.away,
@@ -193,8 +214,9 @@ fun MatchScreen(
                     item {
                         Text(
                             text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
-                                "când un post anunțat are același nume cu un canal al tău (sau e în dicționarul de posturi) " +
-                                "ori după regulile de drepturi TV. Poți adăuga un canal de mână cu „+ Adaugă un canal”.",
+                                "când un canal EVENT / PPV are meciul în nume, când un post anunțat are același nume cu un canal al tău " +
+                                "(sau e în dicționarul de posturi) ori după regulile de drepturi TV. „? De ce nu are sursă” arată posturile " +
+                                "anunțate care lipsesc; poți adăuga și un canal de mână cu „+ Adaugă un canal”.",
                             fontSize = 14.sp,
                             color = AkColors.TextDim,
                             modifier = Modifier.padding(14.dp),
@@ -211,7 +233,10 @@ fun MatchScreen(
                     } else if (!head.rejected && head.confidence.guess && !guessesShown) {
                         guessesShown = true
                         item(key = "t:guess") {
-                            SectionLabel("Presupuse, după drepturile TV ale competiției", modifier = Modifier.padding(top = 14.dp))
+                            SectionLabel(
+                                "Presupuse (competiții învățate, canale dedicate, drepturi TV)",
+                                modifier = Modifier.padding(top = 14.dp),
+                            )
                         }
                     }
                     item(key = "h:" + family.key) {
@@ -285,9 +310,10 @@ fun MatchScreen(
             title = src.channel.name,
             hint = when (src.origin) {
                 Confidence.STATION -> "Postul anunțat „${src.station}” se leagă (sau nu) de canalul ăsta și la meciurile viitoare."
-                Confidence.RIGHTS, Confidence.LEARNED, Confidence.CONFIRMED ->
+                Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->
                     "Se ține minte pentru meciurile din ${m.competition ?: "aceeași competiție"}."
                 Confidence.EPG -> "Doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
+                Confidence.EVENT -> "Doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
             },
             options = options.map { it.first },
             selectedIndex = options.indexOfFirst { verdict != null && it.second == verdict },
@@ -297,6 +323,27 @@ fun MatchScreen(
                 menuFor = null
             },
         )
+    }
+
+    linkStation?.let { (station, query) ->
+        if (query == null) {
+            TextInputDialog(
+                title = "Leagă „$station” de un canal",
+                initial = StationNames.splitCountry(station).first,
+                hint = "Numele canalului tău care e postul ăsta. Se ține minte în dicționar, pentru toate meciurile.",
+                onDismiss = { linkStation = null },
+                onConfirm = { text -> linkStation = text.trim().takeIf { it.isNotEmpty() }?.let { station to it } },
+            )
+        } else {
+            ChannelPickerDialog(
+                query = query,
+                onDismiss = { linkStation = null },
+                onPick = { c ->
+                    container.sports.linkStation(station, c.groupKey)
+                    linkStation = null
+                },
+            )
+        }
     }
 
     when (val q = addQuery) {
@@ -359,3 +406,99 @@ private const val PICKER_LIMIT = 200
 
 /** „De la început” pornește arhiva cu două minute înainte de ora de start. */
 private const val ARCHIVE_LEAD_MS = 120_000L
+
+/** Numele afișate ale furnizorilor de meciuri. */
+private val ProviderNames = mapOf(
+    "thesportsdb" to "TheSportsDB", "livesoccertv" to "LiveSoccerTV", "sofascore" to "Sofascore",
+    "futbolenlatv" to "FutbolEnLaTV", "epg" to "EPG-ul tău", "playlist" to "canale EVENT / PPV",
+)
+
+/**
+ * „De ce nu are sursă?”: de unde vine meciul, posturile anunțate (găsite, din altă țară, respinse, lipsă),
+ * EPG-ul, canalele EVENT / PPV și regulile de drepturi TV. OK pe un post lipsă îl leagă de un canal.
+ */
+@Composable
+private fun WhyNoSource(
+    entry: ro.ak.sportshub.data.MatchEntry,
+    onBack: () -> Unit,
+    onLink: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val container = appContainer()
+    val knowledge by container.sportsKnowledge.state.collectAsStateWithLifecycle()
+    val diagnosis by produceState<SourceDiagnosis?>(null, entry, knowledge) { value = container.sports.diagnose(entry.match.id) }
+    val firstRow = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
+    LazyColumn(modifier = modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        item { ListRow(title = "← Înapoi la surse", onClick = onBack, modifier = Modifier.focusRequester(firstRow)) }
+        val d = diagnosis
+        if (d == null) {
+            item { Text(text = "Se verifică…", fontSize = 14.sp, color = AkColors.TextDim, modifier = Modifier.padding(14.dp)) }
+            return@LazyColumn
+        }
+        item {
+            Text(
+                text = "Meciul vine de la: " + d.providers.map { ProviderNames[it] ?: it }.sorted().joinToString(", ") + ". " +
+                    "Surse găsite: ${entry.summary.sure} sigure sau probabile, ${entry.summary.count - entry.summary.sure} presupuse.",
+                fontSize = 14.sp,
+                color = AkColors.TextDim,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+        item { SectionLabel("Posturi anunțate (OK pe unul lipsă: leagă-l de canalul tău)", modifier = Modifier.padding(top = 6.dp)) }
+        if (d.stations.isEmpty()) {
+            item {
+                Text(
+                    text = "Niciun furnizor nu a anunțat posturi pentru meciul ăsta. Posturile vin de la LiveSoccerTV (fotbal), " +
+                        "FutbolEnLaTV (Spania, multe sporturi), Sofascore (pe țară) și TheSportsDB; le pornești din Setări → Sports Hub.",
+                    fontSize = 13.sp,
+                    color = AkColors.TextDim,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                )
+            }
+        }
+        items(d.stations, key = { "st:" + it.station.name + "|" + it.station.country }) { c ->
+            val linkable = c.outcome == StationOutcome.MISSING || c.outcome == StationOutcome.OTHER_COUNTRY
+            ListRow(
+                title = c.station.name + (c.station.country?.let { " ($it)" } ?: ""),
+                subtitle = c.outcome.label + if (c.groupKeys.isNotEmpty() && c.outcome != StationOutcome.MISSING) {
+                    ": " + c.groupKeys.take(3).joinToString(", ") { it.substringAfter(':') } + if (c.groupKeys.size > 3) "…" else ""
+                } else {
+                    ""
+                },
+                onClick = { if (linkable) onLink(c.station.name) },
+                trailing = {
+                    Text(
+                        text = when (c.outcome) {
+                            StationOutcome.FOUND, StationOutcome.FROM_DICTIONARY -> "✓"
+                            StationOutcome.BLOCKED -> "✕"
+                            else -> "lipsă"
+                        },
+                        fontSize = 14.sp,
+                        color = if (linkable) AkColors.Live else AkColors.TextDim,
+                    )
+                },
+            )
+        }
+        item { SectionLabel("Celelalte căi", modifier = Modifier.padding(top = 10.dp)) }
+        item {
+            Text(
+                text = listOf(
+                    if (d.epgBroadcasts > 0) "EPG: ${d.epgBroadcasts} emisiuni cu meciul pe canalele tale." else
+                        "EPG: nicio emisiune cu meciul (canalul care îl transmite poate să nu aibă EPG; vezi Dicționar → Fără EPG).",
+                    if (d.eventChannels > 0) "Canale EVENT / PPV: ${d.eventChannels} cu meciul în nume." else
+                        "Canale EVENT / PPV: niciunul cu meciul în nume.",
+                    if (d.rules.isEmpty()) "Drepturi TV: nicio regulă pentru competiția meciului." else
+                        "Drepturi TV: " + d.rules.joinToString("; ") { r ->
+                            r.rule.label + " → " + (if (r.groupKeys.isEmpty()) "niciun canal găsit" else "${r.groupKeys.size} canale") +
+                                (if (r.missing.isNotEmpty()) " (lipsă: " + r.missing.joinToString(", ") + ")" else "")
+                        },
+                    if (d.learned > 0) "Învățat: ${d.learned} canale confirmate la alte meciuri din competiție." else null,
+                    if (d.rejected > 0) "Respinse de tine la meciul ăsta: ${d.rejected}." else null,
+                ).filterNotNull().joinToString("\n"),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+    }
+}

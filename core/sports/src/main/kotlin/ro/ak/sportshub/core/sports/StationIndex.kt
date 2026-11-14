@@ -44,6 +44,9 @@ class StationIndex(groupKeys: Collection<String>) {
         return out.toList()
     }
 
+    /** Prefixele de țară ale canalelor tale („uk”, „ro”…), pentru a cere doar posturile din țările tale. */
+    fun countries(): Set<String> = byKey.values.flatten().mapNotNull { it.first }.toSet()
+
     /** Există canale cu numele ăsta (fără să conteze țara)? Pentru „posturi fără canal” din dicționar. */
     fun knows(compactName: String): Boolean = byKey.containsKey(compactName)
 
@@ -68,13 +71,15 @@ object Countries {
         "ireland" to setOf("ie", "uk", "en"), "usa" to setOf("us", "usa"), "united states" to setOf("us", "usa"),
         "canada" to setOf("ca"), "australia" to setOf("au"), "romania" to setOf("ro"), "moldova" to setOf("md", "ro"),
         "germany" to setOf("de", "ger"), "austria" to setOf("at", "de"), "switzerland" to setOf("ch"),
-        "france" to setOf("fr"), "italy" to setOf("it"), "spain" to setOf("es"), "portugal" to setOf("pt"),
+        "france" to setOf("fr"), "italy" to setOf("it"), "portugal" to setOf("pt"),
         "netherlands" to setOf("nl"), "belgium" to setOf("be"), "poland" to setOf("pl"), "hungary" to setOf("hu"),
         "turkey" to setOf("tr"), "greece" to setOf("gr"), "bulgaria" to setOf("bg"), "serbia" to setOf("rs"),
         "croatia" to setOf("hr"), "czech republic" to setOf("cz"), "czechia" to setOf("cz"), "slovakia" to setOf("sk"),
         "brazil" to setOf("br"), "sweden" to setOf("se"), "denmark" to setOf("dk"), "norway" to setOf("no"),
         "finland" to setOf("fi"), "albania" to setOf("al"), "russia" to setOf("ru"), "ukraine" to setOf("ua"),
         "slovenia" to setOf("si"), "bosnia and herzegovina" to setOf("ba"), "north macedonia" to setOf("mk"),
+        "gb" to setOf("uk", "gb", "en"), "us" to setOf("us", "usa"),
+        "spain" to setOf("es"), "espana" to setOf("es"),
         "mexico" to setOf("mx"), "argentina" to setOf("ar"), "india" to setOf("in"),
     )
 

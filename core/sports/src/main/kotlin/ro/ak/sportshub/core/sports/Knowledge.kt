@@ -110,7 +110,7 @@ data class SportsKnowledge(
                     k.copy(stationAliases = k.stationAliases.minusFrom(station, groupKey), stationBlocks = k.stationBlocks + pair)
                 }
             }
-            Confidence.RIGHTS, Confidence.LEARNED, Confidence.CONFIRMED, null -> if (comp != null) {
+            Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED, null -> if (comp != null) {
                 val pair = "$comp|$groupKey"
                 k = if (verdict == Verdict.CONFIRMED) {
                     k.copy(learnedRights = k.learnedRights.plusTo(comp, groupKey), rightsBlocks = k.rightsBlocks - pair)
@@ -118,7 +118,7 @@ data class SportsKnowledge(
                     k.copy(learnedRights = k.learnedRights.minusFrom(comp, groupKey), rightsBlocks = k.rightsBlocks + pair)
                 }
             }
-            Confidence.EPG -> Unit // EPG-ul nu are ce învăța: doar alegerea pentru meci.
+            Confidence.EPG, Confidence.EVENT -> Unit // EPG-ul și canalele eveniment n-au ce învăța: doar alegerea pentru meci.
         }
         return k
     }
@@ -176,7 +176,17 @@ data class FoundSource(
  */
 class SourceFinder(private val index: StationIndex, private val knowledge: SportsKnowledge) {
 
-    fun find(match: Match, epgKeys: Collection<String>): List<FoundSource> {
+    /**
+     * @param epgKeys canalele al căror EPG arată meciul.
+     * @param eventKeys canalele EVENT / PPV care au meciul în nume.
+     * @param dedicatedKeys canalele dedicate competiției meciului ([DedicatedChannels]).
+     */
+    fun find(
+        match: Match,
+        epgKeys: Collection<String>,
+        eventKeys: Collection<String> = emptyList(),
+        dedicatedKeys: Collection<String> = emptyList(),
+    ): List<FoundSource> {
         val found = LinkedHashMap<String, FoundSource>()
         fun add(key: String, confidence: Confidence, station: String? = null) {
             val old = found[key]
@@ -184,6 +194,7 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         }
 
         epgKeys.forEach { add(it, Confidence.EPG) }
+        eventKeys.forEach { add(it, Confidence.EVENT) }
 
         for (st in match.stations) {
             val compact = StationIndex.compact(StationNames.splitCountry(st.name).first)
@@ -192,6 +203,7 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         }
 
         val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
+        dedicatedKeys.filter { comp == null || "$comp|$it" !in knowledge.rightsBlocks }.forEach { add(it, Confidence.DEDICATED) }
         if (comp != null) {
             knowledge.learnedRights[comp].orEmpty().forEach { add(it, Confidence.LEARNED) }
             for (rule in knowledge.rules) {

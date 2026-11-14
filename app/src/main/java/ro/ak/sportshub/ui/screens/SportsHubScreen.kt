@@ -51,7 +51,7 @@ private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm", RoLocale)
 private val DayFormat = DateTimeFormatter.ofPattern("EEE d MMM", RoLocale)
 
 @Composable
-fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
+fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit, onPlay: (Long) -> Unit = {}) {
     val container = appContainer()
     val sports = container.sports
     val store = container.sportsSettings
@@ -65,7 +65,9 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
     val filter = settings.filter
     val zone = remember { ZoneId.systemDefault() }
     val now = snapshot.computedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
-    val currentTab = MatchTab.entries[tab]
+    // Ultimul tab („Evenimente”) arată canalele EVENT / PPV din playlisturi, nu meciuri.
+    val eventsTab = tab == MatchTab.entries.size
+    val currentTab = MatchTab.entries[tab.coerceAtMost(MatchTab.entries.lastIndex)]
 
     val visible: List<MatchEntry> = remember(snapshot, settings, tab) {
         val byId = snapshot.matches.associateBy { it.match.id }
@@ -94,7 +96,12 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit) {
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabStrip(tabs = MatchTab.entries.map { it.label }, selectedIndex = tab, onSelect = { tab = it })
+        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel, selectedIndex = tab, onSelect = { tab = it })
+
+        if (eventsTab) {
+            EventChannelsList(snapshot = snapshot, enabled = settings.eventChannels, zone = zone, onOpenMatch = onOpenMatch, onPlay = onPlay)
+            return@Column
+        }
 
         LazyRow(
             modifier = Modifier.padding(top = 8.dp),
@@ -276,4 +283,56 @@ private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, s
             )
         },
     )
+}
+
+private const val EventsTabLabel = "Evenimente"
+
+/**
+ * Tabul „Evenimente”: canalele EVENT / PPV din playlisturi care au acum un eveniment în nume, după oră.
+ * OK deschide meciul (cu toate sursele lui) dacă s-a legat de unul, altfel pornește canalul.
+ */
+@Composable
+private fun EventChannelsList(
+    snapshot: ro.ak.sportshub.data.SportsSnapshot,
+    enabled: Boolean,
+    zone: ZoneId,
+    onOpenMatch: (String) -> Unit,
+    onPlay: (Long) -> Unit,
+) {
+    val events = snapshot.events
+    Text(
+        text = when {
+            !enabled -> "Canalele EVENT / PPV sunt oprite (Setări → Sports Hub)."
+            else -> "${events.size} canale cu eveniment" +
+                (if (snapshot.emptyEventChannels > 0) " · ${snapshot.emptyEventChannels} goale acum" else "") +
+                " · OK: meciul (dacă e legat) sau canalul"
+        },
+        fontSize = 13.sp,
+        color = AkColors.TextDim,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+    if (enabled && events.isEmpty()) {
+        EmptyState(
+            title = if (snapshot.loading) "Se caută canalele…" else "Niciun canal EVENT / PPV cu eveniment",
+            hint = "Canalele furnizorului care au meciul în nume (de exemplu „EVENT 03: UFC 310 20:00”) apar aici și ca surse sigure la meciuri.",
+        )
+        return
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        items(events, key = { "ev:" + it.channel.id }) { e ->
+            val time = e.slot.start?.let { val z = Instant.ofEpochMilli(it).atZone(zone); "${z.format(DayFormat)} ${z.format(TimeFormat)}" } ?: "oră necunoscută"
+            ListRow(
+                title = "$time   ${e.slot.title ?: e.channel.name}",
+                subtitle = listOfNotNull(
+                    e.channel.name,
+                    e.channel.playlistName,
+                    e.slot.sport?.label,
+                    if (e.matchId != null) "legat de un meci" else null,
+                ).joinToString(" · "),
+                onClick = { if (e.matchId != null) onOpenMatch(e.matchId) else onPlay(e.channel.id) },
+                onLongClick = { onPlay(e.channel.id) },
+                trailing = { QualityBadge(e.channel.quality) },
+            )
+        }
+    }
 }
