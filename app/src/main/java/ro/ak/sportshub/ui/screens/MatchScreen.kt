@@ -47,6 +47,8 @@ import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.data.MatchDetailsState
 import ro.ak.sportshub.core.sports.MatchSources
 import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.core.playlist.Catchup
+import ro.ak.sportshub.data.archiveSource
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
@@ -68,7 +70,11 @@ private val WhenFormat = DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm", Local
  * încredere), în ordinea preferințelor tale; nimic nu e ascuns.
  */
 @Composable
-fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
+fun MatchScreen(
+    matchId: String,
+    onPlay: (Long) -> Unit,
+    onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
+) {
     val container = appContainer()
     val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
     val settings by container.sportsSettings.settings.collectAsStateWithLifecycle()
@@ -150,6 +156,18 @@ fun MatchScreen(matchId: String, onPlay: (Long) -> Unit) {
                     ) {
                         families.firstOrNull { !it.members.first().rejected }?.members?.firstOrNull()?.let { best ->
                             ActionButton(text = "▶ Pornește sursa recomandată", onClick = { onPlay(best.channel.id) })
+                        }
+                        // Meci început, pe un canal cu arhivă (Xtream): de la fluierul de start.
+                        val now = System.currentTimeMillis()
+                        if (m.start < now && m.status != MatchStatus.SCHEDULED) {
+                            entry.archiveSource(settings)?.let { src ->
+                                if (Catchup.isAvailable(src.catchupDays, m.start, now)) {
+                                    ActionButton(
+                                        text = "⏮ De la început",
+                                        onClick = { onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
+                                    )
+                                }
+                            }
                         }
                         ActionButton(text = "+ Adaugă un canal", onClick = { addQuery = "" })
                         val store = container.sportsSettings
@@ -338,3 +356,6 @@ fun ChannelPickerDialog(query: String, onDismiss: () -> Unit, onPick: (ChannelWi
 }
 
 private const val PICKER_LIMIT = 200
+
+/** „De la început” pornește arhiva cu două minute înainte de ora de start. */
+private const val ARCHIVE_LEAD_MS = 120_000L

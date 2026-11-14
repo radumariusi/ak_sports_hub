@@ -137,6 +137,15 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
             ActionButton(text = "Pornește prima variantă", onClick = { onPlay(first.id) })
             ActionButton(text = "Programul canalului", onClick = { onOpenSchedule(first.id) })
             ActionButton(text = "Unește cu alt canal…", onClick = { askMerge = true })
+            val favorites by container.channelFavorites.keys.collectAsStateWithLifecycle()
+            val favorite = first.groupKey in favorites
+            ActionButton(
+                text = if (favorite) "★ Favorit" else "☆ Adaugă la favorite",
+                onClick = {
+                    container.channelFavorites.toggle(first.groupKey)
+                    message = if (favorite) "Scos din favorite." else "Adăugat la favorite (toate variantele)."
+                },
+            )
         }
 
         Row(modifier = Modifier.weight(1f)) {

@@ -95,7 +95,13 @@ data class XtreamUserInfo(
 )
 
 @Serializable
-data class XtreamAccountResponse(@SerialName("user_info") val userInfo: XtreamUserInfo? = null)
+data class XtreamServerInfo(val timezone: String? = null)
+
+@Serializable
+data class XtreamAccountResponse(
+    @SerialName("user_info") val userInfo: XtreamUserInfo? = null,
+    @SerialName("server_info") val serverInfo: XtreamServerInfo? = null,
+)
 
 /** Starea contului, afișată la adăugarea playlistului. */
 data class XtreamAccount(
@@ -104,6 +110,8 @@ data class XtreamAccount(
     val expiresAt: Long?,
     val maxConnections: Int?,
     val activeConnections: Int?,
+    /** Fusul orar al serverului (de exemplu `Europe/London`), pentru adresele de catch-up. */
+    val timezone: String? = null,
 )
 
 object XtreamParser {
@@ -122,8 +130,8 @@ object XtreamParser {
     private val JsonPrimitive?.int: Int? get() = text?.toDoubleOrNull()?.toInt()
 
     fun account(body: String): XtreamAccount {
-        val info = runCatching { json.decodeFromString(XtreamAccountResponse.serializer(), body).userInfo }
-            .getOrNull()
+        val response = runCatching { json.decodeFromString(XtreamAccountResponse.serializer(), body) }.getOrNull()
+        val info = response?.userInfo
             ?: throw PlaylistException("Serverul nu a răspuns ca un server Xtream. Verifică adresa.")
         val auth = info.auth.text
         if (auth != null && auth != "1" && !auth.equals("true", ignoreCase = true)) {
@@ -134,6 +142,7 @@ object XtreamParser {
             expiresAt = info.expDate.text?.toLongOrNull(),
             maxConnections = info.maxConnections.int,
             activeConnections = info.activeConnections.int,
+            timezone = response.serverInfo?.timezone?.trim()?.ifEmpty { null },
         )
     }
 

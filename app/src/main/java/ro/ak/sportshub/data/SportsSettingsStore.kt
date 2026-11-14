@@ -9,6 +9,7 @@ import org.json.JSONObject
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.model.SourcePreferences
 import ro.ak.sportshub.core.sports.MatchFilter
+import ro.ak.sportshub.core.sports.MatchReminders
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.SportsFavorites
 import ro.ak.sportshub.core.sports.TeamNames
@@ -36,11 +37,17 @@ data class SportsSettings(
     val noSpoilers: Boolean = false,
     /** Ultimele filtre folosite (rămân după repornire). */
     val filter: MatchFilter = MatchFilter(),
+    /** Notificare înainte de meciurile favorite. */
+    val reminders: Boolean = true,
+    /** Cu câte minute înainte de start vine notificarea. */
+    val reminderMinutes: Int = MatchReminders.DEFAULT_LEAD_MINUTES,
+    /** Rândul „Meciurile tale de azi” pe ecranul principal Android TV. */
+    val homeRow: Boolean = true,
 )
 
 class SportsSettingsStore(context: Context) {
 
-    private val prefs = context.getSharedPreferences("sports", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val _settings = MutableStateFlow(read())
     val settings: StateFlow<SportsSettings> = _settings.asStateFlow()
     val current: SportsSettings get() = _settings.value
@@ -85,6 +92,9 @@ class SportsSettingsStore(context: Context) {
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
+                reminders = o.optBoolean("reminders", d.reminders),
+                reminderMinutes = o.optInt("reminderMinutes", d.reminderMinutes).coerceIn(1, 120),
+                homeRow = o.optBoolean("homeRow", d.homeRow),
                 favorites = SportsFavorites(
                     teams = fav?.optJSONArray("teams").strings(),
                     competitions = fav?.optJSONArray("competitions").strings(),
@@ -113,6 +123,9 @@ class SportsSettingsStore(context: Context) {
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
         put("noSpoilers", s.noSpoilers)
+        put("reminders", s.reminders)
+        put("reminderMinutes", s.reminderMinutes)
+        put("homeRow", s.homeRow)
         put(
             "favorites",
             JSONObject().apply {
@@ -139,7 +152,9 @@ class SportsSettingsStore(context: Context) {
 
     private fun quality(name: String?): Quality? = Quality.entries.firstOrNull { it.name == name }
 
-    private companion object {
-        const val KEY = "settings"
+    companion object {
+        /** Numele fișierului de preferințe (pentru backup). */
+        const val PREFS = "sports"
+        private const val KEY = "settings"
     }
 }

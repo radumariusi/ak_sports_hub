@@ -94,12 +94,12 @@ private val NavigationKeys = setOf(
  * cifrele numărul canalului, butonul „ultimul canal” comută între ultimele două canale, Back iese.
  */
 @Composable
-fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, onExit: () -> Unit) {
+fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null, onExit: () -> Unit) {
     val container = appContainer()
     val context = LocalContext.current
     val controller = remember { PlayerController(context.applicationContext, container) }
     DisposableEffect(controller) { onDispose { controller.release() } }
-    LaunchedEffect(channelId) { controller.play(channelId, zapGroup) }
+    LaunchedEffect(channelId, archive) { controller.play(channelId, zapGroup, archive) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.onBackground() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.onForeground() }
 
@@ -135,6 +135,8 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, onExit: () -> Unit) {
         }
     }
     LaunchedEffect(state.notice?.id) { state.notice?.let { toast = it.text } }
+    // Notificările meciurilor favorite apar și peste player.
+    LaunchedEffect(Unit) { container.inAppNotices.collect { toast = it } }
     LaunchedEffect(toast) {
         if (toast != null) {
             delay(4_000)
@@ -391,6 +393,7 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                 }
                 Text(
                     text = listOfNotNull(
+                        state.archiveFrom?.let { "Din arhivă, de la ${formatTime(it)}" },
                         channel.groupName,
                         channel.playlistName,
                         state.position,
