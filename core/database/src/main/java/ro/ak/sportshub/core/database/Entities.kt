@@ -92,7 +92,7 @@ data class ChannelEntity(
     val quality: Quality,
     val language: String?,
     val country: String?,
-    /** Doar pentru gruparea variantelor (etapa 5); nu se afișează. */
+    /** Doar pentru gruparea variantelor (cu corecțiile manuale aplicate); nu se afișează. */
     val groupKey: String,
     val catchupDays: Int?,
     val userAgent: String?,
@@ -130,6 +130,8 @@ data class ChannelWithPlaylist(
     val number: Int?,
     val catchupDays: Int?,
     val playlistName: String,
+    /** Cheia de grupare a variantelor; nu se afișează. */
+    val groupKey: String,
 )
 
 /** Un canal pregătit pentru player (cu user-agentul efectiv și starea playlistului). */
@@ -147,6 +149,7 @@ data class PlayableChannel(
     val userAgent: String?,
     val playlistName: String,
     val playlistEnabled: Boolean,
+    val groupKey: String,
 )
 
 /** Ce trebuie pentru potrivirea unui canal cu EPG-ul. */

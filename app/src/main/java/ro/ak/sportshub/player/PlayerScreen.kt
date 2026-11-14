@@ -71,7 +71,7 @@ import ro.ak.sportshub.ui.epg.formatRange
 import ro.ak.sportshub.ui.epg.formatTime
 import ro.ak.sportshub.ui.theme.AkColors
 
-private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule }
+private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants }
 
 private const val INFO_MS = 5_000L
 private const val NUMBER_COMMIT_MS = 1_500L
@@ -94,12 +94,12 @@ private val NavigationKeys = setOf(
  * cifrele numărul canalului, butonul „ultimul canal” comută între ultimele două canale, Back iese.
  */
 @Composable
-fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
+fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, onExit: () -> Unit) {
     val container = appContainer()
     val context = LocalContext.current
     val controller = remember { PlayerController(context.applicationContext, container) }
     DisposableEffect(controller) { onDispose { controller.release() } }
-    LaunchedEffect(channelId) { controller.play(channelId) }
+    LaunchedEffect(channelId) { controller.play(channelId, zapGroup) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.onBackground() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.onForeground() }
 
@@ -134,9 +134,10 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
             commitNumber()
         }
     }
+    LaunchedEffect(state.notice?.id) { state.notice?.let { toast = it.text } }
     LaunchedEffect(toast) {
         if (toast != null) {
-            delay(3_000)
+            delay(4_000)
             toast = null
         }
     }
@@ -147,7 +148,11 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
             numberInput.clear()
             numberText = ""
         } else {
-            panel = if (panel == Panel.Audio || panel == Panel.Subtitles || panel == Panel.Schedule) Panel.Menu else Panel.None
+            panel = if (panel == Panel.Audio || panel == Panel.Subtitles || panel == Panel.Schedule || panel == Panel.Variants) {
+                Panel.Menu
+            } else {
+                Panel.None
+            }
         }
     }
 
@@ -261,7 +266,6 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
             Panel.Channels -> ChannelsPanel(
                 controller = controller,
                 currentId = state.channel?.id,
-                groupName = state.channel?.groupName.orEmpty(),
                 onPick = { id ->
                     panel = Panel.None
                     if (id != state.channel?.id) controller.play(id)
@@ -283,6 +287,11 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
                 },
                 onChannels = { panel = Panel.Channels },
                 onSchedule = { panel = Panel.Schedule },
+                onVariants = { panel = Panel.Variants },
+                onPrefer = {
+                    panel = Panel.None
+                    controller.preferCurrent()?.let { toast = it }
+                },
                 onExit = onExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
@@ -309,6 +318,15 @@ fun PlayerScreen(channelId: Long, onExit: () -> Unit) {
             Panel.Schedule -> SchedulePanel(
                 channelId = state.channel?.id,
                 channelName = state.channel?.name.orEmpty(),
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+            Panel.Variants -> VariantsPanel(
+                controller = controller,
+                currentId = state.channel?.id,
+                onPick = { id ->
+                    panel = Panel.None
+                    if (id != state.channel?.id) controller.play(id)
+                },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
             Panel.None -> Unit
@@ -372,7 +390,12 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                     QualityBadge(channel.quality)
                 }
                 Text(
-                    text = listOfNotNull(channel.groupName, channel.playlistName, state.position).joinToString(" · "),
+                    text = listOfNotNull(
+                        channel.groupName,
+                        channel.playlistName,
+                        state.position,
+                        if (state.variantCount > 1) "${state.variantCount} variante" else null,
+                    ).joinToString(" · "),
                     fontSize = 15.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 4.dp),
@@ -396,7 +419,7 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                     )
                 }
                 Text(
-                    text = "▲▼ canale · ◀ lista grupului · ▶ audio, subtitrări, program, opțiuni · OK ascunde",
+                    text = "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde",
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 8.dp),
@@ -430,16 +453,15 @@ private fun SidePanel(modifier: Modifier, content: @Composable () -> Unit) {
 private fun ChannelsPanel(
     controller: PlayerController,
     currentId: Long?,
-    groupName: String,
     onPick: (Long) -> Unit,
     modifier: Modifier,
 ) {
-    val channels by produceState<List<ChannelWithPlaylist>?>(null) { value = controller.groupChannels() }
+    val rows by produceState<Pair<List<ChannelWithPlaylist>, Int>?>(null) { value = controller.groupRows() }
     SidePanel(modifier) {
         Column {
-            SectionLabel(groupName)
-            val list = channels ?: return@Column
-            val current = list.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+            SectionLabel(rows?.first?.getOrNull(rows?.second ?: -1)?.groupName ?: "Canale")
+            val list = rows?.first ?: return@Column
+            val current = (rows?.second ?: 0).coerceAtLeast(0)
             val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
             val focus = remember { FocusRequester() }
             LaunchedEffect(list) { runCatching { focus.requestFocus() } }
@@ -448,7 +470,7 @@ private fun ChannelsPanel(
                     ListRow(
                         title = (c.number?.let { "$it  " } ?: "") + c.name,
                         subtitle = c.playlistName,
-                        selected = c.id == currentId,
+                        selected = index == current,
                         onClick = { onPick(c.id) },
                         modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
                         trailing = {
@@ -472,6 +494,8 @@ private fun MenuPanel(
     onReconnect: () -> Unit,
     onChannels: () -> Unit,
     onSchedule: () -> Unit,
+    onVariants: () -> Unit,
+    onPrefer: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier,
 ) {
@@ -491,6 +515,14 @@ private fun MenuPanel(
                 subtitle = if (state.textTracks > 0) "${state.textTracks} disponibile" else "niciuna în stream",
                 onClick = onSubtitles,
             )
+            if (state.variantCount > 1) {
+                ListRow(
+                    title = "Variantele canalului",
+                    subtitle = "${state.variantCount} variante: calitate, limbă, playlist",
+                    onClick = onVariants,
+                )
+                ListRow(title = "Setează ca variantă preferată", subtitle = "pornește prima la acest canal", onClick = onPrefer)
+            }
             ListRow(title = "Canalul anterior", subtitle = previousName ?: "niciunul încă", onClick = onPrevious)
             ListRow(title = "Programul canalului", subtitle = "EPG: ce rulează acum și mai târziu", onClick = onSchedule)
             ListRow(title = "Lista canalelor din grup", onClick = onChannels)
@@ -560,6 +592,42 @@ private fun SchedulePanel(channelId: Long?, channelName: String, modifier: Modif
                     )
                 }
                 else -> ScheduleList(list, modifier = Modifier.fillMaxHeight())
+            }
+        }
+    }
+}
+
+@Composable
+private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick: (Long) -> Unit, modifier: Modifier) {
+    val variants by produceState<List<ChannelWithPlaylist>?>(null) { value = controller.currentVariants() }
+    val repo = appContainer().variants
+    SidePanel(modifier.width(560.dp)) {
+        Column {
+            SectionLabel("Variante · una câte una, oprind-o pe cea curentă")
+            val list = variants ?: return@Column
+            val current = list.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+            val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(list) { runCatching { focus.requestFocus() } }
+            LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(list, key = { _, c -> c.id }) { index, c ->
+                    ListRow(
+                        title = c.name,
+                        subtitle = listOfNotNull(
+                            c.playlistName,
+                            c.groupName,
+                            if (repo.isPreferred(c)) "preferată" else null,
+                            if (repo.failedRecently(c)) "n-a pornit ultima oară" else null,
+                        ).joinToString(" · "),
+                        selected = c.id == currentId,
+                        onClick = { onPick(c.id) },
+                        modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
+                        trailing = {
+                            c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
+                            QualityBadge(c.quality)
+                        },
+                    )
+                }
             }
         }
     }

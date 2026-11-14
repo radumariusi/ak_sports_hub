@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import ro.ak.sportshub.core.common.ChannelFamilies
 import ro.ak.sportshub.core.common.SearchText
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.GroupWithPlaylist
@@ -63,7 +64,11 @@ private const val SEARCH_LIMIT = 500
  * Căutarea are un singur câmp și un comutator: grupuri și canale, doar canale sau doar grupuri.
  */
 @Composable
-fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onOpenSchedule: (Long) -> Unit) {
+fun LiveTvScreen(
+    onOpenPlaylists: () -> Unit,
+    onPlayChannel: (channelId: Long, zapGroup: Long) -> Unit,
+    onOpenChannel: (Long) -> Unit,
+) {
     val container = appContainer()
     val dao = container.database.channels()
 
@@ -126,7 +131,7 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onO
                                 scope.launch {
                                     val id = container.playerHistory.resolve(ref)
                                     if (id != null) {
-                                        onPlayChannel(id)
+                                        onPlayChannel(id, 0L)
                                     } else {
                                         container.playerHistory.forget(ref)
                                         message = "${ref.name} nu mai există în playlist."
@@ -213,8 +218,9 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onO
                     channels.isNotEmpty() -> ChannelList(
                         channels,
                         showGroup = showingSearch,
-                        onClick = { c -> onPlayChannel(c.id) },
-                        onLongClick = { c -> onOpenSchedule(c.id) },
+                        // Din căutare, CH+/CH− rămân în grupul canalului; din grup, în grupul ales.
+                        onClick = { c -> onPlayChannel(c.id, if (showingSearch) 0L else selectedGroup) },
+                        onLongClick = { c -> onOpenChannel(c.id) },
                     )
                     showingSearch -> EmptyState(title = "Niciun canal găsit", hint = "Încearcă alt cuvânt sau doar începutul lui.")
                     selectedGroup == 0L -> EmptyState(title = "Alege un grup", hint = "Sau caută un canal după nume.")
@@ -222,7 +228,8 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onO
                 }
             }
             Text(
-                text = message ?: "Ține apăsat OK pe un canal pentru programul lui. Calitatea și limba sunt cele declarate de playlist.",
+                text = message ?: "Ține apăsat OK pe un canal pentru variante, varianta preferată, corecții și program. " +
+                    "Calitatea și limba sunt cele declarate de playlist.",
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(top = 6.dp),
@@ -244,6 +251,14 @@ fun LiveTvScreen(onOpenPlaylists: () -> Unit, onPlayChannel: (Long) -> Unit, onO
     }
 }
 
+/** Un rând din listă: un canal, cu toate variantele lui (dacă gruparea e activă). */
+private data class ChannelRow(
+    val key: String,
+    /** Ce pornește OK: varianta preferată sau cea mai bună (din toate playlisturile). */
+    val shown: ChannelWithPlaylist,
+    val variants: List<ChannelWithPlaylist>,
+)
+
 @Composable
 private fun ChannelList(
     channels: List<ChannelWithPlaylist>,
@@ -251,18 +266,38 @@ private fun ChannelList(
     onClick: (ChannelWithPlaylist) -> Unit,
     onLongClick: (ChannelWithPlaylist) -> Unit,
 ) {
-    val epg = appContainer().epg
+    val container = appContainer()
+    val epg = container.epg
+    val variantState by container.variantStore.state.collectAsStateWithLifecycle()
+    val grouped = variantState.groupVariants
     val now = rememberMinuteClock()
-    // Acum / urmează pentru canalele afișate, reîmprospătat în fiecare minut.
-    val nowNext by produceState(emptyMap<Long, NowNext>(), channels, now) {
-        value = epg.nowNext(channels.map { it.id }, now)
+
+    // Variantele din toate playlisturile pentru canalele din listă (din baza locală, fără rețea).
+    val families by produceState(emptyMap<String, List<ChannelWithPlaylist>>(), channels, grouped, variantState) {
+        value = if (grouped) container.variants.families(channels.map { it.groupKey }) else emptyMap()
+    }
+    val rows = remember(channels, grouped, families) {
+        if (grouped) {
+            ChannelFamilies.collapse(channels) { it.groupKey }.map { f ->
+                val all = families[f.key] ?: f.members
+                ChannelRow(f.key, all.first(), all)
+            }
+        } else {
+            channels.map { ChannelRow(it.id.toString(), it, listOf(it)) }
+        }
+    }
+    // Acum / urmează, reîmprospătat în fiecare minut; la un canal grupat, din prima variantă care are EPG.
+    val nowNext by produceState(emptyMap<Long, NowNext>(), rows, now) {
+        value = epg.nowNext(rows.flatMap { r -> r.variants.take(EPG_VARIANTS).map { it.id } }, now)
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(channels, key = { it.id }) { c ->
-            val nn = nowNext[c.id]
+        items(rows, key = { it.key }) { row ->
+            val c = row.shown
+            val nn = row.variants.take(EPG_VARIANTS).firstNotNullOfOrNull { nowNext[it.id] }
             val meta = buildList {
                 if (showGroup) add(c.groupName)
                 add(c.playlistName)
+                if (row.variants.size > 1) add(variantSummary(row.variants))
                 c.catchupDays?.let { add("înapoi în timp: $it zile") }
             }.joinToString(" · ")
             ListRow(
@@ -272,6 +307,9 @@ private fun ChannelList(
                 onClick = { onClick(c) },
                 onLongClick = { onLongClick(c) },
                 trailing = {
+                    if (row.variants.size > 1) {
+                        Text(text = "${row.variants.size} var.", fontSize = 13.sp, color = AkColors.TextDim)
+                    }
                     c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                     QualityBadge(c.quality)
                 },
@@ -279,3 +317,9 @@ private fun ChannelList(
         }
     }
 }
+
+private const val EPG_VARIANTS = 6
+
+/** „4K · FHD · HD” – calitățile disponibile ale unui canal grupat. */
+private fun variantSummary(variants: List<ChannelWithPlaylist>): String =
+    variants.map { it.quality }.distinct().sortedByDescending { it.rank }.joinToString(" · ") { it.label }

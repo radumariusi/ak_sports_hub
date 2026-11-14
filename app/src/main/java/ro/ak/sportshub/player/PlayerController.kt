@@ -30,11 +30,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.ConnectionPool
 import ro.ak.sportshub.AppContainer
+import ro.ak.sportshub.core.common.ChannelFamilies
+import ro.ak.sportshub.core.common.ChannelFamily
+import ro.ak.sportshub.core.common.FailoverPlan
 import ro.ak.sportshub.core.common.player.PlaybackErrors
 import ro.ak.sportshub.core.common.player.ReconnectBackoff
 import ro.ak.sportshub.core.common.player.StreamLease
 import ro.ak.sportshub.core.common.player.TrackLabels
 import ro.ak.sportshub.core.common.player.Zapping
+import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.PlayableChannel
 import ro.ak.sportshub.core.model.SourcePreferences
 
@@ -58,7 +62,14 @@ data class PlayerUiState(
     val videoSize: String? = null,
     val audioTracks: Int = 0,
     val textTracks: Int = 0,
+    /** Câte variante are canalul (aceeași cheie de grupare, din toate playlisturile active). */
+    val variantCount: Int = 0,
+    /** Mesaj scurt (de exemplu trecerea automată la altă variantă). */
+    val notice: Notice? = null,
 )
+
+/** Un mesaj de afișat o dată; [id] deosebește două mesaje cu același text. */
+data class Notice(val text: String, val id: Long = System.nanoTime())
 
 /** O pistă audio sau de subtitrare, pentru meniul playerului. */
 data class TrackOption(
@@ -77,6 +88,9 @@ data class TrackOption(
  * - cât rulează stream-ul, playerul ține permisul playlistului în `ConnectionGate` ([StreamLease]),
  *   deci actualizarea programată a aceluiași playlist e amânată;
  * - reconectarea încearcă din nou același canal, una câte una, cu pauze crescătoare;
+ * - failover: după [FailoverPlan.ATTEMPTS_BEFORE_SWITCH] reîncercări eșuate (sau o eroare definitivă),
+ *   trece la următoarea variantă a aceluiași canal, tot una câte una, cu stream-ul vechi oprit întâi;
+ *   fiecare variantă se încearcă o singură dată, apoi playerul se oprește și eliberează conexiunea;
  * - când aplicația trece în fundal sau ieși din player, stream-ul se oprește și permisul se eliberează.
  *
  * Totul rulează pe firul principal (cerința ExoPlayer).
@@ -89,6 +103,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private val lease = StreamLease(container.gate, container.scope)
     private val backoff = ReconnectBackoff()
     private val preferences = SourcePreferences()
+    private val variants = container.variants
+    private val variantStore = container.variantStore
 
     /** Clientul HTTP al playerului: fără reîncercări ascunse, cu conexiunile închise la oprire. */
     private val http = container.http.newBuilder()
@@ -104,7 +120,13 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
-    private var zapIds: List<Long> = emptyList()
+    /** Grupul din care ai pornit (CH+/CH− rămân în el, chiar dacă varianta e din alt grup). */
+    private var zapGroupId = 0L
+    /** Rândurile grupului: variantele aceluiași canal împreună (dacă gruparea e activă) sau câte unul. */
+    private var zapFamilies: List<ChannelFamily<ChannelWithPlaylist>> = emptyList()
+    private var zapGrouped = true
+    private var failover: FailoverPlan<Long>? = null
+    private var variantOrder: List<ChannelWithPlaylist> = emptyList()
     private var playJob: Job? = null
     private var retryJob: Job? = null
     private var stallJob: Job? = null
@@ -134,9 +156,13 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
     // ---------- comenzi ----------
 
-    fun play(channelId: Long) {
+    /**
+     * Pornește un canal ales de tine. [zapGroup] e grupul listei din care l-ai ales
+     * (0 = grupul canalului); fără argument rămâne grupul curent.
+     */
+    fun play(channelId: Long, zapGroup: Long = zapGroupId) {
         cancelJobs()
-        playJob = scope.launch { start(channelId) }
+        playJob = scope.launch { start(channelId, zapGroup, failoverStep = false) }
     }
 
     /** Reîncearcă canalul curent de la zero (după o eroare sau la cerere). */
@@ -147,7 +173,14 @@ class PlayerController(context: Context, private val container: AppContainer) {
     /** CH+ (step = 1) sau CH− (step = −1) în grupul canalului curent. */
     fun zap(step: Int) {
         val current = _state.value.channel ?: return
-        Zapping.neighbor(zapIds, current.id, step)?.takeIf { it != current.id }?.let(::play)
+        val keys = zapFamilies.map { it.key }
+        val key = Zapping.neighbor(keys, zapKey(current), step)?.takeIf { it != zapKey(current) } ?: return
+        val family = zapFamilies.first { it.key == key }
+        scope.launch {
+            // Canal grupat: pornește varianta preferată sau cea mai bună dintre toate playlisturile.
+            val id = if (zapGrouped) variants.representative(key)?.id ?: family.members.first().id else family.members.first().id
+            play(id)
+        }
     }
 
     /** Canalul anterior; întoarce false dacă nu există. */
@@ -155,7 +188,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
         val ref = history.previous ?: return false
         scope.launch {
             val id = history.resolve(ref)
-            if (id == null) history.forget(ref) else play(id)
+            if (id == null) history.forget(ref) else play(id, zapGroup = 0)
         }
         return true
     }
@@ -166,15 +199,48 @@ class PlayerController(context: Context, private val container: AppContainer) {
     fun playNumber(number: Int, onMissing: (String) -> Unit) {
         val current = _state.value.channel
         scope.launch {
-            val id = dao.findByNumber(number, current?.playlistId ?: 0L)
-                // Playlist fără numere de canal: numărul e poziția în grupul curent.
-                ?: if (current?.number == null) zapIds.getOrNull(number - 1) else null
-            if (id == null) onMissing("Nu există canalul $number.") else if (id != current?.id) play(id)
+            val byNumber = dao.findByNumber(number, current?.playlistId ?: 0L)
+            // Playlist fără numere de canal: numărul e poziția în grupul curent.
+            val byPosition = if (byNumber == null && current?.number == null) {
+                zapFamilies.getOrNull(number - 1)?.let { f ->
+                    if (zapGrouped) variants.representative(f.key)?.id ?: f.members.first().id else f.members.first().id
+                }
+            } else {
+                null
+            }
+            val id = byNumber ?: byPosition
+            when {
+                id == null -> onMissing("Nu există canalul $number.")
+                id == current?.id -> Unit
+                byNumber != null -> play(id, zapGroup = 0)
+                else -> play(id)
+            }
         }
     }
 
-    /** Lista pentru panoul din stânga: canalele grupului curent. */
-    suspend fun groupChannels() = _state.value.channel?.let { dao.channelsInGroup(it.groupId) }.orEmpty()
+    /**
+     * Lista pentru panoul din stânga: rândurile grupului curent (la canalele grupate, varianta care
+     * pornește la OK) și poziția canalului curent în ea.
+     */
+    suspend fun groupRows(): Pair<List<ChannelWithPlaylist>, Int> {
+        val current = _state.value.channel ?: return emptyList<ChannelWithPlaylist>() to -1
+        val families = zapFamilies
+        val best = if (zapGrouped) variants.families(families.map { it.key }) else emptyMap()
+        val rows = families.map { f -> best[f.key]?.firstOrNull() ?: f.members.first() }
+        return rows to families.indexOfFirst { it.key == zapKey(current) }
+    }
+
+    /** Variantele canalului curent, în ordinea de pornire. */
+    suspend fun currentVariants(): List<ChannelWithPlaylist> =
+        _state.value.channel?.let { variants.variants(it.groupKey) }.orEmpty()
+
+    /** Varianta curentă devine cea preferată a canalului. */
+    fun preferCurrent(): String? {
+        val c = _state.value.channel ?: return null
+        val row = variantOrder.firstOrNull { it.id == c.id } ?: return null
+        variants.setPreferred(row)
+        return "${c.name} e acum varianta preferată."
+    }
 
     /** Aplicația trece în fundal: oprim stream-ul și eliberăm conexiunea. */
     fun onBackground() {
@@ -234,7 +300,21 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
     // ---------- interne ----------
 
-    private suspend fun start(channelId: Long) {
+    private fun zapKey(c: PlayableChannel): String = if (zapGrouped) c.groupKey else c.id.toString()
+
+    private suspend fun loadZapList(channel: PlayableChannel, zapGroup: Long) {
+        zapGrouped = variantStore.current.groupVariants
+        zapGroupId = if (zapGroup > 0) zapGroup else channel.groupId
+        var rows = dao.channelsInGroup(zapGroupId)
+        if (rows.isEmpty() && zapGroupId != channel.groupId) {
+            // Grupul de pornire a dispărut (playlistul s-a actualizat): rămânem în grupul canalului.
+            zapGroupId = channel.groupId
+            rows = dao.channelsInGroup(zapGroupId)
+        }
+        zapFamilies = ChannelFamilies.collapse(rows) { if (zapGrouped) it.groupKey else it.id.toString() }
+    }
+
+    private suspend fun start(channelId: Long, zapGroup: Long, failoverStep: Boolean) {
         stopStream()
         backoff.reset()
         forceHls = false
@@ -243,15 +323,22 @@ class PlayerController(context: Context, private val container: AppContainer) {
             _state.update { it.copy(status = PlaybackStatus.Failed("Canalul nu mai există (playlistul s-a actualizat).")) }
             return
         }
-        zapIds = dao.channelIdsInGroup(channel.groupId)
+        if (failoverStep) {
+            failover?.moveTo(channel.id)
+        } else {
+            loadZapList(channel, zapGroup)
+            variantOrder = variants.variants(channel.groupKey)
+            failover = FailoverPlan(variantOrder.map { it.id }, channel.id)
+        }
         _state.update {
             it.copy(
                 channel = channel,
                 status = PlaybackStatus.Connecting,
-                position = Zapping.position(zapIds, channel.id),
+                position = Zapping.position(zapFamilies.map { f -> f.key }, zapKey(channel)),
                 videoSize = null,
                 audioTracks = 0,
                 textTracks = 0,
+                variantCount = variantOrder.size,
             )
         }
         history.visit(channel)
@@ -268,9 +355,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
             _state.update { it.copy(status = PlaybackStatus.Waiting("Se așteaptă conexiunea playlistului…")) }
         }
         if (!lease.acquire(pid, LEASE_TIMEOUT_MS)) {
-            _state.update {
-                it.copy(status = PlaybackStatus.Failed("Playlistul e ocupat (se actualizează). Apasă OK peste câteva secunde."))
-            }
+            // Altă variantă poate fi pe un playlist liber.
+            failOrSwitch("Playlistul e ocupat (se actualizează). Apasă OK peste câteva secunde.", streamFailed = false)
             return
         }
         waitSwitchGap()
@@ -321,6 +407,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
             Player.STATE_READY -> {
                 _state.update { it.copy(status = PlaybackStatus.Playing) }
+                _state.value.channel?.let(variants::markWorked)
                 stableJob = scope.launch {
                     delay(STABLE_AFTER_MS)
                     backoff.reset()
@@ -357,7 +444,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             else -> "Stream-ul s-a întrerupt."
         }
         if ((http != null && PlaybackErrors.isPermanent(http)) || error.errorCode in 4000..4999) {
-            fail(reason)
+            failOrSwitch(reason)
         } else {
             scheduleRetry(reason)
         }
@@ -376,7 +463,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private fun scheduleRetry(reason: String) {
         val channel = _state.value.channel ?: return
         if (retryJob?.isActive == true) return
-        val wait = backoff.next() ?: return fail(reason)
+        if (backoff.attempt >= FailoverPlan.ATTEMPTS_BEFORE_SWITCH && nextVariant() != null) return failOrSwitch(reason)
+        val wait = backoff.next() ?: return failOrSwitch(reason)
         retryJob = scope.launch {
             stopStream()
             var left = wait
@@ -392,6 +480,29 @@ class PlayerController(context: Context, private val container: AppContainer) {
             waitSwitchGap()
             prepare(channel)
         }
+    }
+
+    private fun nextVariant(): Long? = if (variantStore.current.autoFailover) failover?.next() else null
+
+    /**
+     * Varianta curentă nu merge: trece la următoarea variantă neîncercată a canalului (una câte una),
+     * sau se oprește dacă nu mai există. [streamFailed] = false când doar playlistul era ocupat.
+     */
+    private fun failOrSwitch(reason: String, streamFailed: Boolean = true) {
+        val channel = _state.value.channel ?: return
+        if (streamFailed) variants.markFailed(channel)
+        val next = nextVariant() ?: return fail(reason)
+        cancelJobs()
+        stopStream()
+        val target = variantOrder.firstOrNull { it.id == next }
+        val label = target?.let { "${it.name} (${it.quality.label}${it.language?.let { l -> ", " + l.uppercase() }.orEmpty()})" }
+        _state.update {
+            it.copy(
+                status = PlaybackStatus.Waiting("Trec la altă variantă…"),
+                notice = Notice("$reason Încerc altă variantă: ${label ?: "următoarea"}."),
+            )
+        }
+        playJob = scope.launch { start(next, zapGroupId, failoverStep = true) }
     }
 
     private fun fail(reason: String) {

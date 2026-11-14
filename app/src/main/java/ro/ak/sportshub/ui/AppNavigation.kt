@@ -12,6 +12,7 @@ import ro.ak.sportshub.ui.epg.EpgSettingsScreen
 import ro.ak.sportshub.ui.epg.ScheduleScreen
 import ro.ak.sportshub.ui.playlists.PlaylistEditScreen
 import ro.ak.sportshub.ui.playlists.PlaylistsScreen
+import ro.ak.sportshub.ui.screens.ChannelScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
 import ro.ak.sportshub.ui.screens.MatchScreen
 
@@ -19,7 +20,8 @@ private const val HOME = "home"
 private const val MATCH = "match/{matchId}"
 private const val PLAYLISTS = "playlists"
 private const val PLAYLIST_EDIT = "playlist/{id}?type={type}"
-private const val PLAYER = "player/{channelId}"
+private const val PLAYER = "player/{channelId}?zapGroup={zapGroup}"
+private const val CHANNEL = "channel/{channelId}"
 private const val SCHEDULE = "schedule/{channelId}"
 private const val EPG = "epg"
 
@@ -32,7 +34,14 @@ fun AppNavigation() {
                 onOpenMatch = { id -> nav.navigate("match/$id") },
                 onOpenPlaylists = { nav.navigate(PLAYLISTS) },
                 onOpenEpg = { nav.navigate(EPG) },
-                onPlayChannel = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
+                onPlayChannel = { id, zapGroup -> nav.navigate("player/$id?zapGroup=$zapGroup") { launchSingleTop = true } },
+                onOpenChannel = { id -> nav.navigate("channel/$id") },
+            )
+        }
+        composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
+            ChannelScreen(
+                channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                onPlay = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
                 onOpenSchedule = { id -> nav.navigate("schedule/$id") },
             )
         }
@@ -48,9 +57,19 @@ fun AppNavigation() {
             )
         }
         composable(EPG) { EpgSettingsScreen() }
-        composable(PLAYER, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
+        composable(
+            PLAYER,
+            arguments = listOf(
+                navArgument("channelId") { type = NavType.LongType },
+                navArgument("zapGroup") {
+                    type = NavType.LongType
+                    defaultValue = 0L
+                },
+            ),
+        ) { entry ->
             PlayerScreen(
                 channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                zapGroup = entry.arguments?.getLong("zapGroup") ?: 0L,
                 onExit = { nav.popBackStack() },
             )
         }

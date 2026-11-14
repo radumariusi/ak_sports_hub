@@ -18,6 +18,8 @@ import ro.ak.sportshub.data.EpgSettingsStore
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
+import ro.ak.sportshub.data.VariantRepository
+import ro.ak.sportshub.data.VariantStore
 
 /** Dependențele aplicației, create o singură dată (fără bibliotecă de injecție, deocamdată). */
 class AppContainer(app: Application) {
@@ -37,11 +39,16 @@ class AppContainer(app: Application) {
 
     private val downloader = PlaylistDownloader(http)
 
+    val variantStore = VariantStore(app)
+
+    val variants = VariantRepository(database.channels(), variantStore)
+
     val playlists = PlaylistRepository(
         context = app,
         db = database,
         importer = PlaylistImporter(downloader, gate, File(app.cacheDir, "import")),
         scope = scope,
+        corrections = variantStore::correctionsFor,
     )
 
     val epgSettings = EpgSettingsStore(app)
