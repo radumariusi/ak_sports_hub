@@ -62,7 +62,11 @@ fun HomeScreen(
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             when (section) {
-                0 -> SportsHubScreen(onOpenMatch = onOpenMatch, onOpenSettings = onOpenSportsSettings)
+                0 -> SportsHubScreen(
+                    onOpenMatch = onOpenMatch,
+                    onOpenSettings = onOpenSportsSettings,
+                    onPlay = { id -> onPlayChannel(id, 0L) },
+                )
                 1 -> LiveTvScreen(onOpenPlaylists = onOpenPlaylists, onPlayChannel = onPlayChannel, onOpenChannel = onOpenChannel)
                 else -> SettingsScreen(
                     onOpenPlaylists = onOpenPlaylists,

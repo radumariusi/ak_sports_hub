@@ -61,11 +61,17 @@ enum class Confidence(val label: String, val guess: Boolean = false) {
     /** Programul EPG al canalului conține meciul. */
     EPG("Sigur (EPG)"),
 
+    /** Un canal EVENT / PPV al playlistului are meciul în nume („EVENT 03: Arsenal v Chelsea 20:45”). */
+    EVENT("Sigur (canal eveniment)"),
+
     /** Un furnizor anunță postul, iar canalul are același nume (sau e în dicționarul de posturi). */
     STATION("Probabil (post anunțat)"),
 
     /** Ai confirmat canalul la alt meci din aceeași competiție. */
     LEARNED("Învățat (aceeași competiție)", guess = true),
+
+    /** Un canal dedicat competiției („DAZN F1”, „MotoGP TV”): transmite de obicei toate sesiunile. */
+    DEDICATED("Presupus (canal dedicat)", guess = true),
 
     /** O regulă de drepturi TV: competiția → posturile care o transmit de obicei. */
     RIGHTS("Presupus (drepturi TV)", guess = true),
@@ -90,7 +96,12 @@ data class Match(
     val stations: List<TvStation> = emptyList(),
     val broadcasts: List<EpgBroadcast> = emptyList(),
     val providers: Set<String> = emptySet(),
+    /** Canalele EVENT / PPV din playlist (id-urile lor) care au meciul în nume. */
+    val eventChannels: List<Long> = emptyList(),
 ) {
     val title: String get() = if (away.isBlank()) home else "$home – $away"
+
+    /** Un eveniment fără două echipe (o cursă, o etapă, o gală, un turneu): [home] e numele lui. */
+    val isSingleEvent: Boolean get() = away.isBlank()
     val isLive: Boolean get() = status == MatchStatus.LIVE
 }

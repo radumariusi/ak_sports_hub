@@ -81,6 +81,67 @@ object EpgMatchExtractor {
         return build(pieces[0], pieces[1], contextParts, category, explicitLive, reversed, strongSeparator = strong != null, channelIsSport)
     }
 
+    /** Sporturile în care un program e de obicei un eveniment fără două echipe. */
+    private val singleEventSports = setOf(Sport.MOTORSPORT, Sport.CYCLING, Sport.GOLF, Sport.FIGHTING, Sport.DARTS, Sport.SNOOKER, Sport.TENNIS)
+
+    /** Cuvinte care arată o sesiune sau o zi de concurs (nu o emisiune despre sport). */
+    private val sessionWords = listOf(
+        "grand prix", "gp", "race", "cursa", "carrera", "qualifying", "calificari", "calificarile", "clasificacion", "sprint",
+        "practice", "antrenamente", "libres", "stage", "etapa", "tappa", "round", "runda", "day", "ziua", "final", "finala",
+        "semifinal", "semifinale", "gala", "fight night", "main card", "prelims", "tour de", "open", "masters", "championship",
+        "campionatul", "world cup", "cupa mondiala", "classic",
+    )
+    private val numberedEvent = Regex("""\b(ufc|pfl|bellator|oktagon|ksw)\s*\d+""")
+
+    /**
+     * Un eveniment fără două echipe în EPG: „Formula 1: Marele Premiu al Qatarului - Cursa (live)”,
+     * „Ciclism: Turul Franței, etapa 12”, „UFC 310: Main Card”. Doar pe canale de sport (sau cu categorie
+     * de sport), doar pentru sporturile cu astfel de evenimente și doar cu „live” sau cu o sesiune în titlu.
+     */
+    fun extractEvent(b: EpgBroadcast, channelIsSport: Boolean): ExtractedMatch? {
+        val categoryIsSport = b.category != null && Sport.fold(b.category).let { c -> SPORT_CATEGORY.any { c.contains(it) } }
+        val categorySport = Sport.detect(b.category)
+        if (!channelIsSport && !categoryIsSport && categorySport == null) return null
+        val raw = b.title.trim()
+        if (raw.isEmpty()) return null
+        val folded = Sport.fold(raw)
+        val lowerRaw = raw.lowercase()
+        if (replayWords.any { w -> if (w.startsWith("(") || w.startsWith("[")) lowerRaw.contains(w) else " $folded ".contains(" $w ") }) {
+            return null
+        }
+        var explicitLive = false
+        var text = raw
+        while (true) {
+            val m = liveMarker.find(text) ?: break
+            explicitLive = true
+            text = text.removeRange(m.range).trim()
+        }
+        val sport = Sport.detect(text, b.subtitle) ?: categorySport ?: return null
+        if (sport !in singleEventSports) return null
+        val f = " ${Sport.fold(text)} ${Sport.fold(b.subtitle.orEmpty())} "
+        if (!explicitLive && sessionWords.none { f.contains(" $it ") } && !numberedEvent.containsMatchIn(f)) return null
+
+        val segments = text.split(contextSplit).map { it.trim().trim('-', '–', '—', ' ') }.filter { it.isNotEmpty() && !isLiveWord(it) }
+        if (segments.isEmpty()) return null
+        var name = segments.last()
+        var context = segments.dropLast(1)
+        // „Formula 1 - Cursa”: ultima parte nu spune care eveniment e, deci numele e tot titlul.
+        if (segments.size > 1 && EventNames.significant(name).isEmpty()) {
+            name = segments.joinToString(" - ")
+            context = segments.dropLast(1)
+        }
+        if (name.length > 80) return null
+        // Subtitlul poate da locul („Abu Dhabi”) când titlul e generic.
+        if (EventNames.significant(name).isEmpty() && !b.subtitle.isNullOrBlank() && b.subtitle.length <= 60) name = "$name - ${b.subtitle.trim()}"
+        return ExtractedMatch(
+            home = name,
+            away = "",
+            competition = context.lastOrNull()?.takeIf { it.length <= 50 },
+            sport = sport,
+            explicitLive = explicitLive,
+        )
+    }
+
     private fun build(
         homeRaw: String,
         awayRaw: String,

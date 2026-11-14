@@ -403,6 +403,10 @@ class EpgRepository(
     suspend fun epgChannelsOf(channelIds: Collection<Long>): Set<Long> =
         channelIds.distinct().chunked(IN_CHUNK).flatMap { dao.mapForChannels(it) }.map { it.epgChannelId }.toSet()
 
+    /** Care din canalele [channelIds] din playlist au un canal EPG potrivit. */
+    suspend fun mappedChannels(channelIds: Collection<Long>): Set<Long> =
+        channelIds.distinct().chunked(IN_CHUNK).flatMap { dao.mapForChannels(it) }.map { it.channelId }.toSet()
+
     /** Canalele din playlist care au programul canalelor EPG [epgChannelIds]. */
     suspend fun channelsShowing(epgChannelIds: Collection<Long>): Map<Long, List<Long>> =
         epgChannelIds.distinct().chunked(IN_CHUNK).flatMap { dao.mapForEpgChannels(it) }

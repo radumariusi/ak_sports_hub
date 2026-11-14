@@ -31,7 +31,7 @@ import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
 
-private val KnowledgeTabs = listOf("Posturi", "Drepturi TV", "Echipe", "Învățat")
+private val KnowledgeTabs = listOf("Posturi", "Drepturi TV", "Echipe", "Învățat", "Fără EPG")
 
 /** Ce fereastră e deschisă pe ecranul dicționarului. */
 private sealed interface KDialog {
@@ -145,6 +145,32 @@ fun SportsKnowledgeScreen() {
                         item(key = "t:$alias") { ListRow(title = "$alias = $full", onClick = { dialog = KDialog.TeamEntry(alias) }) }
                     }
                     item { Hint("Alias-urile ajută la unirea aceluiași meci din surse diferite și la găsirea lui în EPG.") }
+                }
+                4 -> {
+                    val list = snapshot.noEpgChannels
+                    item {
+                        Hint(
+                            "EPG-ul e singura sursă sigură pentru orice sport, deci fiecare canal de sport fără program e o gaură: meciurile de pe el " +
+                                "apar doar după postul anunțat sau după drepturile TV. " +
+                                (if (list.isEmpty()) "Toate cele ${snapshot.sportChannelCount} canale de sport au EPG." else "${list.size} canale de sport fără EPG (cele cu mai multe variante întâi)."),
+                        )
+                    }
+                    list.forEachIndexed { i, c ->
+                        item(key = "n:$i") {
+                            ListRow(
+                                title = c.name,
+                                subtitle = listOf(c.group, c.playlist, if (c.variants > 1) "${c.variants} variante" else null).filterNotNull().joinToString(" · "),
+                                onClick = {},
+                            )
+                        }
+                    }
+                    item {
+                        Hint(
+                            "Ce poți face: adaugă un EPG extern care are aceste canale (Setări → EPG), de exemplu fișierele XMLTV pe țări de la " +
+                                "EPGShare01 sau un fișier generat cu iptv-org/epg; aplicația le potrivește după tvg-id și după nume. " +
+                                "Canalele EVENT / PPV nu apar aici: meciul lor se citește din nume.",
+                        )
+                    }
                 }
                 else -> {
                     item { SectionLabel("Competiții → canale confirmate (OK: uită)") }

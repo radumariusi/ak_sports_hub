@@ -11,8 +11,12 @@ import kotlinx.serialization.json.longOrNull
 
 /**
  * Sofascore (furnizor opțional, API neoficial): programul și scorurile unei zile pentru un sport.
- * O cerere pe sport și zi, rar, cu răspunsul păstrat în fișier. Fără posturi TV (ar cere câte o cerere
- * pe meci): meciurile de aici primesc surse din EPG și din regulile de drepturi TV.
+ * O cerere pe sport și zi, rar, cu răspunsul păstrat în fișier.
+ *
+ * Posturile TV pe țară (toate sporturile) cer câte o cerere pe meci (`tv/event/{id}/country-channels`), deci se
+ * cer doar pentru câteva meciuri pe rundă ([pickForTv]: favoritele, apoi cele fără sursă sigură), iar numele
+ * posturilor se află o dată pe țară (`tv/country/{cod}/channels`) sau pe post și se păstrează. Formatul acestor
+ * răspunsuri nu e documentat: citirea e tolerantă, iar un răspuns neînțeles dă doar „fără posturi”.
  */
 object Sofascore {
 
@@ -75,6 +79,112 @@ object Sofascore {
             )
         }
     }
+
+    // ---------- posturile TV ----------
+
+    /** Posturile pe țară ale meciului [eventId] (doar id-uri sau id + nume). */
+    fun tvUrl(eventId: String): String = "$BASE/tv/event/$eventId/country-channels"
+
+    /** Posturile cunoscute dintr-o țară (codul ISO cu două litere), cu numele lor. */
+    fun countryChannelsUrl(country: String): String = "$BASE/tv/country/${country.uppercase()}/channels"
+
+    /** Un singur post (pentru numele lui), când lista țării nu l-a avut. */
+    fun channelUrl(channelId: String): String = "$BASE/tv/channel/$channelId/schedule"
+
+    /** Un post din răspunsul unui meci: id-ul și, uneori, numele. */
+    data class ChannelRef(val id: String?, val name: String?)
+
+    /** `{"countryChannels": {"GB": [123, …] sau [{"id":…,"name":…}, …]}}` → țară → posturi. */
+    fun parseCountryChannels(body: String): Map<String, List<ChannelRef>> {
+        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return emptyMap()
+        val map = (root["countryChannels"] ?: root["channels"]) as? JsonObject ?: return emptyMap()
+        return map.mapNotNull { (country, value) ->
+            val arr = value as? JsonArray ?: return@mapNotNull null
+            val refs = arr.mapNotNull { el ->
+                when (el) {
+                    is JsonPrimitive -> el.contentOrNull?.let { ChannelRef(it, null) }
+                    is JsonObject -> ChannelRef(el.idString(), el.str("name") ?: el.str("shortName")).takeIf { it.id != null || it.name != null }
+                    else -> null
+                }
+            }
+            if (refs.isEmpty()) null else country.uppercase() to refs
+        }.toMap()
+    }
+
+    /**
+     * Numele posturilor din orice răspuns (lista unei țări, programul unui post): obiectele cu `id` și `name`,
+     * fără meciurile, echipele și competițiile din ele.
+     */
+    fun parseChannelNames(body: String): Map<String, String> {
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        fun walk(el: kotlinx.serialization.json.JsonElement, depth: Int) {
+            if (depth > 6) return
+            when (el) {
+                is JsonArray -> el.forEach { walk(it, depth + 1) }
+                is JsonObject -> {
+                    val id = el.idString()
+                    val name = el.str("name")
+                    if (id != null && name != null && "homeTeam" !in el && "startTimestamp" !in el) out.putIfAbsent(id, name)
+                    for ((k, v) in el) if (k !in skipped) walk(v, depth + 1)
+                }
+                else -> Unit
+            }
+        }
+        walk(root, 0)
+        return out
+    }
+
+    private val skipped = setOf("events", "event", "homeTeam", "awayTeam", "tournament", "uniqueTournament", "category", "season", "country")
+
+    /** Prefixele de țară din playlisturi pentru codul ISO [country] („GB” → uk, gb, en). */
+    fun prefixes(country: String): Set<String> = Countries.codes(country.lowercase())
+
+    /**
+     * Posturile meciului, cu numele aflate ([names]: id → nume), doar din țările [wanted] (codurile ISO;
+     * gol = toate). Țara rămâne pe post, pentru potrivirea cu canalele din aceeași țară.
+     */
+    fun stations(refs: Map<String, List<ChannelRef>>, names: Map<String, String>, wanted: (String) -> Boolean): List<TvStation> =
+        refs.filterKeys(wanted).flatMap { (country, list) ->
+            list.mapNotNull { r -> (r.name ?: r.id?.let(names::get))?.let { TvStation(it, country) } }
+        }.distinct()
+
+    /** Id-urile posturilor fără nume cunoscut, din țările [wanted]. */
+    fun unnamed(refs: Map<String, List<ChannelRef>>, names: Map<String, String>, wanted: (String) -> Boolean): Map<String, Set<String>> =
+        refs.filterKeys(wanted).mapValues { (_, list) -> list.filter { it.name == null && it.id != null && it.id !in names }.mapNotNull { it.id }.toSet() }
+            .filterValues { it.isNotEmpty() }
+
+    /**
+     * Meciurile pentru care merită cerute posturile acum (cel mult [max]): cele care n-au început de mult
+     * și încep în cel mult 30 de ore, întâi [favorite], apoi cele fără sursă sigură ([covered] = au deja),
+     * apoi cele din competițiile [important], fiecare grup după oră.
+     */
+    fun pickForTv(
+        events: List<SportEvent>,
+        now: Long,
+        max: Int,
+        favorite: (SportEvent) -> Boolean,
+        covered: (SportEvent) -> Boolean,
+        important: (SportEvent) -> Boolean,
+    ): List<SportEvent> {
+        val from = now - java.util.concurrent.TimeUnit.HOURS.toMillis(3)
+        val until = now + java.util.concurrent.TimeUnit.HOURS.toMillis(30)
+        return events.asSequence()
+            .filter { it.provider == PROVIDER && it.start in from..until && it.status != MatchStatus.FINISHED }
+            .distinctBy { it.providerId }
+            .sortedWith(
+                compareBy<SportEvent>(
+                    { if (favorite(it)) 0 else 1 },
+                    { if (covered(it)) 1 else 0 },
+                    { if (important(it)) 0 else 1 },
+                    { it.start },
+                ),
+            )
+            .take(max)
+            .toList()
+    }
+
+    private fun JsonObject.idString(): String? = (this["id"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun JsonObject.obj(name: String): JsonObject? = this[name] as? JsonObject
 

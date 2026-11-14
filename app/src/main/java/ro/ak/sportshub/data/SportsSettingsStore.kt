@@ -28,8 +28,16 @@ data class SportsSettings(
     val sports: List<Sport> = Sport.DEFAULT_FETCH,
     /** LiveSoccerTV (neoficial, opțional): meciurile de fotbal de azi și mâine, cu posturile TV. */
     val liveSoccerTvEnabled: Boolean = true,
-    /** Sofascore (neoficial, opțional): programul și scorurile, fără posturi TV. */
+    /** Sofascore (neoficial, opțional): programul și scorurile pentru sporturile alese. */
     val sofascoreEnabled: Boolean = false,
+    /** Posturile TV pe țară de la Sofascore (câteva meciuri pe rundă), când Sofascore e pornit. */
+    val sofascoreTv: Boolean = true,
+    /** FutbolEnLaTV (neoficial, opțional): ~18 sporturi pe zi, cu posturile din Spania. */
+    val futbolEnLaTvEnabled: Boolean = true,
+    /** Canalele EVENT / PPV din playlisturi: meciul citit din numele canalului. */
+    val eventChannels: Boolean = true,
+    /** Fusul orelor scrise fără fus în numele canalelor EVENT („20:00”); gol = fusul televizorului. */
+    val eventZone: String = "",
     /** Câte zile (de azi încolo) se cer de la TheSportsDB. */
     val daysAhead: Int = 3,
     val favorites: SportsFavorites = SportsFavorites(),
@@ -44,6 +52,20 @@ data class SportsSettings(
     /** Rândul „Meciurile tale de azi” pe ecranul principal Android TV. */
     val homeRow: Boolean = true,
 )
+
+/** Fusurile din care poți alege pentru orele din numele canalelor EVENT (gol = fusul televizorului). */
+val EventZones: List<Pair<String, String>> = listOf(
+    "" to "Fusul televizorului",
+    "Europe/London" to "Marea Britanie (UK)",
+    "Europe/Paris" to "Europa Centrală (CET)",
+    "Europe/Bucharest" to "România (EET)",
+    "America/New_York" to "SUA, Est (ET)",
+    "UTC" to "UTC",
+)
+
+/** Fusul pentru orele din numele canalelor EVENT. */
+fun SportsSettings.eventZoneId(): java.time.ZoneId =
+    eventZone.takeIf { it.isNotBlank() }?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() } ?: java.time.ZoneId.systemDefault()
 
 class SportsSettingsStore(context: Context) {
 
@@ -89,6 +111,10 @@ class SportsSettingsStore(context: Context) {
                 sportsDbTv = o.optBoolean("sportsDbTv", d.sportsDbTv),
                 liveSoccerTvEnabled = o.optBoolean("liveSoccerTv", d.liveSoccerTvEnabled),
                 sofascoreEnabled = o.optBoolean("sofascore", d.sofascoreEnabled),
+                sofascoreTv = o.optBoolean("sofascoreTv", d.sofascoreTv),
+                futbolEnLaTvEnabled = o.optBoolean("futbolEnLaTv", d.futbolEnLaTvEnabled),
+                eventChannels = o.optBoolean("eventChannels", d.eventChannels),
+                eventZone = o.optString("eventZone", d.eventZone),
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
@@ -120,6 +146,10 @@ class SportsSettingsStore(context: Context) {
         put("sportsDbTv", s.sportsDbTv)
         put("liveSoccerTv", s.liveSoccerTvEnabled)
         put("sofascore", s.sofascoreEnabled)
+        put("sofascoreTv", s.sofascoreTv)
+        put("futbolEnLaTv", s.futbolEnLaTvEnabled)
+        put("eventChannels", s.eventChannels)
+        put("eventZone", s.eventZone)
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
         put("noSpoilers", s.noSpoilers)
