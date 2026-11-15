@@ -27,6 +27,10 @@ import androidx.tv.material3.Text
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import ro.ak.sportshub.ui.components.rememberDiskUsage
+import ro.ak.sportshub.ui.components.describe
+import ro.ak.sportshub.ui.components.LoadsPanel
+import ro.ak.sportshub.core.common.LoadFormat
 import ro.ak.sportshub.core.database.EpgSourceState
 import ro.ak.sportshub.core.epg.EpgOverride
 import ro.ak.sportshub.core.epg.EpgSource
@@ -52,6 +56,7 @@ fun EpgSettingsScreen() {
     val states by remember { epg.observeStates() }.collectAsStateWithLifecycle(initialValue = emptyList())
     val mapped by remember { epg.observeMappedCount() }.collectAsStateWithLifecycle(initialValue = 0)
     val status by epg.status.collectAsStateWithLifecycle()
+    val disk = rememberDiskUsage()
     val byKey = states.associateBy { it.sourceKey }
     val policy = settings.policy
 
@@ -81,6 +86,7 @@ fun EpgSettingsScreen() {
             color = if (status != null) AkColors.Accent else AkColors.TextDim,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
+        LoadsPanel()
         LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item { SectionLabel("Actualizare") }
             item {
@@ -101,6 +107,14 @@ fun EpgSettingsScreen() {
             }
             item {
                 ListRow(
+                    title = "Spațiu ocupat",
+                    subtitle = disk?.describe() ?: "se calculează…",
+                    onClick = {},
+                    trailing = { Value(disk?.let { LoadFormat.size(it.total) } ?: "…") },
+                )
+            }
+            item {
+                ListRow(
                     title = "Zile de program păstrate",
                     subtitle = "Mai multe zile ocupă mai mult spațiu pe televizor",
                     onClick = {
@@ -116,7 +130,7 @@ fun EpgSettingsScreen() {
 
             item { SectionLabel("Din playlisturi", modifier = Modifier.padding(top = 8.dp)) }
             if (fromPlaylists.isEmpty()) {
-                item { Hint("Playlisturile tale nu declară niciun EPG (url-tvg). Adaugă unul extern mai jos.") }
+                item { Hint("Playlisturile active nu declară niciun EPG (url-tvg sau xmltv.php la Xtream). Cele inactive nu contează: canalele lor nu primesc program. Poți adăuga unul extern mai jos.") }
             }
             items(fromPlaylists, key = { it.key }) { s ->
                 SourceRow(s, byKey[s.key]) { editing = s }

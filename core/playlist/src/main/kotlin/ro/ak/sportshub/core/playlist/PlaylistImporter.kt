@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import ro.ak.sportshub.core.common.ChannelNameParser
 import ro.ak.sportshub.core.common.ConnectionGate
 import ro.ak.sportshub.core.common.Languages
+import ro.ak.sportshub.core.common.LoadReporter
 import ro.ak.sportshub.core.common.SearchText
 import ro.ak.sportshub.core.model.Quality
 
@@ -90,6 +91,8 @@ class PlaylistImporter(
         sink: ImportSink,
         previous: CacheTag? = null,
         waitForConnection: Boolean = true,
+        /** Progresul pentru ecran: pasul, octeții descărcați și canalele citite. */
+        report: LoadReporter = LoadReporter.NONE,
     ): ImportOutcome = withContext(Dispatchers.IO) {
         workDir.mkdirs()
         val files = mutableListOf<File>()
@@ -97,17 +100,19 @@ class PlaylistImporter(
             .also { files += it }
         try {
             when (source) {
-                is ImportSource.M3uLocal -> importM3u(source.playlistId, source.open(), sink, null)
+                is ImportSource.M3uLocal -> importM3u(source.playlistId, source.open(), sink, null, report)
 
                 is ImportSource.M3uUrl -> {
                     val file = temp("m3u")
+                    report.phase("așteaptă conexiunea")
                     val result = network(source, waitForConnection) {
-                        downloader.download(source.url, file, source.userAgent, previous)
+                        report.phase("se descarcă playlistul")
+                        downloader.download(source.url, file, source.userAgent, previous, onBytes = report::bytes)
                     } ?: return@withContext ImportOutcome.Busy
                     when (result) {
                         PlaylistDownloader.Result.NotModified -> ImportOutcome.NotModified
                         is PlaylistDownloader.Result.Saved ->
-                            importM3u(source.playlistId, file.inputStream(), sink, result.tag)
+                            importM3u(source.playlistId, file.inputStream(), sink, result.tag, report)
                     }
                 }
 
@@ -115,12 +120,21 @@ class PlaylistImporter(
                     val endpoints = XtreamEndpoints(source.server, source.username, source.password)
                     val categoriesFile = temp("cat")
                     val streamsFile = temp("live")
+                    report.phase("așteaptă conexiunea")
                     val account = network(source, waitForConnection) {
+                        report.phase("se verifică contul")
                         val account = XtreamParser.account(downloader.fetchText(endpoints.account(), source.userAgent))
-                        downloader.download(endpoints.liveCategories().toString(), categoriesFile, source.userAgent)
-                        downloader.download(endpoints.liveStreams().toString(), streamsFile, source.userAgent)
+                        report.phase("se descarcă grupurile")
+                        downloader.download(
+                            endpoints.liveCategories().toString(), categoriesFile, source.userAgent, onBytes = report::bytes,
+                        )
+                        report.phase("se descarcă lista de canale")
+                        downloader.download(
+                            endpoints.liveStreams().toString(), streamsFile, source.userAgent, onBytes = report::bytes,
+                        )
                         account
                     } ?: return@withContext ImportOutcome.Busy
+                    report.phase("se citesc canalele")
 
                     val categories = categoriesFile.inputStream().use { XtreamParser.categories(it) }
                     var count = 0
@@ -130,7 +144,8 @@ class PlaylistImporter(
                             // Nu ștergem canalele vechi pe baza unui răspuns gol.
                             throw PlaylistException("Serverul Xtream nu a trimis niciun canal live.")
                         }
-                        count = sink.replaceChannels(source.playlistId, PlaylistHeader(), enrich(channels.asSequence()))
+                        report.count("grupuri", categories.size.toLong())
+                        count = sink.replaceChannels(source.playlistId, PlaylistHeader(), counted(enrich(channels.asSequence()), report))
                     }
                     ImportOutcome.Imported(count, skipped = 0, tag = null, epgUrls = listOf(endpoints.xmltv()), account = account)
                 }
@@ -151,7 +166,14 @@ class PlaylistImporter(
     private suspend fun <T> network(source: ImportSource, wait: Boolean, block: suspend () -> T): T? =
         if (wait) gate.withConnection(source.playlistId, block) else gate.tryWithConnection(source.playlistId, block)
 
-    private suspend fun importM3u(playlistId: String, raw: InputStream, sink: ImportSink, tag: CacheTag?): ImportOutcome {
+    private suspend fun importM3u(
+        playlistId: String,
+        raw: InputStream,
+        sink: ImportSink,
+        tag: CacheTag?,
+        report: LoadReporter,
+    ): ImportOutcome {
+        report.phase("se citesc canalele")
         val parser = M3uParser()
         val count = maybeGunzip(raw).bufferedReader(Charsets.UTF_8).use { reader ->
             val channels = parser.parse(reader).iterator()
@@ -163,7 +185,10 @@ class PlaylistImporter(
                     else "Fișierul nu pare un playlist M3U sau nu are niciun canal.",
                 )
             }
-            sink.replaceChannels(playlistId, parser.header, enrich(channels.asSequence()))
+            val live = counted(enrich(channels.asSequence()), report).onEach {
+                if (parser.skipped > 0) report.count("filme și seriale sărite", parser.skipped.toLong())
+            }
+            sink.replaceChannels(playlistId, parser.header, live)
         }
         return ImportOutcome.Imported(count, parser.skipped, tag, parser.header.epgUrls)
     }
@@ -175,6 +200,12 @@ class PlaylistImporter(
         val b2 = input.read()
         input.reset()
         return if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(input) else input
+    }
+
+    /** Numără canalele pe măsură ce sunt salvate (pentru ecranul de progres). */
+    private fun counted(channels: Sequence<ImportedChannel>, report: LoadReporter): Sequence<ImportedChannel> {
+        var n = 0L
+        return channels.onEach { report.count("canale", ++n) }
     }
 
     companion object {

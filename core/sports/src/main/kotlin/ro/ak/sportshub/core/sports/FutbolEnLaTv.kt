@@ -81,15 +81,73 @@ object FutbolEnLaTv {
             val event = parseRow(el, day) ?: continue
             if (seen.add(event.providerId)) out += event
         }
+        return out.ifEmpty { parseLoose(doc, today) }
+    }
+
+    private val exactTime = Regex("""^\s*([01]?\d|2[0-3]):([0-5]\d)\s*h?\s*$""")
+
+    /**
+     * Citirea de rezervă, fără tabel: fiecare element al cărui text e doar o oră e începutul unui rând;
+     * rândul e cel mai mare strămoș care nu mai conține și altă oră. Titlurile de zi se urmăresc în ordinea paginii.
+     */
+    internal fun parseLoose(doc: org.jsoup.nodes.Document, today: LocalDate): List<SportEvent> {
+        val all = doc.allElements
+        val times = all.filter { exactTime.matches(it.ownText()) }
+        if (times.isEmpty()) return emptyList()
+        val counts = HashMap<Element, Int>()
+        times.forEach { t -> t.parents().forEach { p -> counts.merge(p, 1, Int::plus) } }
+        val timeSet = times.toHashSet()
+        val out = ArrayList<SportEvent>()
+        val seen = HashSet<String>()
+        var day = today
+        for (el in all) {
+            val own = el.ownText()
+            if (el !in timeSet) {
+                if (own.length in 6..120) dateText.find(own)?.let { m ->
+                    runCatching { LocalDate.of(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt()) }
+                        .getOrNull()?.let { day = it }
+                }
+                continue
+            }
+            var row: Element = el
+            while (true) {
+                val parent = row.parent() ?: break
+                if (parent.tagName() == "body" || (counts[parent] ?: 0) > 1) break
+                row = parent
+            }
+            val event = parseRow(row, day, own.trim()) ?: continue
+            if (seen.add(event.providerId)) out += event
+        }
         return out
+    }
+
+    /** „Bolívar Bolívar Atlético Mineiro Atlético Mineiro” (nume + text alternativ al siglei) → cele două echipe. */
+    internal fun doubledTeams(text: String): Pair<String, String>? {
+        val all = text.trim().split(Regex("""\s+"""))
+        // Înaintea echipelor poate fi competiția („LaLiga Real Madrid Real Madrid Getafe Getafe”).
+        for (k in 0 until all.size) doubledFrom(all.drop(k))?.let { return it }
+        return null
+    }
+
+    private fun doubledFrom(w: List<String>): Pair<String, String>? {
+        for (i in 1..w.size / 2) {
+            if (w.subList(0, i) != w.subList(i, minOf(2 * i, w.size))) continue
+            val rest = w.drop(2 * i)
+            if (rest.isEmpty() || rest.size % 2 != 0) continue
+            val half = rest.size / 2
+            if (rest.subList(0, half) == rest.subList(half, rest.size)) {
+                return w.subList(0, i).joinToString(" ") to rest.subList(0, half).joinToString(" ")
+            }
+        }
+        return null
     }
 
     /** Textul celulei cu ora (sau al primei celule). */
     private fun cellText(row: Element): String =
         (row.selectFirst(".hora, [class*=hora], .time") ?: row.children().firstOrNull() ?: row).text()
 
-    private fun parseRow(row: Element, day: LocalDate): SportEvent? {
-        val tm = time.find(cellText(row)) ?: return null
+    private fun parseRow(row: Element, day: LocalDate, timeText: String? = null): SportEvent? {
+        val tm = time.find(timeText ?: cellText(row)) ?: return null
         val start = day.atTime(LocalTime.of(tm.groupValues[1].toInt(), tm.groupValues[2].toInt()))
             .atZone(ZONE).toInstant().toEpochMilli()
 
@@ -117,10 +175,11 @@ object FutbolEnLaTv {
         if (home.isEmpty() || away.isEmpty()) {
             val title = (row.selectFirst("[class*=evento], [class*=partido], [class*=titulo]")?.text()
                 ?: row.children().filterNot { c ->
-                    (details != null && c.allElements.contains(details)) || c.hasClass("hora") || c.className().contains("canal") || time.containsMatchIn(c.text())
+                    (details != null && c.allElements.contains(details)) || c.hasClass("hora") || c.className().contains("canal") || time.containsMatchIn(c.text()) ||
+                        c.tagName() in setOf("ul", "ol") || c.selectFirst("ul, ol") != null
                 }.joinToString(" ") { it.text() }).trim()
             if (title.isEmpty()) return null
-            val parts = title.split(teamsSplit, limit = 2).map { it.trim() }
+            val parts = doubledTeams(title)?.toList() ?: title.split(teamsSplit, limit = 2).map { it.trim() }
             if (parts.size == 2 && parts.all { it.isNotEmpty() } && sport != Sport.MOTORSPORT && sport != Sport.CYCLING && sport != Sport.GOLF) {
                 home = parts[0]
                 away = parts[1]

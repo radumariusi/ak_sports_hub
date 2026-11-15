@@ -24,6 +24,9 @@ import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
+import ro.ak.sportshub.data.providerLabel
+import ro.ak.sportshub.core.sports.FutbolEnLaTv
+import ro.ak.sportshub.core.sports.TheSportsDb
 
 private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE, STREAM_DELAY }
 
@@ -35,6 +38,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
     val sports = container.sports
     val s by store.settings.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
+    val health by sports.health.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<SportsDialog?>(null) }
 
     // Schimbările care privesc TheSportsDB cer din nou doar ce lipsește (fără să forțeze descărcarea).
@@ -137,7 +141,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "Sofascore",
-                subtitle = "Neoficial, opțional: programul și scorurile pentru sporturile alese (azi și mâine, la 3 ore)",
+                subtitle = "Neoficial, opțional: programul complet și scorurile pentru sporturile alese (azi și mâine, la 3 ore); sursa cu cele mai multe meciuri",
                 onClick = { update(true) { it.copy(sofascoreEnabled = !it.sofascoreEnabled) } },
                 trailing = { SettingValue(if (s.sofascoreEnabled) "Da" else "Nu") },
             )
@@ -189,6 +193,27 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 onClick = { dialog = SportsDialog.DAYS },
                 trailing = { SettingValue(s.daysAhead.toString()) },
             )
+        }
+        val active = buildList {
+            if (s.sportsDbEnabled) add(TheSportsDb.PROVIDER)
+            if (s.liveSoccerTvEnabled) add("livesoccertv")
+            if (s.sofascoreEnabled) add("sofascore")
+            if (s.futbolEnLaTvEnabled) add(FutbolEnLaTv.PROVIDER)
+        }
+        item { SectionLabel("Starea furnizorilor (de la pornirea aplicației)") }
+        active.forEach { p ->
+            item(key = "health-$p") {
+                val h = health[p]
+                ListRow(
+                    title = providerLabel(p) + (h?.let { " · ${it.events} meciuri salvate" } ?: ""),
+                    subtitle = when {
+                        h == null || h.ok + h.failed == 0 -> "Nicio cerere de la pornire; se folosesc datele salvate"
+                        h.failed == 0 -> "Ultima rundă: ${h.ok} cereri reușite"
+                        else -> "Ultima rundă: ${h.ok} reușite, ${h.failed} nereușite · ${h.lastError.orEmpty()}"
+                    },
+                    onClick = {},
+                )
+            }
         }
         item {
             ListRow(

@@ -8,12 +8,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import ro.ak.sportshub.core.common.LoadProgress
 import ro.ak.sportshub.core.common.ConnectionGate
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.EpgDatabase
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
+import ro.ak.sportshub.data.AppUpdater
 import ro.ak.sportshub.data.CatchupStore
 import ro.ak.sportshub.data.ChannelFavoritesStore
 import ro.ak.sportshub.data.EpgRepository
@@ -49,6 +51,9 @@ class AppContainer(app: Application) {
 
     private val downloader = PlaylistDownloader(http)
 
+    /** Încărcările în curs (playlisturi, EPG, potrivire), cu numărătorile lor, pentru ecran. */
+    val loads = LoadProgress()
+
     val variantStore = VariantStore(app)
 
     val sportsSettings = SportsSettingsStore(app)
@@ -71,6 +76,7 @@ class AppContainer(app: Application) {
         scope = scope,
         corrections = variantStore::correctionsFor,
         onServerZone = catchup::setZone,
+        progress = loads,
     )
 
     val epgSettings = EpgSettingsStore(app)
@@ -83,7 +89,11 @@ class AppContainer(app: Application) {
         downloader = downloader,
         gate = gate,
         scope = scope,
+        progress = loads,
     )
+
+    /** Actualizarea aplicației din release-ul „ultima-versiune”. */
+    val updater = AppUpdater(app, http, scope, loads)
 
     val playerHistory = PlayerHistory(app, database.channels())
 

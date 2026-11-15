@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import ro.ak.sportshub.core.common.LoadProgress
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.PlaylistEntity
 import ro.ak.sportshub.core.database.PlaylistType
@@ -51,6 +52,8 @@ class PlaylistRepository(
     corrections: (playlistId: Long) -> Map<String, ChannelCorrection> = { emptyMap() },
     /** Fusul orar al serverului Xtream, aflat la actualizare (pentru catch-up). */
     private val onServerZone: (playlistId: Long, timezone: String?) -> Unit = { _, _ -> },
+    /** Încărcările în curs, cu numărătorile lor (pentru ecran). */
+    private val progress: LoadProgress = LoadProgress(),
 ) {
     private val sink = RoomImportSink(db, corrections)
     private val locks = ConcurrentHashMap<Long, Mutex>()
@@ -81,9 +84,31 @@ class PlaylistRepository(
         val sourceChanged = old == null || old.url != playlist.url || old.username != playlist.username ||
             old.password != playlist.password || old.streamFormat != playlist.streamFormat ||
             old.userAgent != playlist.userAgent
-        dao.update(if (sourceChanged) playlist.copy(etag = null, lastModified = null) else playlist)
+        // Ecranul de editare poate ține o copie veche: starea importului (canale, EPG declarat, expirare)
+        // rămâne cea din bază, ca o salvare să nu șteargă ce a adus ultima actualizare.
+        val merged = if (old == null) playlist else playlist.copy(
+            lastUpdated = old.lastUpdated,
+            lastAttempt = old.lastAttempt,
+            lastError = old.lastError,
+            etag = old.etag,
+            lastModified = old.lastModified,
+            channelCount = old.channelCount,
+            skippedCount = old.skippedCount,
+            epgUrls = old.epgUrls,
+            expiresAt = old.expiresAt,
+            sortOrder = old.sortOrder,
+        )
+        dao.update(if (sourceChanged) merged.copy(etag = null, lastModified = null) else merged)
         if (old?.enabled != playlist.enabled) _changes.tryEmit(playlist.id)
         return playlist.id
+    }
+
+    /** Activează sau oprește un playlist (canalele lui apar sau nu în liste, EPG și Sports Hub). */
+    suspend fun setEnabled(id: Long, enabled: Boolean) {
+        val p = db.playlists().get(id) ?: return
+        if (p.enabled == enabled) return
+        db.playlists().update(p.copy(enabled = enabled))
+        _changes.tryEmit(id)
     }
 
     suspend fun delete(id: Long) {
@@ -151,7 +176,9 @@ class PlaylistRepository(
         val previous = if (!force && p.channelCount > 0) CacheTag(p.etag, p.lastModified) else null
 
         val outcome = try {
-            importer.import(source(p), sink, previous, waitForConnection = manual)
+            progress.track("playlist-$id", p.name, "începe") { report ->
+                importer.import(source(p), sink, previous, waitForConnection = manual, report = report)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: PlaylistException) {
