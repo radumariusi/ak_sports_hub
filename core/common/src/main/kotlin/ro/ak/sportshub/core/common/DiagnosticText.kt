@@ -127,7 +127,7 @@ object DiagnosticText {
         while (start < text.length) {
             var end = minOf(start + max, text.length)
             if (end < text.length) {
-                val nl = text.lastIndexOf('\n', end)
+                val nl = text.lastIndexOf('\n', end - 1)
                 if (nl > start + max / 2) end = nl + 1
             }
             out += text.substring(start, end)
