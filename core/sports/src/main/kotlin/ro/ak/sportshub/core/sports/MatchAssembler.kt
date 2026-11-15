@@ -29,8 +29,11 @@ object MatchAssembler {
     /** O emisiune cu aceleași echipe până la 36 de ore după meci e o reluare. */
     val REPLAY_LOOKBACK_MS: Long = TimeUnit.HOURS.toMillis(36)
 
-    /** Cât mai rămâne „LIVE” un meci după durata obișnuită a sportului (prelungiri, pauze). */
-    private val LIVE_GRACE_MS = TimeUnit.MINUTES.toMillis(90)
+    /**
+     * Cât mai rămâne „LIVE” un meci după durata obișnuită a sportului (prelungiri, pauze). Era 90 de minute și meciurile
+     * terminate rămâneau LIVE mult timp (Radu); starea reală vine din tabul Live / alertele ESPN.
+     */
+    private val LIVE_GRACE_MS = TimeUnit.MINUTES.toMillis(30)
 
     fun assemble(
         events: List<SportEvent>,
@@ -308,7 +311,7 @@ object MatchAssembler {
         }
         val status = when (e.status) {
             MatchStatus.FINISHED -> MatchStatus.FINISHED
-            // „LIVE” din fișierul salvat e starea de la descărcare: după durata obișnuită plus 90 de minute, s-a terminat.
+            // „LIVE” din fișierul salvat e starea de la descărcare: după durata obișnuită plus 30 de minute, s-a terminat.
             MatchStatus.LIVE -> if (now < e.start + minOf(STALE_LIVE_MS, duration + LIVE_GRACE_MS)) MatchStatus.LIVE else MatchStatus.FINISHED
             else -> byTime
         }
@@ -521,7 +524,7 @@ object MatchAssembler {
         val lead = airing.filter { it.extracted.explicitLive }.ifEmpty { airing }
         val start = lead.minOf { it.broadcast.start }
         val sport = mbs.firstNotNullOfOrNull { it.extracted.sport }
-        // Sfârșitul: emisiunea transmisiei, dar nu mai mult decât durata obișnuită a sportului plus 90 de minute
+        // Sfârșitul: emisiunea transmisiei, dar nu mai mult decât durata obișnuită a sportului plus 30 de minute
         // (un bloc EPG lung „Sky Sport Calcio” nu ține meciul „LIVE” toată ziua).
         val end = minOf(airing.maxOf { it.broadcast.stop }, start + (sport?.typicalDurationMs ?: Sport.DEFAULT_DURATION_MS) + LIVE_GRACE_MS)
         val first = lead.first().extracted

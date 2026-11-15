@@ -294,7 +294,7 @@ class SportsSnapshotFile(private val file: File) {
         private const val DESCRIPTION_CHARS = 300
         private val QUALITIES = Quality.entries
         private val CONFIDENCES = Confidence.entries
-        private const val LIVE_GRACE_MS = 90 * 60_000L
+        private const val LIVE_GRACE_MS = 30 * 60_000L
 
         /**
          * Starea meciurilor la ora [now], fără niciun calcul: o listă salvată (sau calculată acum câteva minute)
@@ -304,7 +304,7 @@ class SportsSnapshotFile(private val file: File) {
             var changed = false
             val matches = s.matches.map { e ->
                 val m = e.match
-                // Un meci LIVE la furnizor rămâne LIVE încă 90 de minute după durata obișnuită (prelungiri, pauze),
+                // Un meci LIVE la furnizor rămâne LIVE încă 30 de minute după durata obișnuită (prelungiri, pauze),
                 // ca la calcul; cele doar din EPG sau din playlist se termină odată cu emisiunea.
                 val grace = if (m.status == MatchStatus.LIVE && m.providers.any { it != "epg" && it != "playlist" }) LIVE_GRACE_MS else 0L
                 val status = when {

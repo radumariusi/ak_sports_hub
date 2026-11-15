@@ -1,11 +1,12 @@
 package ro.ak.sportshub.ui.theme
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.TextStyle
@@ -14,8 +15,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.SurfaceDefaults
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.darkColorScheme
 import ro.ak.sportshub.R
 
@@ -79,15 +79,13 @@ fun AkTheme(textScale: Float = TextScale.DEFAULT, content: @Composable () -> Uni
             LocalTextStyle provides LocalTextStyle.current.merge(TextStyle(fontFamily = AkFonts.Body)),
             LocalDensity provides Density(density.density, density.fontScale * textScale),
         ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                shape = RectangleShape,
-                colors = SurfaceDefaults.colors(
-                    containerColor = AkColors.Background,
-                    contentColor = AkColors.Text,
-                ),
-            ) {
-                content()
+            // Un Box simplu, nu Surface din tv-material: acela pune tot ecranul într-un strat separat, desenat în plus la
+            // fiecare cadru (liste sacadate, 4K sacadat în TextureView), iar SurfaceView-ul playerului („Imagine
+            // fluidă”) nu mai poate face „gaura” prin fereastră, deci rămânea negru, doar cu sunet.
+            CompositionLocalProvider(LocalContentColor provides AkColors.Text) {
+                Box(modifier = Modifier.fillMaxSize().background(AkColors.Background)) {
+                    content()
+                }
             }
         }
     }
