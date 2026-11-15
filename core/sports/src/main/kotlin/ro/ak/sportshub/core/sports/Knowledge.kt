@@ -254,3 +254,36 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         return found.values.toList()
     }
 }
+
+/**
+ * Postul anunțat, verificat în EPG: dacă programul canalului arată, la ora meciului, alt meci, canalul nu-l
+ * transmite pe al nostru. Sursa „probabilă” (post anunțat) coboară printre presupuneri, iar presupunerile
+ * (competiție învățată, canal dedicat, drepturi TV) dispar. Sursele sigure și alegerile tale rămân neatinse.
+ */
+object BusyChannels {
+
+    /** O emisiune recunoscută ca meciul [matchId] pe un canal. */
+    data class Slot(val start: Long, val stop: Long, val matchId: String)
+
+    /** Momentul verificat: puțin după start (emisiunea de dinainte se poate termina cu câteva minute întârziere). */
+    private val CHECK_AFTER_START_MS = java.util.concurrent.TimeUnit.MINUTES.toMillis(10)
+
+    private val guesses = setOf(Confidence.STATION, Confidence.LEARNED, Confidence.DEDICATED, Confidence.RIGHTS)
+
+    /** [busy]: cheia de grupare a canalului → meciurile din EPG-ul lui. */
+    fun adjust(match: Match, found: List<FoundSource>, busy: Map<String, List<Slot>>): List<FoundSource> {
+        if (busy.isEmpty()) return found
+        val at = match.start + CHECK_AFTER_START_MS
+        return found.mapNotNull { f ->
+            if (f.rejected || f.confidence !in guesses) return@mapNotNull f
+            val slots = busy[f.groupKey] ?: return@mapNotNull f
+            if (slots.any { it.matchId == match.id }) return@mapNotNull f
+            val other = slots.any { at >= it.start && at < it.stop }
+            when {
+                !other -> f
+                f.confidence == Confidence.STATION -> f.copy(confidence = Confidence.RIGHTS)
+                else -> null
+            }
+        }
+    }
+}

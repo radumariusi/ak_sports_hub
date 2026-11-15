@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
+import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.LiveDelay
 import ro.ak.sportshub.core.sports.PanelView
 import ro.ak.sportshub.core.sports.Match
@@ -32,7 +33,8 @@ data class MatchDetailsState(
 )
 
 /**
- * Datele pentru taburile Pre-meci și Live, de la TheSportsDB.
+ * Datele pentru taburile Pre-meci și Live: de la ESPN (o singură cerere, `summary`, cu tot: starea, formațiile,
+ * fazele, statisticile, clasamentul și forma) când meciul e în programul ESPN, altfel de la TheSportsDB.
  *
  * - Se cer doar cât e deschisă fereastra meciului, una câte una, cu pauză între ele; nimic în fundal.
  * - Nu trec prin `ConnectionGate`: nu sunt cereri la furnizorul de IPTV, deci nu concurează cu playerul.
@@ -43,6 +45,8 @@ class MatchDetailsRepository(
     private val settings: SportsSettingsStore,
     private val http: OkHttpClient,
     private val log: DiagnosticLog? = null,
+    /** Meciul ESPN pentru un meci din Sports Hub („EPL-401879243”), din programul descărcat; null dacă nu e. */
+    private val espnEventFor: (Match) -> String? = { null },
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -77,8 +81,9 @@ class MatchDetailsRepository(
 
     private suspend fun refresh(match: Match, part: DetailsSchedule.Part, force: Boolean) {
         val s = settings.current
-        if (!s.sportsDbEnabled) {
-            set(match.id) { it.copy(status = "TheSportsDB e oprit în Setări → Sports Hub.") }
+        val espn = espnRef(match)
+        if (espn == null && !s.sportsDbEnabled) {
+            set(match.id) { it.copy(status = "Meciul nu e la ESPN, iar TheSportsDB e oprit în Setări → Sports Hub.") }
             return
         }
         mutex.withLock {
@@ -90,7 +95,17 @@ class MatchDetailsRepository(
                 val now = System.currentTimeMillis()
                 val due = force || DetailsSchedule.isDue(part, match.status, match.start, match.end, now, stamp.lastModifiedOrZero())
                 var errors = 0
-                if (due) {
+                if (due && espn != null) {
+                    // ESPN: o singură cerere dă și Pre-meci, și Live.
+                    set(match.id) { it.copy(status = "Se cer datele meciului (ESPN)…") }
+                    if (download(Espn.summaryUrl(espn.first, espn.second), File(dir, "${base(match)}-espn.json"))) {
+                        stamp.writeText(now.toString())
+                    } else {
+                        errors++
+                    }
+                }
+                // Fără ESPN (sau dacă ESPN n-a dat nimic): TheSportsDB, ca înainte.
+                if (due && s.sportsDbEnabled && (espn == null || espnDetails(match) == null)) {
                     val requests = plan(match, part, s.sportsDbKey)
                     var ok = 0
                     var i = 0
@@ -115,7 +130,7 @@ class MatchDetailsRepository(
                     it.copy(
                         details = fresh,
                         loading = false,
-                        status = if (errors > 0) "TheSportsDB: $errors cereri nereușite; se arată ce e salvat." else null,
+                        status = if (errors > 0) "$errors cereri nereușite; se arată ce e salvat." else null,
                     )
                 }
             }
@@ -161,8 +176,34 @@ class MatchDetailsRepository(
         return MatchInsights.pickEvent(found, match.home, match.away, match.start)?.providerId
     }
 
-    /** Ce e salvat pentru meci, citit din fișiere. */
+    /** Liga și id-ul ESPN (doar ligile cu echipe: ESPN nu are pagina meciului pentru curse sau turnee de golf). */
+    private fun espnRef(match: Match): Pair<Espn.League, String>? {
+        val ref = runCatching { espnEventFor(match) }.getOrNull() ?: return null
+        val (league, id) = Espn.splitId(ref) ?: return null
+        return if (league.kind == Espn.Kind.TEAM) league to id else null
+    }
+
+    private fun espnDetails(match: Match): MatchDetails? =
+        parseFile("${base(match)}-espn.json") { Espn.parseSummary(it, base(match)) }?.takeIf { !it.isEmpty }
+
+    /** Ce e salvat pentru meci, citit din fișiere: ESPN întâi, iar ce lipsește de acolo din TheSportsDB. */
     fun read(match: Match): MatchDetails {
+        val espn = espnDetails(match)
+        val db = readSportsDb(match)
+        if (espn == null) return db
+        return MatchDetails(
+            event = espn.event ?: db.event,
+            homeRecent = espn.homeRecent.ifEmpty { db.homeRecent },
+            awayRecent = espn.awayRecent.ifEmpty { db.awayRecent },
+            headToHead = espn.headToHead.ifEmpty { db.headToHead },
+            table = espn.table.ifEmpty { db.table },
+            lineup = espn.lineup.ifEmpty { db.lineup },
+            timeline = espn.timeline.ifEmpty { db.timeline },
+            stats = espn.stats.ifEmpty { db.stats },
+        )
+    }
+
+    private fun readSportsDb(match: Match): MatchDetails {
         val b = base(match)
         val searched = listOf("$b-search1.json", "$b-search2.json")
             .flatMap { f -> parseFile(f) { TheSportsDbDetails.parseResults(it) }.orEmpty() }

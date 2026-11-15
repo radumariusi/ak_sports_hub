@@ -136,7 +136,7 @@ class AppContainer(app: Application) {
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */
-    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog)
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor)
 
     /** Trimite jurnalul ca issue în repo-ul aplicației, cu cheia GitHub din Setări → Despre. */
     val diagnosticReporter = DiagnosticReporter(http, scope, diagnosticLog, sports) { updater.token }

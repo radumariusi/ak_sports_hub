@@ -24,7 +24,7 @@ data class SportsSettings(
     val sportsDbKey: String = TheSportsDb.DEFAULT_KEY,
     /** Cere și posturile TV de la TheSportsDB (pentru potrivirea pe nume de post). */
     val sportsDbTv: Boolean = true,
-    /** Sporturile cerute de la TheSportsDB. */
+    /** Sporturile cerute de la furnizori (ESPN, EuroLeague, TheSportsDB pentru restul). */
     val sports: List<Sport> = Sport.DEFAULT_FETCH,
     /** LiveSoccerTV (neoficial, opțional): meciurile de fotbal de azi și mâine, cu posturile TV. */
     val liveSoccerTvEnabled: Boolean = true,
@@ -38,8 +38,13 @@ data class SportsSettings(
     val liveOnSatEnabled: Boolean = true,
     /** FotMob TV guide (neoficial, opțional): fotbal, posturile din țările canalelor tale (inclusiv România). */
     val fotMobEnabled: Boolean = true,
-    /** ESPN, NHL și MLB (JSON public): posturile din SUA și Canada, doar dacă ai canale de acolo. */
+    /**
+     * ESPN (JSON public): programul a ~100 de ligi la toate sporturile, plus Pre-meci și Live; NHL și MLB doar pentru
+     * posturile din SUA și Canada, dacă ai canale de acolo.
+     */
     val usLeaguesEnabled: Boolean = true,
+    /** API-ul oficial EuroLeague: programul EuroLeague și EuroCup (baschet). */
+    val euroLeagueEnabled: Boolean = true,
     /** Canalele EVENT / PPV din playlisturi: meciul citit din numele canalului. */
     val eventChannels: Boolean = true,
     /** Doar competițiile importante (`CompetitionFilter`): restul meciurilor nu intră în listă. */
@@ -135,10 +140,14 @@ class SportsSettingsStore(context: Context) {
                 liveOnSatEnabled = o.optBoolean("liveOnSat", d.liveOnSatEnabled),
                 fotMobEnabled = o.optBoolean("fotMob", d.fotMobEnabled),
                 usLeaguesEnabled = o.optBoolean("usLeagues", d.usLeaguesEnabled),
+                euroLeagueEnabled = o.optBoolean("euroLeague", d.euroLeagueEnabled),
                 eventChannels = o.optBoolean("eventChannels", d.eventChannels),
                 topCompetitionsOnly = o.optBoolean("topCompetitionsOnly", d.topCompetitionsOnly),
                 eventZone = o.optString("eventZone", d.eventZone),
-                sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
+                sports = if (!o.has("sports")) d.sports else o.optJSONArray("sports").strings().mapNotNull(Sport::fromName).let { saved ->
+                    // Versiunea 4 (ESPN extins): sporturile noi acoperite de ESPN se adaugă o dată la setările vechi.
+                    if (o.optInt("version", 1) < 4) (saved + Sport.ADDED_WITH_ESPN).distinct() else saved
+                },
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
                 streamDelaySeconds = o.optInt("streamDelay", d.streamDelaySeconds).coerceIn(0, 600),
@@ -176,6 +185,7 @@ class SportsSettingsStore(context: Context) {
         put("liveOnSat", s.liveOnSatEnabled)
         put("fotMob", s.fotMobEnabled)
         put("usLeagues", s.usLeaguesEnabled)
+        put("euroLeague", s.euroLeagueEnabled)
         put("eventChannels", s.eventChannels)
         put("topCompetitionsOnly", s.topCompetitionsOnly)
         put("eventZone", s.eventZone)
@@ -218,6 +228,6 @@ class SportsSettingsStore(context: Context) {
         private const val KEY = "settings"
 
         /** Versiunea formatului; la o versiune mai veche se aplică schimbările de valori implicite. */
-        private const val VERSION = 3
+        private const val VERSION = 4
     }
 }

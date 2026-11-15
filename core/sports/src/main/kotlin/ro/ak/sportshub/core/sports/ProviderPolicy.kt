@@ -5,7 +5,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Cât de des și în ce ordine se întreabă furnizorii de meciuri, după cât de ușor ne lasă să le luăm datele.
  *
- * - [Tier.OPEN]: API-uri publice, fără protecție (TheSportsDB, ESPN, NHL, MLB): la 3 ore, primele.
+ * - [Tier.OPEN]: API-uri publice, fără protecție (ESPN, EuroLeague, NHL, MLB, TheSportsDB): la 3 ore, primele
+ *   (EuroLeague, care dă tot sezonul dintr-o cerere, la 12 ore).
  * - [Tier.SITE]: site-uri simple, citite ca HTML (FutbolEnLaTV, LiveOnSat): azi la 3 ore, mâine la 6 ore.
  * - [Tier.GUARDED]: protejate anti-robot (Sofascore, LiveSoccerTV, FotMob): azi la 6 ore, mâine la 12 ore,
  *   abia după ce lista e refăcută din ceilalți, iar cererile pe meci (posturile Sofascore) doar pentru meciurile
@@ -25,13 +26,13 @@ object ProviderPolicy {
 
     // Aceleași chei ca `SportEvent.provider` (furnizorii LiveSoccerTV și Sofascore au cheile din numele lor).
     private val order = listOf(
-        TheSportsDb.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API,
+        Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, TheSportsDb.PROVIDER,
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER,
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
     )
 
     fun tier(provider: String): Tier = when (provider) {
-        TheSportsDb.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API -> Tier.OPEN
+        TheSportsDb.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API -> Tier.OPEN
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER -> Tier.SITE
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER -> Tier.GUARDED
         else -> Tier.SITE
@@ -39,7 +40,7 @@ object ProviderPolicy {
 
     // Ordinea cererilor: întâi cei care dau multe meciuri dintr-o singură cerere (o pagină), ca lista să apară repede.
     private val fetchOrder = listOf(
-        FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API,
+        FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API,
         TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
     )
 
@@ -53,10 +54,19 @@ object ProviderPolicy {
 
     /** Cât rămâne bun un fișier al furnizorului: [dayOffset] 0 = azi, 1 = mâine. */
     fun freshMs(provider: String, dayOffset: Int): Long = when (tier(provider)) {
-        Tier.OPEN -> 3 * HOUR
+        Tier.OPEN -> if (provider == EuroLeague.PROVIDER) 12 * HOUR else 3 * HOUR
         Tier.SITE -> if (dayOffset <= 0) 3 * HOUR else 6 * HOUR
         Tier.GUARDED -> if (dayOffset <= 0) 6 * HOUR else 12 * HOUR
     }
+
+    /**
+     * Sporturile pe care le acoperă ESPN și EuroLeague; TheSportsDB (cheia gratuită: câteva meciuri pe sport și zi)
+     * se mai cere doar pentru celelalte (handbal, volei, darts, snooker, ciclism, cricket, sporturi de iarnă).
+     */
+    val COVERED_BY_OPEN_APIS: Set<Sport> = Espn.leagues.map { it.sport }.toSet() + Sport.BASKETBALL
+
+    /** Sporturile cerute de la TheSportsDB, dintre cele alese în setări. */
+    fun sportsDbSports(selected: Collection<Sport>): List<Sport> = selected.filter { it !in COVERED_BY_OPEN_APIS }
 
     val FIRST_PAUSE_MS: Long = 6 * HOUR
     val MAX_PAUSE_MS: Long = 48 * HOUR

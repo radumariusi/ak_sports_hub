@@ -147,14 +147,14 @@ fun PreMatchTab(
             item(key = "nothing") {
                 ListRow(
                     title = "Nicio statistică pentru acest meci",
-                    subtitle = "TheSportsDB nu are date despre el (cu cheia gratuită datele sunt limitate). Sursele rămân în primul tab.",
+                    subtitle = "Nici ESPN, nici TheSportsDB nu au date despre el. Sursele rămân în primul tab.",
                     onClick = {},
                 )
             }
         }
         item {
             Text(
-                text = "Date de la TheSportsDB, cerute doar cât e deschis meciul, una câte una; nu folosesc conexiunea playlisturilor.",
+                text = "Date de la ESPN (sau TheSportsDB, pentru meciurile care nu sunt la ESPN), cerute doar cât e deschis meciul; nu folosesc conexiunea playlisturilor.",
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(14.dp),
@@ -245,7 +245,7 @@ fun LiveTab(
             item(key = "no-live") {
                 ListRow(
                     title = "Fără evenimente sau statistici",
-                    subtitle = "TheSportsDB nu le are (încă) pentru acest meci; cu cheia gratuită datele live sunt limitate.",
+                    subtitle = "ESPN și TheSportsDB nu le au (încă) pentru acest meci.",
                     onClick = {},
                 )
             }
@@ -265,7 +265,6 @@ fun timelineIcon(kind: TimelineKind): String = when (kind) {
 
 private fun LazyListScope.statusItem(state: MatchDetailsState, sportsDbEnabled: Boolean) {
     val text = when {
-        !sportsDbEnabled -> "TheSportsDB e oprit în Setări → Sports Hub; nu se cer statistici."
         else -> state.status
     } ?: return
     item(key = "status") {
@@ -291,7 +290,7 @@ private fun FormRow(team: String, recent: List<SportEvent>, zone: ZoneId) {
     ListRow(
         title = team,
         subtitle = if (recent.isEmpty()) {
-            "Fără meciuri recente la TheSportsDB"
+            "Fără meciuri recente"
         } else {
             recent.joinToString("  ·  ") { r ->
                 "${Instant.ofEpochMilli(r.start).atZone(zone).format(DateFormat).substring(0, 5)} ${r.home} ${r.homeScore}–${r.awayScore} ${r.away}"

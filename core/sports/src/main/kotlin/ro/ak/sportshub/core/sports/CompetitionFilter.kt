@@ -140,7 +140,7 @@ object CompetitionFilter {
 
     private val other: Map<Sport, List<String>> = mapOf(
         Sport.BASKETBALL to phrases(
-            "nba", "nba cup", "euroleague", "eurocup", "liga endesa", "acb", "basketball champions league", "lega basket",
+            "nba", "nba cup", "euroleague", "euroliga", "eurocup", "liga endesa", "acb", "basketball champions league", "lega basket",
             "lba", "serie a basket", "bbl", "easycredit bbl", "betclic elite", "lnb", "pro a", "fiba", "liga nationala",
             "eurobasket", "aba league", "greek basket league", "turkish basketball super league", "bsl",
         ),
