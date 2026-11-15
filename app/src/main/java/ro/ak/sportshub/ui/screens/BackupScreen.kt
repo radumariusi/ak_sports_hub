@@ -90,7 +90,7 @@ fun BackupScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Text(text = "Backup și restaurare", fontSize = 26.sp)
+        Text(text = "Backup și restaurare", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Text(
             text = message ?: "Mută setările pe alt televizor: salvezi aici, apoi restaurezi acolo. Canalele și programul TV se descarcă din nou.",
             fontSize = 14.sp,

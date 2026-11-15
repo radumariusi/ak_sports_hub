@@ -36,6 +36,9 @@ import ro.ak.sportshub.core.sports.TimelineEntry
 import ro.ak.sportshub.core.sports.TimelineKind
 import ro.ak.sportshub.player.MatchPanelActions
 import ro.ak.sportshub.player.MatchPanelContent
+import ro.ak.sportshub.player.MatchScoreboard
+import androidx.compose.foundation.layout.width
+import ro.ak.sportshub.ui.theme.AkColors
 import ro.ak.sportshub.player.QuickMenuContent
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.screens.ChannelScreen
@@ -141,7 +144,7 @@ class CapturiTest {
     fun terenFormatii() {
         compose.setContent {
             AkTheme {
-                Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0E1116)).padding(40.dp)) {
+                Column(modifier = Modifier.fillMaxSize().background(AkColors.Background).padding(40.dp)) {
                     SectionLabel("Formații: Arsenal 4-3-3 · Chelsea 4-2-3-1 · Emirates Stadium, London")
                     PitchView(Formation.of(homeTeam)!!, Formation.of(awayTeam)!!)
                 }
@@ -159,6 +162,7 @@ class CapturiTest {
             timeline = listOf(
                 TimelineEntry(23, TimelineKind.GOAL, true, "A. Jucător10", "A. Jucător8"),
                 TimelineEntry(31, TimelineKind.YELLOW, false, "C. Jucător6", null),
+                TimelineEntry(34, TimelineKind.SUBSTITUTION, false, "C. Jucător12", "C. Jucător9"),
             ),
             stats = listOf(StatLine("Posesie (%)", "58", "42"), StatLine("Șuturi pe poartă", "4", "1"), StatLine("Cornere", "5", "2")),
             pending = 1,
@@ -166,11 +170,15 @@ class CapturiTest {
         compose.setContent {
             AkTheme {
                 Box(modifier = Modifier.fillMaxSize().background(Color(0xFF203040))) {
+                    MatchScoreboard(
+                        match = m, view = view, hidden = false, replay = false,
+                        modifier = Modifier.align(Alignment.TopStart).padding(start = 40.dp, top = 32.dp),
+                    )
                     MatchPanelContent(
                         match = m, view = view, hidden = false, replay = false, lineup = homeTeam + awayTeam,
                         loading = false, status = null, delaySeconds = 30, offsetSeconds = 10,
                         actions = MatchPanelActions(onJump = {}, onFromStart = {}, onDelay = {}, onOffset = {}),
-                        modifier = Modifier.align(Alignment.CenterEnd),
+                        modifier = Modifier.align(Alignment.CenterEnd).width(600.dp),
                     )
                 }
             }

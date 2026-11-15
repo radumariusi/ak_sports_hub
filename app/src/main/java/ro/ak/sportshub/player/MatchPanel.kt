@@ -26,7 +26,22 @@ import ro.ak.sportshub.core.sports.TimelineKind
 import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
-import ro.ak.sportshub.ui.screens.timelineIcon
+import ro.ak.sportshub.core.sports.Scoreboard
+import ro.ak.sportshub.core.sports.StatLine
+import ro.ak.sportshub.core.sports.TeamCodes
+import ro.ak.sportshub.ui.components.dimText
+import ro.ak.sportshub.ui.theme.AkFonts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import ro.ak.sportshub.ui.theme.AkColors
 
 /** Ce se poate face din panoul meciului, după unde ești (live, reluare) și ce are canalul (arhivă). */
@@ -69,12 +84,31 @@ fun MatchPanelContent(
     SidePanel(modifier.padding(0.dp)) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(key = "title") {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
-                    Text(text = match.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "MECIUL",
+                            fontSize = 28.sp,
+                            fontFamily = AkFonts.Condensed,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = when {
+                                replay -> "reluare din arhivă"
+                                delaySeconds > 0 -> "afișat cu $delaySeconds s întârziere"
+                                else -> "fără întârziere"
+                            },
+                            fontSize = 14.sp,
+                            color = AkColors.TextDim,
+                        )
+                    }
                     Text(
-                        text = listOfNotNull(match.competition, if (replay) "reluare din arhivă" else null).joinToString(" · "),
-                        fontSize = 13.sp,
+                        text = listOfNotNull(match.title, match.competition).joinToString(" · "),
+                        fontSize = 14.sp,
                         color = AkColors.TextDim,
+                        maxLines = 1,
                     )
                 }
             }
@@ -87,6 +121,7 @@ fun MatchPanelContent(
                 }
                 ListRow(
                     title = score,
+                    titleSize = 20.sp,
                     subtitle = when {
                         hidden -> "OK arată scorul și evenimentele acestui meci"
                         view == null -> status ?: "Datele vin de la TheSportsDB, cerute cât e deschis panoul."
@@ -131,6 +166,12 @@ fun MatchPanelContent(
             }
             if (!hidden && view != null) {
                 events(match, view.timeline, actions.onJump)
+                // Ca în tabela TV: posesia și șuturile pe poartă, sub evenimente.
+                Scoreboard.possession(view.stats)?.let { (h, a) ->
+                    item(key = "possession") {
+                        PossessionBlock(home = h, away = a, shots = Scoreboard.stat(view.stats, "Șuturi pe poartă"))
+                    }
+                }
                 if (view.stats.isNotEmpty()) {
                     item(key = "st-h") { SectionLabel("Statistici", modifier = Modifier.padding(top = 6.dp)) }
                     items(view.stats, key = { "st:" + it.name }) { s ->
@@ -166,15 +207,101 @@ private fun LazyListScope.events(match: Match, timeline: List<TimelineEntry>, on
     items(timeline.withIndex().reversed().toList(), key = { "ev:" + it.index }) { (_, t) ->
         val canJump = onJump != null && t.minute != null
         ListRow(
-            title = listOfNotNull(t.minute?.let { "$it'" }, timelineIcon(t.kind), t.player).joinToString("  "),
-            subtitle = listOfNotNull(
-                if (t.home) match.home else match.away,
-                t.kind.label,
-                t.other?.let { if (t.kind == TimelineKind.SUBSTITUTION) "cu $it" else "pasă: $it" },
-                if (canJump) "OK: vezi faza" else null,
-            ).joinToString(" · "),
+            title = listOfNotNull(t.minute?.let { "$it′" }, t.player ?: t.kind.label).joinToString("  ") +
+                (t.other?.takeIf { t.kind == TimelineKind.SUBSTITUTION }?.let { " ↔ $it" } ?: ""),
+            subtitle = if (canJump) {
+                "OK: sari în arhivă la ${Scoreboard.jumpMinute(t.minute!!)}′"
+            } else {
+                listOfNotNull(
+                    if (t.home) match.home else match.away,
+                    t.kind.label,
+                    t.other?.takeIf { t.kind != TimelineKind.SUBSTITUTION }?.let { "pasă: $it" },
+                ).joinToString(" · ")
+            },
             onClick = { if (canJump) onJump?.invoke(t) },
+            leading = { EventTag(t.kind) },
+            trailing = {
+                Text(
+                    text = TeamCodes.of(if (t.home) match.home else match.away),
+                    fontSize = 15.sp,
+                    fontFamily = AkFonts.Condensed,
+                    fontWeight = FontWeight.SemiBold,
+                    color = dimText(),
+                )
+            },
         )
+    }
+}
+
+/** Semnul evenimentului, în stilul temei: GOL chihlimbar plin, cartonașele ca dreptunghiuri colorate, schimbarea ⇄. */
+@Composable
+private fun EventTag(kind: TimelineKind) {
+    when (kind) {
+        TimelineKind.GOAL, TimelineKind.PENALTY -> Badge(text = if (kind == TimelineKind.PENALTY) "GOL (P)" else "GOL", color = AkColors.Accent)
+        TimelineKind.OWN_GOAL -> Badge(text = "AUTOGOL", color = AkColors.Focus)
+        TimelineKind.YELLOW -> Box(Modifier.padding(start = 8.dp).size(width = 15.dp, height = 21.dp).background(CardYellow, RoundedCornerShape(3.dp)))
+        TimelineKind.RED -> Box(Modifier.padding(start = 8.dp).size(width = 15.dp, height = 21.dp).background(AkColors.Live, RoundedCornerShape(3.dp)))
+        TimelineKind.SUBSTITUTION -> Text(text = "⇄", fontSize = 22.sp, color = dimText(), modifier = Modifier.padding(start = 8.dp))
+        TimelineKind.MISSED_PENALTY -> Text(text = "PEN ✗", fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = dimText())
+        TimelineKind.VAR -> Text(text = "VAR", fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = dimText())
+        TimelineKind.OTHER -> Text(text = "•", fontSize = 18.sp, color = dimText(), modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+private val CardYellow = Color(0xFFF5C542)
+
+/** Posesia ca bară (gazdele alb, oaspeții chihlimbar) și șuturile pe poartă. */
+@Composable
+private fun PossessionBlock(home: Int, away: Int, shots: StatLine?) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .background(AkColors.Panel, RoundedCornerShape(10.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row {
+            Text(text = "Posesie", fontSize = 15.sp, color = AkColors.TextDim, modifier = Modifier.weight(1f))
+            Text(text = "$home% – $away%", fontSize = 16.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+        }
+        Row(modifier = Modifier.fillMaxWidth().height(8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Box(Modifier.weight(home.coerceAtLeast(1).toFloat()).fillMaxHeight().background(AkColors.Focus, RoundedCornerShape(2.dp)))
+            Box(Modifier.weight(away.coerceAtLeast(1).toFloat()).fillMaxHeight().background(AkColors.Accent, RoundedCornerShape(2.dp)))
+        }
+        shots?.let {
+            Row {
+                Text(text = it.name, fontSize = 15.sp, color = AkColors.TextDim, modifier = Modifier.weight(1f))
+                Text(text = "${it.home} – ${it.away}", fontSize = 16.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/**
+ * Tabela de scor din stânga sus a playerului: „ARS 1 – 0 CHE 67′”, colțuri drepte (stilul Reflector).
+ * Scorul vine din [view] (după întârzierea stream-ului sau, la reluare, până la poziția redată); ascuns la „fără spoilere”.
+ */
+@Composable
+fun MatchScoreboard(match: Match, view: PanelView?, hidden: Boolean, replay: Boolean, modifier: Modifier = Modifier) {
+    val score = if (!hidden && view?.homeScore != null && view.awayScore != null) "${view.homeScore} – ${view.awayScore}" else "–"
+    val clock = Scoreboard.clock(view?.label)
+    Row(
+        modifier = modifier.height(48.dp).clip(RoundedCornerShape(8.dp)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ScoreCell(TeamCodes.of(match.home), AkColors.Focus, AkColors.OnFocus)
+        ScoreCell(score, AkColors.Background, AkColors.Text)
+        if (match.away.isNotBlank()) ScoreCell(TeamCodes.of(match.away), AkColors.Focus, AkColors.OnFocus)
+        clock?.let { ScoreCell(it, AkColors.Accent, AkColors.OnFocus) }
+        if (replay) ScoreCell("RELUARE", AkColors.Panel, AkColors.Text)
+    }
+}
+
+@Composable
+private fun ScoreCell(text: String, bg: Color, fg: Color) {
+    Box(modifier = Modifier.background(bg).fillMaxHeight().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+        Text(text = text, color = fg, fontSize = 28.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
     }
 }
 

@@ -122,7 +122,7 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
         val playlists = list.map { it.playlistId }.distinct().size
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = first.name, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(text = first.name, fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, maxLines = 1)
             first.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
             VariantQualityBadge(first.playlistId, first.name, first.quality)
         }

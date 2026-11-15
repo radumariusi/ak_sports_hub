@@ -159,20 +159,25 @@ class HomeChannel(private val context: Context, private val container: AppContai
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val bg = Paint().apply {
-            shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), Color.rgb(0x17, 0x1B, 0x22), Color.rgb(0x0E, 0x11, 0x16), Shader.TileMode.CLAMP)
+            shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), Color.rgb(0x15, 0x1B, 0x24), Color.rgb(0x0B, 0x0F, 0x14), Shader.TileMode.CLAMP)
         }
         canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bg)
         canvas.drawRect(0f, h - 14f, w.toFloat(), h.toFloat(), Paint().apply { color = if (c.live) LIVE else ACCENT })
-        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x9A, 0xA3, 0xAF); textSize = 30f }
-        val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 48f; typeface = Typeface.DEFAULT_BOLD }
+        val condensed = font(R.font.barlowcondensed_bold)
+        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x9A, 0xA4, 0xB1); textSize = 30f; typeface = font(R.font.barlow_medium) }
+        val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0xEE, 0xF1, 0xF4); textSize = 54f; typeface = condensed }
         canvas.drawText(ellipsize(c.competition ?: "", small, w - 60f), 30f, 60f, small)
         val parts = c.title.split(" – ", limit = 2)
         canvas.drawText(ellipsize(parts[0], big, w - 60f), 30f, 160f, big)
         if (parts.size == 2) canvas.drawText(ellipsize(parts[1], big, w - 60f), 30f, 230f, big)
-        val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (c.live) LIVE else ACCENT; textSize = 34f; typeface = Typeface.DEFAULT_BOLD }
+        val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (c.live) LIVE else ACCENT; textSize = 38f; typeface = condensed }
         canvas.drawText(c.line.substringBefore(" · "), 30f, 310f, badge)
         return bmp
     }
+
+    /** Literele temei (Barlow); pe Android < 8 rămâne fontul sistemului. */
+    private fun font(id: Int): Typeface =
+        if (android.os.Build.VERSION.SDK_INT >= 26) runCatching { context.resources.getFont(id) }.getOrDefault(Typeface.DEFAULT_BOLD) else Typeface.DEFAULT_BOLD
 
     private fun ellipsize(text: String, paint: Paint, max: Float): String {
         if (paint.measureText(text) <= max) return text
@@ -187,8 +192,8 @@ class HomeChannel(private val context: Context, private val container: AppContai
         /** `TvContract.PreviewPrograms.TYPE_EVENT` și `ASPECT_RATIO_16_9`. */
         const val TYPE_EVENT = 5
         const val ASPECT_16_9 = 0
-        val LIVE = Color.rgb(0xE5, 0x48, 0x4D)
-        val ACCENT = Color.rgb(0x35, 0xC4, 0x6A)
+        val LIVE = Color.rgb(0xFF, 0x4D, 0x4F)
+        val ACCENT = Color.rgb(0xFF, 0xB5, 0x47)
         val TimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("ro"))
     }
 }

@@ -29,8 +29,8 @@ import ro.ak.sportshub.core.sports.LineupPlayer
 
 private val Grass = Color(0xFF1E5E35)
 private val Chalk = Color(0x99FFFFFF)
-private val HomeShirt = Color(0xFF35C46A)
-private val AwayShirt = Color(0xFFE8EAED)
+private val HomeShirt = Color(0xFFFFB547)
+private val AwayShirt = Color(0xFFEEF1F4)
 
 /**
  * Terenul desenat cu formațiile celor două echipe: gazdele în stânga (portarul la margine), oaspeții în dreapta.

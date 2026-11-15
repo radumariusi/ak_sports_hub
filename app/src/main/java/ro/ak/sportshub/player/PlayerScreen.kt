@@ -94,6 +94,7 @@ import ro.ak.sportshub.ui.epg.ScheduleList
 import ro.ak.sportshub.ui.epg.formatRange
 import ro.ak.sportshub.ui.epg.formatTime
 import ro.ak.sportshub.ui.theme.AkColors
+import ro.ak.sportshub.ui.theme.AkFonts
 
 private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants, Match, Quick }
 
@@ -106,7 +107,7 @@ private const val KICKOFF_CHECK_MS = 30_000L
 
 private const val INFO_MS = 5_000L
 private const val NUMBER_COMMIT_MS = 1_500L
-internal val Overlay = Color(0xE6101318)
+internal val Overlay = Color(0xEB0B0F14)
 private val NavigationKeys = setOf(
     AndroidKeyEvent.KEYCODE_DPAD_UP,
     AndroidKeyEvent.KEYCODE_DPAD_DOWN,
@@ -396,6 +397,20 @@ fun PlayerScreen(
         )
 
         StatusOverlay(state.status, Modifier.align(Alignment.Center))
+
+        // Tabela de scor din stânga sus (cu informațiile sau cu panoul meciului): coduri, scor (după întârzierea
+        // stream-ului, ascuns la „fără spoilere”), minutul; la reluare marcată „RELUARE”, niciodată „LIVE”.
+        linkedMatch?.let { m ->
+            if ((infoVisible && panel == Panel.None) || panel == Panel.Match) {
+                MatchScoreboard(
+                    match = m,
+                    view = panelView,
+                    hidden = spoilerHidden,
+                    replay = replay,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = 40.dp, top = 32.dp),
+                )
+            }
+        }
 
         if (numberText.isNotEmpty()) {
             Text(
@@ -690,12 +705,12 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             channel.number?.let {
-                Text(text = "$it", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = AkColors.Accent)
+                Text(text = "$it", fontSize = 40.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = AkColors.Accent)
                 Spacer(Modifier.width(18.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = channel.name, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(text = channel.name, fontSize = 30.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     // O reluare nu apare niciodată drept live.
                     if (state.archiveFrom != null) Badge(text = "RELUARE", color = AkColors.Focus)
                     channel.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
@@ -714,7 +729,7 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 matchLine?.let {
-                    Text(text = "⚽ $it", fontSize = 17.sp, color = AkColors.Accent, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+                    Text(text = it, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = AkColors.Accent, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
                 }
                 nowNext?.now?.let { p ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
@@ -742,7 +757,7 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(text = clock, fontSize = 26.sp)
+                Text(text = clock, fontSize = 30.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
                 val details = listOfNotNull(
                     listOfNotNull(state.videoSize, state.frameRate?.let { "${"%.2f".format(Locale.US, it).trimEnd('0').trimEnd('.')} fps" }).joinToString(" ").ifEmpty { null },
                     if (state.audioTracks > 1) "${state.audioTracks} piste audio" else null,
