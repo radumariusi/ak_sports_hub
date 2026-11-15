@@ -336,7 +336,6 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 item {
                     ListRow(
                         title = "Echipe favorite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
                         subtitle = s.favorites.teams.joinToString(", ").ifEmpty { "Niciuna. Le poți marca și din ecranul unui meci" },
                         onClick = { dialog = SportsDialog.TEAMS },
                         trailing = { SettingValue(s.favorites.teams.size.toString()) },
@@ -345,7 +344,6 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 item {
                     ListRow(
                         title = "Competiții favorite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.COMPETITION)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
                         subtitle = s.favorites.competitions.joinToString(", ").ifEmpty { "Niciuna" },
                         onClick = { dialog = SportsDialog.COMPETITIONS },
                         trailing = { SettingValue(s.favorites.competitions.size.toString()) },
@@ -354,7 +352,6 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 item {
                     ListRow(
                         title = "Nume urmărite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
                         subtitle = s.favorites.names.joinToString(", ").ifEmpty {
                             "Jucători, piloți, luptători: orice emisiune din EPG care îi pomenește apare în Sports Hub, la Favorite"
                         },
@@ -418,6 +415,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         SportsDialog.TEAMS -> TextInputDialog(
             title = "Echipe favorite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.teams.joinToString(", "),
             hint = "Separate prin virgulă. Scrie începutul numelui (de exemplu „man u”) și alege din sugestii: forma întreagă e recunoscută și scrisă altfel (Man Utd, Man. United).",
             onDismiss = { dialog = null },
@@ -429,6 +427,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         )
         SportsDialog.COMPETITIONS -> TextInputDialog(
             title = "Competiții favorite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.COMPETITION)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.competitions.joinToString(", "),
             hint = "Numele ca în listă, separate prin virgulă (de exemplu: Premier League, Liga 1)",
             onDismiss = { dialog = null },
@@ -440,6 +439,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         )
         SportsDialog.NAMES -> TextInputDialog(
             title = "Nume urmărite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.names.joinToString(", "),
             hint = "Separate prin virgulă (de exemplu: Djokovic, Max Verstappen, Simona Halep). Se caută în titlul și descrierea emisiunilor de sport",
             onDismiss = { dialog = null },
