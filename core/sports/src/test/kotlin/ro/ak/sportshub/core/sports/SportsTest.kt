@@ -180,6 +180,20 @@ class MatchAssemblerTest {
     }
 
     @Test
+    fun o_echipa_comuna_dar_alt_adversar_nu_e_meciul() {
+        val nfl = SportEvent(Espn.PROVIDER, "nfl-1", "American Football", "NFL", "Indianapolis Colts", "Miami Dolphins", kickoff)
+        val matches = MatchAssembler.assemble(
+            events = listOf(nfl),
+            broadcasts = listOf(br(30, "Oakland vs. Miami (OH)", kickoff, kickoff + 3 * h)),
+            now = kickoff - 5 * h,
+        )
+        val m = matches.first { it.id.startsWith(Espn.PROVIDER) }
+        assertTrue(m.broadcasts.isEmpty())
+        assertTrue(MatchAssembler.couldBe("Arm.", "Armenia"))
+        assertFalse(MatchAssembler.couldBe("Oakland", "Indianapolis Colts"))
+    }
+
+    @Test
     fun `starea după oră și după furnizor`() {
         fun status(now: Long, s: MatchStatus? = null) =
             MatchAssembler.assemble(listOf(ev("1", "A Team", "B Team", status = s)), emptyList(), now).single().status

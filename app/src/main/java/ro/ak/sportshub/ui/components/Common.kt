@@ -81,7 +81,7 @@ fun TabStrip(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     firstTabModifier: Modifier = Modifier,
-    fontSize: TextUnit = 20.sp,
+    fontSize: TextUnit = 18.sp,
     /** Crește-l ca focusul să sară pe tabul selectat (de exemplu după ◀ ▶ din conținutul tabului). */
     focusSignal: Int = 0,
 ) {
@@ -179,14 +179,14 @@ fun ListRow(
     ) {
         CompositionLocalProvider(LocalOnFocus provides focused) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (leading != null) {
                     Box(modifier = Modifier.width(leadingWidth)) { leading() }
                 }
                 if (icon != null) {
-                    Box(modifier = Modifier.padding(end = 12.dp)) { icon() }
+                    Box(modifier = Modifier.padding(end = 10.dp)) { icon() }
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = title, fontSize = titleSize, fontWeight = FontWeight.Medium, maxLines = 1)
@@ -389,7 +389,7 @@ fun ActionButton(
             disabledContentColor = AkColors.TextDim,
         ),
     ) {
-        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp))
+        Text(text = text, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
     }
 }
 

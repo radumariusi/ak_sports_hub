@@ -93,8 +93,8 @@ fun AkTheme(textScale: Float = TextScale.DEFAULT, content: @Composable () -> Uni
 
 /** Mărimile textului din setări (Afișare → Mărimea textului). */
 object TextScale {
-    val options: List<Pair<String, Float>> = listOf("Mic" to 0.85f, "Compact" to 0.92f, "Normal" to 1f)
-    const val DEFAULT = 0.92f
+    val options: List<Pair<String, Float>> = listOf("Foarte mic" to 0.78f, "Mic" to 0.85f, "Compact" to 0.92f, "Normal" to 1f)
+    const val DEFAULT = 0.85f
 
     fun label(scale: Float): String = options.minByOrNull { kotlin.math.abs(it.second - scale) }?.first ?: "Compact"
 

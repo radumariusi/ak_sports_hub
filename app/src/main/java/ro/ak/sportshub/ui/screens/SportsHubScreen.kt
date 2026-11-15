@@ -271,8 +271,8 @@ fun SportsHubScreen(
             // Din „Foaie de meci”: panoul din dreapta arată meciul focusat (ora, cât mai e, primele surse), fără OK.
             val all = calendar.flatMap { it.second } + otherFavorites
             val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -332,7 +332,7 @@ fun SportsHubScreen(
                     }
                 }
                 preview?.let { entry ->
-                    Column(modifier = Modifier.width(360.dp).fillMaxHeight().padding(bottom = 8.dp)) {
+                    Column(modifier = Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp)) {
                         val channel = videoChannel
                         if (channel != null && videoMatchId == entry.match.id) {
                             ro.ak.sportshub.player.VideoPreview(channelId = channel, modifier = Modifier.padding(bottom = 8.dp))
@@ -429,7 +429,7 @@ private fun MatchRow(
     val m = entry.match
     val start = Instant.ofEpochMilli(m.start).atZone(zone)
     val score = if (!hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED) {
-        "   ${m.homeScore} – ${m.awayScore}   "
+        "  ${m.homeScore}–${m.awayScore}  "
     } else {
         null
     }
@@ -437,7 +437,7 @@ private fun MatchRow(
     val count = entry.summary.count
     ListRow(
         title = title,
-        titleSize = 19.sp,
+        titleSize = 17.sp,
         subtitle = listOfNotNull(
             if (showDay) start.format(DayFormat) else null,
             m.sport?.label,
@@ -448,22 +448,22 @@ private fun MatchRow(
         onLongClick = onLongClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         icon = { MatchIcon(m.home, m.away, m.competition, looks) },
-        leadingWidth = 112.dp,
+        leadingWidth = 84.dp,
         leading = {
             // Ora (sau LIVE), cu cifre înguste, ca pe o tabelă.
             androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
                 // Iconița sportului, în dreptul fiecărui meci.
-                Text(text = sportIcon(m.sport), fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp).width(28.dp), textAlign = TextAlign.Center)
+                Text(text = sportIcon(m.sport), fontSize = 16.sp, modifier = Modifier.padding(end = 4.dp).width(22.dp), textAlign = TextAlign.Center)
                 if (m.isLive) {
                     Text(
                         text = "LIVE",
-                        fontSize = 22.sp,
+                        fontSize = 19.sp,
                         fontFamily = AkFonts.Condensed,
                         fontWeight = FontWeight.Bold,
                         color = if (LocalOnFocus.current) AkColors.LiveOnFocus else AkColors.Live,
                     )
                 } else {
-                    Text(text = start.format(TimeFormat), fontSize = 22.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+                    Text(text = start.format(TimeFormat), fontSize = 19.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
                 }
             }
         },
@@ -480,11 +480,11 @@ private fun MatchRow(
                     count == 1 -> "1 sursă"
                     else -> "$count surse"
                 },
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 maxLines = 1,
                 color = if (count == 0 || entry.summary.sure == 0) dimText() else LocalContentColor.current,
                 textAlign = TextAlign.End,
-                modifier = Modifier.padding(start = 10.dp).width(92.dp),
+                modifier = Modifier.padding(start = 8.dp).width(74.dp),
             )
         },
     )
@@ -520,9 +520,9 @@ private fun MatchPreviewPanel(
     val start = Instant.ofEpochMilli(m.start).atZone(zone)
     Column(
         modifier = modifier
-            .background(AkColors.Panel, RoundedCornerShape(16.dp))
-            .padding(horizontal = 22.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .background(AkColors.Panel, RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CompetitionLogo(m.competition, 24.dp, modifier = Modifier.padding(end = 8.dp))
@@ -544,8 +544,8 @@ private fun MatchPreviewPanel(
                     TeamLogo(team, 30.dp, look = look, modifier = Modifier.padding(end = 8.dp))
                     Text(
                         text = team,
-                        fontSize = 27.sp,
-                        lineHeight = 29.sp,
+                        fontSize = 22.sp,
+                        lineHeight = 24.sp,
                         fontFamily = AkFonts.Condensed,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,

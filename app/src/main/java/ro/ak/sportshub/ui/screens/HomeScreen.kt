@@ -66,22 +66,22 @@ fun HomeScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AkLogo(size = 44.dp)
-            Spacer(Modifier.width(24.dp))
+            AkLogo(size = 36.dp)
+            Spacer(Modifier.width(18.dp))
             TabStrip(
                 tabs = Sections,
                 selectedIndex = section,
                 onSelect = { section = it },
                 firstTabModifier = Modifier.focusRequester(firstTab),
-                fontSize = 24.sp,
+                fontSize = 21.sp,
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.weight(1f))
             HeaderClock()
         }
-        Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {
             sectionStates.SaveableStateProvider(section) { when (section) {
                 0 -> SportsHubScreen(
                     onOpenMatch = onOpenMatch,
