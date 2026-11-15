@@ -42,6 +42,7 @@ class MatchDetailsRepository(
     context: Context,
     private val settings: SportsSettingsStore,
     private val http: OkHttpClient,
+    private val log: DiagnosticLog? = null,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -186,13 +187,35 @@ class MatchDetailsRepository(
     private fun set(id: String, transform: (MatchDetailsState) -> MatchDetailsState) =
         _states.update { it + (id to transform(it[id] ?: MatchDetailsState())) }
 
-    private fun download(url: String, target: File): Boolean = runCatching {
+    private fun download(url: String, target: File): Boolean {
+        val started = System.currentTimeMillis()
+        var code: Int? = null
+        var bytes: Int? = null
+        var outcome = "ok"
+        val ok = runCatching { fetch(url, target, { code = it }, { bytes = it }, { outcome = it }) }
+            .onFailure { outcome = "EȘEC: ${it.javaClass.simpleName}" }
+            .getOrDefault(false)
+        // Jurnalul statisticilor: ce endpoint, ce cod și cât de mare (un `null` de la TheSportsDB = fără date).
+        log?.request("statistici", url, code, bytes, System.currentTimeMillis() - started, outcome)
+        return ok
+    }
+
+    private fun fetch(url: String, target: File, code: (Int) -> Unit, bytes: (Int) -> Unit, outcome: (String) -> Unit): Boolean {
         val request = Request.Builder().url(url).header("Accept", "application/json").build()
-        http.newCall(request).execute().use { r ->
-            if (!r.isSuccessful) return false
+        return http.newCall(request).execute().use { r ->
+            code(r.code)
+            if (!r.isSuccessful) {
+                outcome("EȘEC: HTTP ${r.code}")
+                return false
+            }
             val body = r.body?.string() ?: return false
+            bytes(body.length)
             val trimmed = body.trimStart()
-            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+                outcome("EȘEC: nu e JSON: " + trimmed.take(80).replace('\n', ' '))
+                return false
+            }
+            if (trimmed.length < 200) outcome("ok: " + trimmed.replace('\n', ' '))
             val tmp = File(target.parentFile, target.name + ".tmp")
             tmp.writeText(body)
             if (!tmp.renameTo(target)) {
@@ -201,7 +224,7 @@ class MatchDetailsRepository(
             }
             true
         }
-    }.getOrDefault(false)
+    }
 
     /** Fișierele mai vechi de câteva zile se șterg. */
     private fun cleanup() {

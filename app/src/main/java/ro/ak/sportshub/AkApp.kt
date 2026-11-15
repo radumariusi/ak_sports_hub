@@ -28,6 +28,8 @@ import ro.ak.sportshub.data.ObservedVideoStore
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
+import ro.ak.sportshub.data.DiagnosticLog
+import ro.ak.sportshub.data.DiagnosticReporter
 import ro.ak.sportshub.data.SportsKnowledgeStore
 import ro.ak.sportshub.data.SportsRepository
 import ro.ak.sportshub.data.SportsSettingsStore
@@ -106,6 +108,9 @@ class AppContainer(app: Application) {
 
     val playerHistory = PlayerHistory(app, database.channels())
 
+    /** Jurnalul de diagnostic al furnizorilor de meciuri și de statistici (trimis pe GitHub doar la cerere). */
+    val diagnosticLog = DiagnosticLog(app)
+
     val sports = SportsRepository(
         context = app,
         db = database,
@@ -117,10 +122,14 @@ class AppContainer(app: Application) {
         knowledge = sportsKnowledge,
         http = http,
         scope = scope,
+        log = diagnosticLog,
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */
-    val matchDetails = MatchDetailsRepository(app, sportsSettings, http)
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog)
+
+    /** Trimite jurnalul ca issue în repo-ul aplicației, cu cheia GitHub din Setări → Despre. */
+    val diagnosticReporter = DiagnosticReporter(http, scope, diagnosticLog, sports) { updater.token }
 
     /** Notificările din aplicație (de exemplu „Arsenal – Chelsea începe în 10 minute”), arătate și în player. */
     val inAppNotices = MutableSharedFlow<String>(extraBufferCapacity = 4)

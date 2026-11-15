@@ -190,7 +190,18 @@ object MatchAssembler {
         return out
     }
 
-    private fun mergeEvents(a: SportEvent, b: SportEvent) = a.copy(
+    /**
+     * Același meci de la doi furnizori: datele (id, nume, competiție) vin de la cel mai de încredere
+     * ([ProviderPolicy.rank]), ora rămâne a primului (lista e în ordinea orei), posturile se adună.
+     */
+    private fun mergeEvents(first: SportEvent, other: SportEvent): SportEvent {
+        val swap = ProviderPolicy.rank(other.provider) < ProviderPolicy.rank(first.provider)
+        val a = if (swap) other.copy(start = first.start) else first
+        val b = if (swap) first else other
+        return mergeInto(a, b)
+    }
+
+    private fun mergeInto(a: SportEvent, b: SportEvent) = a.copy(
         sport = a.sport ?: b.sport,
         competition = a.competition ?: b.competition,
         status = listOfNotNull(a.status, b.status).maxByOrNull { it.ordinal },

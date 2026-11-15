@@ -60,6 +60,8 @@ import ro.ak.sportshub.core.sports.StationIndex
 import ro.ak.sportshub.core.sports.StationNames
 import ro.ak.sportshub.core.sports.TheSportsDb
 import ro.ak.sportshub.core.sports.Verdict
+import ro.ak.sportshub.core.sports.ProviderPolicy
+import ro.ak.sportshub.core.common.DiagnosticText
 
 /** Un meci cu sursele găsite în playlisturile tale. */
 data class MatchEntry(
@@ -143,8 +145,13 @@ class SportsRepository(
     private val knowledge: SportsKnowledgeStore,
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
+    private val log: DiagnosticLog,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports")
+    /** Pauzele furnizorilor care ne-au refuzat ([ProviderPolicy.Block]); nu intră în backup. */
+    private val blocks = context.getSharedPreferences("sports_backoff", Context.MODE_PRIVATE)
+    /** Furnizorii în pauză deja notați în jurnal în runda curentă. */
+    private val pausedLogged = HashSet<String>()
     /** A doua încercare, ca un browser, pentru site-urile care refuză clientul HTTP (403). */
     private val browser = WebViewFetcher(context)
     /** Furnizorii care au răspuns 429 în runda curentă: cererile lor rămase se amână la runda următoare. */
@@ -251,7 +258,9 @@ class SportsRepository(
     private suspend fun fetch(s: SportsSettings, force: Boolean): Boolean {
         dir.mkdirs()
         throttled.clear()
+        pausedLogged.clear()
         sofascoreWarmed = false
+        log.log("runda", "pornită" + if (force) " (forțat)" else "")
         val today = LocalDate.now(ZoneOffset.UTC)
         cleanup(today.minusDays(1))
         var changed = false
@@ -262,38 +271,42 @@ class SportsRepository(
             val day = localToday.plusDays(offset.toLong())
             if (s.liveSoccerTvEnabled) {
                 val f = File(dir, "lstv-$day.html")
-                if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(LiveSoccerTv.scheduleUrl(day), f, html = LiveSoccerTv::looksValid)
+                if (force || isStale(f, fresh(LiveSoccerTv.PROVIDER, offset))) jobs += Job(LiveSoccerTv.scheduleUrl(day), f, html = LiveSoccerTv::looksValid)
             }
             if (s.sofascoreEnabled) {
                 for (sport in s.sports) {
                     val url = Sofascore.scheduleUrl(sport, day) ?: continue
                     val f = File(dir, "sofa-${sport.name}-$day.json")
-                    if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(url, f)
+                    if (force || isStale(f, fresh(Sofascore.PROVIDER, offset))) jobs += Job(url, f)
                 }
             }
         }
         if (s.futbolEnLaTvEnabled) {
             val f = File(dir, "fetv-${LocalDate.now(FutbolEnLaTv.ZONE)}.html")
-            if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(FutbolEnLaTv.URL, f, html = FutbolEnLaTv::looksValid)
+            if (force || isStale(f, fresh(FutbolEnLaTv.PROVIDER, 0))) jobs += Job(FutbolEnLaTv.URL, f, html = FutbolEnLaTv::looksValid)
         }
         if (s.liveOnSatEnabled) {
             val f = File(dir, "los-$localToday.html")
-            if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(LiveOnSat.URL, f, html = LiveOnSat::looksValid)
+            if (force || isStale(f, fresh(LiveOnSat.PROVIDER, 0))) jobs += Job(LiveOnSat.URL, f, html = LiveOnSat::looksValid)
         }
         if (s.fotMobEnabled) {
             for (cc in FotMob.countriesFor(playlistCountries())) {
                 val f = File(dir, "fotmob-$cc-$localToday.html")
-                if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(FotMob.url(cc), f, html = FotMob::looksValid)
+                if (force || isStale(f, fresh(FotMob.PROVIDER, 0))) jobs += Job(FotMob.url(cc), f, html = FotMob::looksValid)
             }
         }
         if (s.usLeaguesEnabled && hasNorthAmerica()) addUsJobs(s, localToday, force, jobs)
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
-        val (ok, failed) = runJobs(jobs, "Se descarcă programul meciurilor")
-        changed = ok > 0
-        errors += failed
+        // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
+        val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
+        val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.rank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
+        if (ok > 0 && guarded.isNotEmpty()) recompute()
+        val (gOk, gFailed) = runJobs(guarded, "Se descarcă programul meciurilor (furnizori protejați)", force)
+        changed = ok + gOk > 0
+        errors += failed + gFailed
         // Apoi posturile TV de la Sofascore, pentru câteva meciuri (programul e deja la zi).
         if (s.sofascoreEnabled && s.sofascoreTv) {
-            val (tvOk, tvFailed) = fetchSofascoreTv(s)
+            val (tvOk, tvFailed) = fetchSofascoreTv(s, force)
             if (tvOk > 0) changed = true
             errors += tvFailed
         }
@@ -302,13 +315,19 @@ class SportsRepository(
     }
 
     /** Face cererile una câte una, cu pauză între ele. Întoarce (reușite, nereușite). */
-    private suspend fun runJobs(jobs: List<Job>, label: String): Pair<Int, Int> {
+    private suspend fun runJobs(jobs: List<Job>, label: String, force: Boolean): Pair<Int, Int> {
         var ok = 0
         var failed = 0
         jobs.forEachIndexed { i, job ->
             val provider = providerOf(job.url)
             // După un 429 repetat, furnizorul nu mai e întrebat în runda asta: rămân datele salvate.
             if (provider in throttled) return@forEachIndexed
+            // Un furnizor care ne-a refuzat stă în pauză (6 h, apoi tot mai mult); „Actualizează acum” trece peste.
+            val block = blockOf(provider)
+            if (!force && block.active(System.currentTimeMillis())) {
+                if (pausedLogged.add(provider)) log.log(provider, "în pauză până la ${java.time.Instant.ofEpochMilli(block.until)} (refuzuri la rând: ${block.strikes}); cererea sărită")
+                return@forEachIndexed
+            }
             _status.value = "$label (${i + 1}/${jobs.size})…"
             var result = download(job)
             // Refuz anti-robot: a doua încercare printr-un browser adevărat (WebView).
@@ -320,10 +339,35 @@ class SportsRepository(
                 if (result is Download.Failed && result.tooMany) throttled += provider
             }
             record(provider, result)
+            noteBlock(provider, result)
             if (result == Download.Ok) ok++ else failed++
             if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
         return ok to failed
+    }
+
+    /** Cât rămâne bun fișierul unui furnizor ([ProviderPolicy.freshMs]). */
+    private fun fresh(provider: String, dayOffset: Int): Long = ProviderPolicy.freshMs(provider, dayOffset)
+
+    fun blockOf(provider: String): ProviderPolicy.Block =
+        ProviderPolicy.Block.decode(blocks.getString(provider, null)) ?: ProviderPolicy.Block()
+
+    /** Un refuz (403, 429, pagină de verificare, JSON cu „error”) mărește pauza; o reușită o șterge. */
+    private fun noteBlock(provider: String, result: Download) {
+        val now = System.currentTimeMillis()
+        when {
+            result == Download.Ok -> if (blocks.contains(provider)) {
+                blocks.edit().remove(provider).apply()
+                log.log(provider, "pauza ștearsă după o cerere reușită")
+            }
+            result is Download.Failed && (result.blocked || result.tooMany) -> {
+                val next = blockOf(provider).refused(now)
+                blocks.edit().putString(provider, next.encode()).apply()
+                log.log(provider, "refuz nr. ${next.strikes}: pauză până la ${java.time.Instant.ofEpochMilli(next.until)}")
+                throttled += provider
+            }
+        }
+        _health.update { all -> all + (provider to (all[provider] ?: ProviderHealth()).copy(pausedUntil = blockOf(provider).until.takeIf { it > now })) }
     }
 
     /** TheSportsDB (cheia gratuită) are o limită pe minut: cererile lui se răresc mai mult. */
@@ -339,13 +383,29 @@ class SportsRepository(
             sofascoreWarmed = true
             browser.fetch("https://www.sofascore.com/", html = true, accept = { it.length > 1000 })
         }
-        return when (val r = browser.fetch(job.url, isHtml, accept)) {
+        val started = System.currentTimeMillis()
+        val provider = providerOf(job.url)
+        val result = when (val r = browser.fetch(job.url, isHtml, accept)) {
             is WebViewFetcher.Result.Ok -> {
-                save(job.file, r.text)
-                Download.Ok
+                val bad = validate(job, r.text)
+                if (bad == null) {
+                    save(job.file, r.text)
+                    Download.Ok
+                } else {
+                    log.sample(provider, job.url, "browser (${bad.reason})\n" + r.text)
+                    Download.Failed("${first.reason}; și prin browser: ${bad.reason}", blocked = true)
+                }
             }
-            is WebViewFetcher.Result.Failed -> Download.Failed("${first.reason}; și prin browser: ${r.reason}")
+            is WebViewFetcher.Result.Failed -> {
+                r.lastText?.takeIf { it.isNotBlank() }?.let { log.sample(provider, job.url, "browser (${r.reason})\n" + it) }
+                Download.Failed("${first.reason}; și prin browser: ${r.reason}", blocked = true)
+            }
         }
+        log.request(
+            provider, job.url, null, (result as? Download.Ok)?.let { job.file.length().toInt() }, System.currentTimeMillis() - started,
+            if (result is Download.Failed) "EȘEC: ${result.reason}" else "ok", via = "browser",
+        )
+        return result
     }
 
     @Volatile
@@ -390,7 +450,7 @@ class SportsRepository(
      * fiecare reîmprospătat la 12 ore; apoi numele posturilor necunoscute: lista țării (o dată pe săptămână),
      * altfel câte un post, cel mult [SOFA_NAMES_PER_ROUND] pe rundă.
      */
-    private suspend fun fetchSofascoreTv(s: SportsSettings): Pair<Int, Int> {
+    private suspend fun fetchSofascoreTv(s: SportsSettings, force: Boolean): Pair<Int, Int> {
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         val wanted = s.sports.map { it.name }.toSet()
@@ -414,7 +474,7 @@ class SportsRepository(
             val f = File(dir, "sofatv-$day-${e.providerId}.json")
             if (isStale(f, SOFA_TV_FRESH_MS)) Job(Sofascore.tvUrl(e.providerId), f) else null
         }
-        var (ok, failed) = runJobs(jobs, "Se descarcă posturile TV (Sofascore)")
+        var (ok, failed) = runJobs(jobs, "Se descarcă posturile TV (Sofascore)", force)
 
         // Numele posturilor fără nume, doar din țările tale.
         val wantedCc = wantedCountry(playlistCountries())
@@ -429,14 +489,14 @@ class SportsRepository(
             val f = File(dir, "sofa-tvcountry-$cc.json")
             if (isStale(f, SOFA_NAMES_FRESH_MS)) Job(Sofascore.countryChannelsUrl(cc), f) else null
         }
-        runJobs(countryJobs, "Se descarcă numele posturilor (Sofascore)").let { (a, b) -> ok += a; failed += b }
+        runJobs(countryJobs, "Se descarcă numele posturilor (Sofascore)", force).let { (a, b) -> ok += a; failed += b }
         val known = sofaChannelNames()
         val stillMissing = missing.values.flatten().filter { it !in known }.distinct().take(SOFA_NAMES_PER_ROUND)
         val channelJobs = stillMissing.mapNotNull { id ->
             val f = File(dir, "sofa-tvchannel-$id.json")
             if (isStale(f, SOFA_NAMES_FRESH_MS)) Job(Sofascore.channelUrl(id), f) else null
         }
-        runJobs(channelJobs, "Se descarcă numele posturilor (Sofascore)").let { (a, b) -> ok += a; failed += b }
+        runJobs(channelJobs, "Se descarcă numele posturilor (Sofascore)", force).let { (a, b) -> ok += a; failed += b }
         return ok to failed
     }
 
@@ -490,15 +550,15 @@ class SportsRepository(
             val day = localToday.plusDays(offset.toLong())
             for (league in UsLeagues.leaguesFor(s.sports)) {
                 val f = File(dir, "espn-${league.name}-$day.json")
-                if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(UsLeagues.espnUrl(league, day), f)
+                if (force || isStale(f, fresh(UsLeagues.ESPN, offset))) jobs += Job(UsLeagues.espnUrl(league, day), f)
             }
             if (Sport.ICE_HOCKEY in s.sports) {
                 val f = File(dir, "nhl-$day.json")
-                if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(UsLeagues.nhlUrl(day), f)
+                if (force || isStale(f, fresh(UsLeagues.NHL_API, offset))) jobs += Job(UsLeagues.nhlUrl(day), f)
             }
             if (Sport.BASEBALL in s.sports) {
                 val f = File(dir, "mlb-$day.json")
-                if (force || isStale(f, FRESH_NEAR_MS)) jobs += Job(UsLeagues.mlbUrl(day), f)
+                if (force || isStale(f, fresh(UsLeagues.MLB_API, offset))) jobs += Job(UsLeagues.mlbUrl(day), f)
             }
         }
     }
@@ -532,7 +592,24 @@ class SportsRepository(
         ) : Download
     }
 
-    private fun download(job: Job): Download = try {
+    /** [fetchOnce] cu rândul lui în jurnal (codul, mărimea, durata, rezultatul). */
+    private fun download(job: Job): Download {
+        val started = System.currentTimeMillis()
+        lastCode = null
+        lastBytes = null
+        val result = fetchOnce(job)
+        log.request(
+            providerOf(job.url), job.url, lastCode, lastBytes, System.currentTimeMillis() - started,
+            if (result is Download.Failed) "EȘEC: ${result.reason}" else "ok",
+        )
+        return result
+    }
+
+    // Codul și mărimea ultimului răspuns, pentru jurnal (cererile sunt una câte una, sub fetchMutex).
+    @Volatile private var lastCode: Int? = null
+    @Volatile private var lastBytes: Int? = null
+
+    private fun fetchOnce(job: Job): Download = try {
         val target = job.file
         val request = Request.Builder().url(job.url)
             .header("Accept", if (job.html != null) "text/html,application/xhtml+xml" else "application/json")
@@ -547,7 +624,11 @@ class SportsRepository(
             }
             .build()
         http.newCall(request).execute().use { r ->
+            lastCode = r.code
             if (!r.isSuccessful) {
+                // Pagina de refuz (Cloudflare, „challenge”) se păstrează pentru jurnal.
+                runCatching { r.peekBody(MAX_SAMPLE_BYTES).string() }.getOrNull()?.takeIf { it.isNotBlank() }
+                    ?.let { log.sample(providerOf(job.url), job.url, "HTTP ${r.code}\n" + it) }
                 return Download.Failed(
                     httpReason(r.code),
                     retry = r.code == 429 || r.code >= 500,
@@ -556,14 +637,11 @@ class SportsRepository(
                 )
             }
             val body = r.body?.string() ?: return Download.Failed("răspuns gol")
+            lastBytes = body.length
             // O pagină de eroare (sau de verificare anti-robot) nu înlocuiește fișierul bun de dinainte.
-            if (job.html != null) {
-                if (!job.html.invoke(body)) return Download.Failed("pagină de verificare anti-robot sau cu alt format", blocked = true)
-            } else {
-                val trimmed = body.trimStart()
-                if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-                    return Download.Failed(if (trimmed.isEmpty()) "răspuns gol" else "răspunsul nu e JSON (limită sau cheie)", retry = true)
-                }
+            validate(job, body)?.let { failed ->
+                log.sample(providerOf(job.url), job.url, "HTTP ${r.code} (${failed.reason})\n" + body)
+                return failed
             }
             save(target, body)
             Download.Ok
@@ -576,6 +654,20 @@ class SportsRepository(
         Download.Failed("eroare de conexiune securizată (SSL)")
     } catch (e: Exception) {
         Download.Failed("eroare de rețea (${e.javaClass.simpleName})")
+    }
+
+    /** Null dacă răspunsul e bun; altfel motivul (pagină de verificare, nu e JSON, JSON cu „error”). */
+    private fun validate(job: Job, body: String): Download.Failed? {
+        if (job.html != null) {
+            return if (job.html.invoke(body)) null else Download.Failed("pagină de verificare anti-robot sau cu alt format", blocked = true)
+        }
+        val trimmed = body.trimStart()
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            return Download.Failed(if (trimmed.isEmpty()) "răspuns gol" else "răspunsul nu e JSON (limită sau cheie)", retry = true)
+        }
+        // Sofascore răspunde la un refuz cu `{"error": {"code": 403, …}}`; nu e un program gol.
+        DiagnosticText.jsonError(trimmed)?.let { return Download.Failed("refuz în JSON: $it", blocked = true) }
+        return null
     }
 
     /** Scrie fișierul printr-unul temporar, ca o eroare la mijloc să nu strice fișierul bun. */
@@ -612,8 +704,12 @@ class SportsRepository(
     private fun parsed(f: File, parse: (String) -> List<SportEvent>): List<SportEvent> {
         val modified = f.lastModified()
         parsedFiles[f.path]?.let { (at, events) -> if (at == modified) return events }
-        val events = runCatching { parse(f.readText()) }.getOrDefault(emptyList())
+        val result = runCatching { parse(f.readText()) }
+        val events = result.getOrDefault(emptyList())
         parsedFiles[f.path] = modified to events
+        val provider = f.name.substringBefore('-')
+        result.exceptionOrNull()?.let { e -> log.log(provider, "citire EȘUATĂ ${f.name} (${f.length()}B): ${e.javaClass.simpleName}: ${e.message?.take(200)}") }
+            ?: log.log(provider, "citit ${f.name} (${f.length()}B): ${events.size} meciuri")
         return events
     }
 
@@ -804,6 +900,91 @@ class SportsRepository(
             .toList()
     }
 
+    // ---------- jurnalul de diagnostic ----------
+
+    /**
+     * Starea Sports Hub pentru jurnalul trimis pe GitHub (Markdown): setările furnizorilor, starea fiecăruia, fișierele
+     * salvate cu câte meciuri s-au citit din ele și posturile anunțate fără canal. Nimic din playlisturi în afară de
+     * prefixele de țară ale canalelor și numărul lor.
+     */
+    suspend fun diagnosticSummary(): String = withContext(Dispatchers.IO) {
+        val s = settings.current
+        val snap = _snapshot.value
+        val now = System.currentTimeMillis()
+        val utc = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneOffset.UTC)
+        buildString {
+            appendLine("### Setări Sports Hub")
+            appendLine("- TheSportsDB: ${s.sportsDbEnabled} (cheie ${if (s.sportsDbKey == TheSportsDb.DEFAULT_KEY) "gratuită" else "proprie"}, posturi TV ${s.sportsDbTv}), zile cerute ${s.daysAhead}")
+            appendLine("- LiveSoccerTV ${s.liveSoccerTvEnabled} · Sofascore ${s.sofascoreEnabled} (posturi ${s.sofascoreTv}) · FutbolEnLaTV ${s.futbolEnLaTvEnabled} · LiveOnSat ${s.liveOnSatEnabled} · FotMob ${s.fotMobEnabled} · ligi SUA ${s.usLeaguesEnabled}")
+            appendLine("- Sporturi: ${s.sports.joinToString(", ") { it.name }}")
+            appendLine("- Canale EVENT ${s.eventChannels}, fus EVENT „${s.eventZone}”")
+            val countries = runCatching { playlistCountries() }.getOrDefault(emptySet())
+            appendLine("- Țările canalelor (prefixe): ${countries.sorted().joinToString(", ").ifEmpty { "—" }}; America de Nord: ${countries.any { it in NORTH_AMERICA }}")
+            appendLine("- FotMob cere țările: ${FotMob.countriesFor(countries).joinToString(", ").ifEmpty { "—" }}")
+            appendLine()
+            appendLine("### Lista")
+            appendLine("- ${snap.matches.size} meciuri (calculat ${utc.format(java.time.Instant.ofEpochMilli(snap.computedAt))} UTC), cu sursă găsită ${snap.matches.count { it.summary.sure > 0 }}, cu orice sursă ${snap.matches.count { it.summary.count > 0 }}")
+            val byProvider = snap.matches.flatMap { it.match.providers }.groupingBy { it }.eachCount()
+            appendLine("- Meciuri pe furnizor (după unire): ${byProvider.entries.sortedByDescending { it.value }.joinToString(", ") { "${it.key} ${it.value}" }}")
+            appendLine("- Canale de sport: ${snap.sportChannelCount}, EVENT/PPV cu eveniment: ${snap.events.size}, goale: ${snap.emptyEventChannels}, fără EPG: ${snap.noEpgChannels.size}")
+            appendLine()
+            appendLine("### Furnizori")
+            appendLine("| furnizor | nivel | ok | eșuate | meciuri | ultima reușită | pauză | ultima eroare |")
+            appendLine("|---|---|---|---|---|---|---|---|")
+            val known = listOf(
+                TheSportsDb.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API, FutbolEnLaTv.PROVIDER,
+                LiveOnSat.PROVIDER, LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
+            )
+            val health = _health.value
+            (known + health.keys.filter { it !in known }).forEach { p ->
+                val h = health[p] ?: ProviderHealth()
+                val b = blockOf(p)
+                appendLine(
+                    "| ${providerLabel(p)} | ${ProviderPolicy.tier(p).name} | ${h.ok} | ${h.failed} | ${h.events} | " +
+                        "${h.lastSuccess?.let { utc.format(java.time.Instant.ofEpochMilli(it)) } ?: "—"} | " +
+                        "${if (b.active(now)) "până la " + utc.format(java.time.Instant.ofEpochMilli(b.until)) + " (" + b.strikes + ")" else "—"} | " +
+                        "${h.lastError?.replace('|', '/') ?: "—"} |",
+                )
+            }
+            appendLine()
+            appendLine("### Fișiere salvate")
+            appendLine("| fișier | mărime | modificat (UTC) | meciuri citite |")
+            appendLine("|---|---|---|---|")
+            dir.listFiles().orEmpty().filter { it.isFile }.sortedBy { it.name }.forEach { f ->
+                val count = parsedFiles[f.path]?.second?.size?.toString() ?: parsedTvFiles[f.path]?.second?.values?.sumOf { it.size }?.let { "$it posturi" } ?: "—"
+                appendLine("| ${f.name} | ${f.length()} | ${utc.format(java.time.Instant.ofEpochMilli(f.lastModified()))} | $count |")
+            }
+            if (snap.unmatchedStations.isNotEmpty()) {
+                appendLine()
+                appendLine("### Posturi anunțate fără canal (primele 40)")
+                appendLine(snap.unmatchedStations.take(40).joinToString(", "))
+            }
+        }
+    }
+
+    /**
+     * Ultimul fișier salvat al fiecărui furnizor, scurtat ([DiagnosticText.condense]): cei care merg, puțin (pentru
+     * comparație), cei cu 0 meciuri, mult (ca să se vadă formatul real al paginii). Titlu → text.
+     */
+    fun diagnosticFiles(): List<Pair<String, String>> {
+        val files = dir.listFiles().orEmpty().filter { !it.name.endsWith(".tmp") && it.length() > 0 }
+        val prefixes = listOf("lstv-", "sofa-", "sofatv-", "sofa-tvcountry-", "sofa-tvchannel-", "los-", "fotmob-", "espn-", "nhl-", "mlb-", "fetv-", "events-", "tv-")
+        return prefixes.mapNotNull { prefix ->
+            val group = files.filter { f ->
+                f.name.startsWith(prefix) && prefixes.none { other -> other != prefix && other.startsWith(prefix) && f.name.startsWith(other) }
+            }
+            // Cel mai nou fișier, de preferat unul din care nu s-a citit niciun meci.
+            val pick = group.sortedByDescending { it.lastModified() }
+                .let { list -> list.firstOrNull { parsedFiles[it.path]?.second?.isEmpty() == true } ?: list.firstOrNull() }
+                ?: return@mapNotNull null
+            val events = parsedFiles[pick.path]?.second?.size
+            val working = events != null && events > 0
+            val text = runCatching { pick.readText() }.getOrDefault("")
+            val limit = if (working) 8_000 else DiagnosticText.MAX_CHUNK * 2
+            "${pick.name} (${pick.length()}B, ${events ?: "?"} meciuri)" to DiagnosticText.condense(text, limit)
+        }
+    }
+
     /** „De ce nu are sursă?” pentru meciul [id] (null dacă nu mai e în listă). */
     suspend fun diagnose(id: String): SourceDiagnosis? = withContext(Dispatchers.IO) {
         val m = find(id)?.match ?: return@withContext null
@@ -916,6 +1097,7 @@ class SportsRepository(
         const val SOFA_NAMES_PER_ROUND = 15
         val SOFA_TV_FRESH_MS = TimeUnit.HOURS.toMillis(12)
         val SOFA_NAMES_FRESH_MS = TimeUnit.DAYS.toMillis(7)
+        const val MAX_SAMPLE_BYTES = 300_000L
         const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         val DAY_IN_NAME = Regex("""\d{4}-\d{2}-\d{2}""")
         /** Prefixele de țară ale canalelor din SUA și Canada. */
@@ -946,6 +1128,8 @@ data class ProviderHealth(
     val lastSuccess: Long? = null,
     /** Meciurile citite acum din fișierele salvate ale furnizorului. */
     val events: Int = 0,
+    /** Furnizorul ne-a refuzat și nu-l mai întrebăm până atunci (ms), în afară de „Actualizează acum”. */
+    val pausedUntil: Long? = null,
 )
 
 /** Furnizorul unei adrese (aceleași chei ca `SportEvent.provider`). */
