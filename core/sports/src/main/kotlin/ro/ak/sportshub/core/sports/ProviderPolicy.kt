@@ -54,7 +54,7 @@ object ProviderPolicy {
 
     /** Cât rămâne bun un fișier al furnizorului: [dayOffset] 0 = azi, 1 = mâine. */
     fun freshMs(provider: String, dayOffset: Int): Long = when (tier(provider)) {
-        Tier.OPEN -> if (provider == EuroLeague.PROVIDER) 12 * HOUR else 3 * HOUR
+        Tier.OPEN -> if (provider == EuroLeague.PROVIDER) 12 * HOUR else if (dayOffset >= 2) 24 * HOUR else 3 * HOUR
         Tier.SITE -> if (dayOffset <= 0) 3 * HOUR else 6 * HOUR
         Tier.GUARDED -> if (dayOffset <= 0) 6 * HOUR else 12 * HOUR
     }

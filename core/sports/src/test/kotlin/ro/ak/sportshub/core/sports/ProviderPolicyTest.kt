@@ -21,6 +21,7 @@ class ProviderPolicyTest {
         assertEquals(3 * hour, ProviderPolicy.freshMs(TheSportsDb.PROVIDER, 1))
         assertEquals(6 * hour, ProviderPolicy.freshMs(Sofascore.PROVIDER, 0))
         assertEquals(12 * hour, ProviderPolicy.freshMs(Sofascore.PROVIDER, 1))
+        assertEquals(24 * hour, ProviderPolicy.freshMs(Espn.PROVIDER, 3))
     }
 
     @Test

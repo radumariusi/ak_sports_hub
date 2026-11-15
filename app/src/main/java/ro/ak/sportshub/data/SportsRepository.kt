@@ -762,7 +762,8 @@ class SportsRepository(
     }
 
     /**
-     * ESPN: o cerere pe ligă și zi (azi și mâine, zile ESPN), doar în zilele cu meciuri din calendarul ligii.
+     * ESPN: o cerere pe ligă și zi (azi și mâine, zile ESPN; restul săptămânii o dată pe zi, doar zilele cu meciuri
+     * sigure din calendar sau prima zi a unui turneu), doar în zilele cu meciuri din calendarul ligii.
      * Calendarul se reîmprospătează cam o dată pe săptămână (cu cererea pentru azi); o ligă inexistentă (404) se
      * mai încearcă abia peste o lună. „Actualizează acum” nu trece peste calendar (ar însemna sute de cereri).
      */
@@ -770,9 +771,12 @@ class SportsRepository(
         val today = Espn.today()
         val now = System.currentTimeMillis()
         for (league in Espn.leaguesFor(s.sports)) {
-            for (offset in 0..1) {
+            for (offset in 0 until ESPN_DAYS) {
                 val day = today.plusDays(offset.toLong())
                 if (!espnWanted(league, day, offset, now)) continue
+                // „Actualizează acum” nu reface zilele 3-7: se schimbă rar, iar ar fi zeci de cereri.
+                val f0 = File(dir, "espn-${league.key}-$day.json")
+                if (offset >= 2 && f0.exists() && !isStale(f0, fresh(Espn.PROVIDER, offset))) continue
                 val f = File(dir, "espn-${league.key}-$day.json")
                 if (force || isStale(f, fresh(Espn.PROVIDER, offset))) jobs += Job(Espn.scoreboardUrl(league, day), f, espn = league)
             }
@@ -792,6 +796,11 @@ class SportsRepository(
         val refresh = CAL_REFRESH_MS + TimeUnit.HOURS.toMillis((league.key.hashCode() and 0x7fffffff) % 48L)
         if (offset == 0 && age > refresh) return true
         val cal = Espn.Calendar.decode(text) ?: return offset == 0
+        if (offset >= 2) {
+            // Restul săptămânii: doar zilele știute sigur (nu calendar necunoscut), iar la turnee doar prima zi.
+            if (cal.unknown) return false
+            return day in cal.days || cal.ranges.any { it.start == day }
+        }
         return cal.has(day)
     }
 
@@ -1740,6 +1749,9 @@ class SportsRepository(
         const val ESPN_GAP_MS = 300L
         /** Calendarul unei ligi ESPN se reîmprospătează cam o dată pe săptămână. */
         val CAL_REFRESH_MS = TimeUnit.DAYS.toMillis(7)
+
+        /** Zilele ESPN cerute: azi, mâine și restul săptămânii (tabul „Săptămâna asta”). */
+        const val ESPN_DAYS = 7
         /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
         val CAL_MISSING_MS = TimeUnit.DAYS.toMillis(30)
         const val CAL_MISSING = "missing"
