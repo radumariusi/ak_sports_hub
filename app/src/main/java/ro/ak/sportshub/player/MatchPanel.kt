@@ -140,13 +140,6 @@ fun MatchPanelContent(
                     },
                 )
             }
-            if (!hidden && view != null) {
-                Scoreboard.possession(view.stats)?.let { (h, a) ->
-                    item(key = "possession") {
-                        PossessionBlock(home = h, away = a, shots = Scoreboard.stat(view.stats, "Șuturi pe poartă"))
-                    }
-                }
-            }
             actions.onLive?.let { item(key = "live") { ListRow(title = "● Înapoi la live", onClick = it) } }
             actions.onFromStart?.let {
                 item(key = "start") {
@@ -173,6 +166,12 @@ fun MatchPanelContent(
             }
             if (!hidden && view != null) {
                 events(match, view.timeline, actions.onJump)
+                // Ca în tabela TV: posesia și șuturile pe poartă, sub evenimente.
+                Scoreboard.possession(view.stats)?.let { (h, a) ->
+                    item(key = "possession") {
+                        PossessionBlock(home = h, away = a, shots = Scoreboard.stat(view.stats, "Șuturi pe poartă"))
+                    }
+                }
                 if (view.stats.isNotEmpty()) {
                     item(key = "st-h") { SectionLabel("Statistici", modifier = Modifier.padding(top = 6.dp)) }
                     items(view.stats, key = { "st:" + it.name }) { s ->
