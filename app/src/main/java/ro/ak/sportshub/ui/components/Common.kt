@@ -172,7 +172,7 @@ fun ListRow(
     ) {
         CompositionLocalProvider(LocalOnFocus provides focused) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (leading != null) {

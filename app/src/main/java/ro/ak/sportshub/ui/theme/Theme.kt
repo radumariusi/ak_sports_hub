@@ -6,6 +6,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -69,9 +71,14 @@ private val Scheme = darkColorScheme(
 )
 
 @Composable
-fun AkTheme(content: @Composable () -> Unit) {
+fun AkTheme(textScale: Float = TextScale.DEFAULT, content: @Composable () -> Unit) {
+    // Mărimea textului (setare): toate mărimile în sp se scalează, ca listele să fie mai strânse sau mai mari.
+    val density = LocalDensity.current
     MaterialTheme(colorScheme = Scheme) {
-        CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.merge(TextStyle(fontFamily = AkFonts.Body))) {
+        CompositionLocalProvider(
+            LocalTextStyle provides LocalTextStyle.current.merge(TextStyle(fontFamily = AkFonts.Body)),
+            LocalDensity provides Density(density.density, density.fontScale * textScale),
+        ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 shape = RectangleShape,
@@ -83,5 +90,18 @@ fun AkTheme(content: @Composable () -> Unit) {
                 content()
             }
         }
+    }
+}
+
+/** Mărimile textului din setări (Afișare → Mărimea textului). */
+object TextScale {
+    val options: List<Pair<String, Float>> = listOf("Mic" to 0.85f, "Compact" to 0.92f, "Normal" to 1f)
+    const val DEFAULT = 0.92f
+
+    fun label(scale: Float): String = options.minByOrNull { kotlin.math.abs(it.second - scale) }?.first ?: "Compact"
+
+    fun next(scale: Float): Float {
+        val i = options.indexOfFirst { kotlin.math.abs(it.second - scale) < 0.001f }
+        return options[(i + 1).mod(options.size)].second
     }
 }

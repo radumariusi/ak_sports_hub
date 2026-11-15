@@ -14,7 +14,7 @@ class CapturiApp : AkApp() {
             .putString(
                 "settings",
                 // Programul inventat e în formatul TheSportsDB: ESPN (care preia fotbalul din etapa 14) e oprit aici.
-                """{"liveSoccerTv":false,"sofascore":false,"sportsDbEnabled":true,"sportsDbTv":true,"usLeagues":false,""" +
+                """{"liveSoccerTv":false,"sofascore":false,"sportsDbEnabled":true,"sportsDbTv":true,"usLeagues":false,"autoSwitch":false,"goalAlerts":false,""" +
                     """"favorites":{"teams":["Arsenal"],"competitions":[],"sports":[]}}""",
             )
             .commit()

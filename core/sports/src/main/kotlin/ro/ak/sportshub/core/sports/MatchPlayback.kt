@@ -255,9 +255,13 @@ data class Formation(val lines: List<List<LineupPlayer>>) {
     companion object {
         /** Poziția de la TheSportsDB („Goalkeeper”, „Centre-Back”, „Defensive Midfield”, „Left Wing”…) → linia. */
         fun line(position: String?): PitchLine? {
-            val p = position?.lowercase()?.trim().orEmpty()
+            // ESPN dă și abrevieri cu latura după cratimă („CD-L”, „CM-R”).
+            val p = position?.lowercase()?.trim().orEmpty().let { if (it.length <= 5) it.substringBefore('-') else it }
             return when {
                 p.isEmpty() -> null
+                p == "g" -> PitchLine.GOALKEEPER
+                p in setOf("cd", "sw", "lcb", "rcb", "wb") || "sweeper" in p -> PitchLine.DEFENCE
+                p in setOf("cf", "lf", "rf", "s", "ss") -> PitchLine.ATTACK
                 "goal" in p || p == "gk" || "keeper" in p -> PitchLine.GOALKEEPER
                 // „Defensive Midfield” e mijlocaș: mijlocul se verifică înaintea apărării.
                 "midfield" in p || p in setOf("cm", "dm", "am", "cdm", "cam", "lm", "rm", "m") -> PitchLine.MIDFIELD

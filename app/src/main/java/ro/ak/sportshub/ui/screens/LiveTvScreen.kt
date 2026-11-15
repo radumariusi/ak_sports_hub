@@ -102,6 +102,7 @@ fun LiveTvScreen(
     val searching = ftsQuery != null
 
     val favoriteKeys by container.channelFavorites.keys.collectAsStateWithLifecycle()
+    val liveSettings by container.variantStore.state.collectAsStateWithLifecycle()
     val inGroup by remember(selectedGroup) {
         if (selectedGroup > 0) dao.observeChannelsInGroup(selectedGroup) else flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -191,6 +192,13 @@ fun LiveTvScreen(
                         trailing = { Text(text = mode.label, fontSize = 13.sp) },
                     )
                 }
+                item {
+                    ListRow(
+                        title = "Afișare",
+                        onClick = { container.variantStore.update { it.copy(guideGrid = !it.guideGrid) } },
+                        trailing = { Text(text = if (liveSettings.guideGrid) "Ghid în grilă" else "Listă", fontSize = 13.sp) },
+                    )
+                }
                 if (query.isNotEmpty()) {
                     item { ListRow(title = "Șterge căutarea", onClick = { query = "" }) }
                 }
@@ -264,6 +272,16 @@ fun LiveTvScreen(
             SectionLabel(title)
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
+                    channels.isNotEmpty() && liveSettings.guideGrid -> ChannelGrid(
+                        channels,
+                        onClick = { c -> onPlayChannel(c.id, if (showingSearch || selectedGroup == FAVORITES) 0L else selectedGroup) },
+                        onLongClick = { c ->
+                            val added = !container.channelFavorites.contains(c.groupKey)
+                            container.channelFavorites.toggle(c.groupKey)
+                            message = if (added) "★ ${c.name} adăugat la favorite." else "${c.name} scos din favorite."
+                        },
+                        returnFocus = returnFocus,
+                    )
                     channels.isNotEmpty() -> ChannelList(
                         channels,
                         showGroup = showingSearch,
@@ -287,8 +305,12 @@ fun LiveTvScreen(
                 }
             }
             Text(
-                text = message ?: "OK ținut apăsat: favorit. Săgeata dreapta: variante, varianta preferată, corecții și program. " +
-                    "Calitatea și limba sunt cele declarate de playlist.",
+                text = message ?: if (liveSettings.guideGrid) {
+                    "Grilă: ◀ ▶ mută ora, OK pornește canalul, OK ținut: favorit. Ecranul canalului: din afișarea listă."
+                } else {
+                    "OK ținut apăsat: favorit. Săgeata dreapta: variante, varianta preferată, corecții și program. " +
+                        "Calitatea și limba sunt cele declarate de playlist."
+                },
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(top = 6.dp),

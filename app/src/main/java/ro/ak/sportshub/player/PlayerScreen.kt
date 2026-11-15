@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -65,6 +66,7 @@ import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.KickoffNotices
+import ro.ak.sportshub.core.sports.AutoSwitch
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchClock
 import ro.ak.sportshub.core.sports.MatchStatus
@@ -223,6 +225,14 @@ fun PlayerScreen(
         }
     }
 
+    // Meciul de pe ecran: alertele de gol nu se dau pentru el (îl vezi).
+    LaunchedEffect(linkedMatch?.id) { container.watchingMatch.value = linkedMatch?.id }
+    DisposableEffect(Unit) { onDispose { container.watchingMatch.value = null } }
+
+    // F1: cu un minut înainte de un meci favorit, numărătoarea de 10 s (Back anulează), apoi sursa lui.
+    var autoSwitch by remember { mutableStateOf<MatchEntry?>(null) }
+    var autoSwitchSince by remember { mutableLongStateOf(0L) }
+
     // „A început meciul favorit X”: o dată pe meci, doar dacă are o sursă de pornit.
     val linkedId by rememberUpdatedState(linkedMatch?.id)
     LaunchedEffect(Unit) {
@@ -230,6 +240,20 @@ fun PlayerScreen(
             val snap = container.sports.snapshot.value
             val s = container.sportsSettings.current
             val t = System.currentTimeMillis()
+            if (s.autoSwitch && autoSwitch == null) {
+                val next = AutoSwitch.due(snap.matches.map { it.match }, s.favorites, t, container.handledKickoffs, linkedId)
+                if (next != null) {
+                    container.handledKickoffs += next.id
+                    snap.matches.firstOrNull { it.match.id == next.id && it.bestSource(s) != null }?.let {
+                        autoSwitchSince = System.currentTimeMillis()
+                        autoSwitch = it
+                    }
+                }
+            }
+            if (autoSwitch != null) {
+                delay(KICKOFF_CHECK_MS)
+                continue
+            }
             val due = KickoffNotices.due(snap.matches.map { it.match }, s.favorites, t, AnnouncedKickoffs, linkedId)
             val entry = due.firstNotNullOfOrNull { m -> snap.matches.firstOrNull { it.match.id == m.id && it.bestSource(s) != null } }
             due.forEach { AnnouncedKickoffs += it.id }
@@ -253,6 +277,15 @@ fun PlayerScreen(
         requestedMatch = entry.match.id
         kickoff = null
         if (best.id != state.channel?.id || replay) controller.play(best.id, zapGroup = 0) else Unit
+    }
+
+    // Numărătoarea comutării automate: la zero pornește meciul (stream-ul curent se oprește întâi).
+    LaunchedEffect(autoSwitch) {
+        val target = autoSwitch ?: return@LaunchedEffect
+        while (AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis()) > 0) delay(250)
+        autoSwitch = null
+        AnnouncedKickoffs += target.match.id
+        playMatch(target)
     }
 
     fun showInfo() {
@@ -300,6 +333,13 @@ fun PlayerScreen(
                 Panel.None
             }
         }
+    }
+
+    // Back în timpul numărătorii: comutarea se anulează (rămâi pe canal).
+    BackHandler(enabled = autoSwitch != null) {
+        autoSwitch?.let { AnnouncedKickoffs += it.match.id }
+        autoSwitch = null
+        toast = "Comutarea automată anulată."
     }
 
     fun onKey(code: Int): Boolean {
@@ -392,10 +432,12 @@ fun PlayerScreen(
                 }
             },
     ) {
-        AndroidView(
+        // TextureView (implicit): imaginea apare sigur sub straturile Compose; SurfaceView („Imagine fluidă”):
+        // decodorul scrie direct pe ecran, mai fluid la 4K. Vezi player_view.xml și player_view_surface.xml.
+        val layout = if (variantSettings.smoothVideo) R.layout.player_view_surface else R.layout.player_view
+        androidx.compose.runtime.key(layout) { AndroidView(
             factory = { ctx ->
-                // TextureView (din layout): imaginea apare sigur sub straturile Compose; vezi player_view.xml.
-                (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
+                (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     useController = false
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
@@ -408,7 +450,7 @@ fun PlayerScreen(
             },
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
-        )
+        ) }
 
         StatusOverlay(state.status, Modifier.align(Alignment.Center))
 
@@ -439,7 +481,28 @@ fun PlayerScreen(
             )
         }
 
-        kickoff?.let { k ->
+        autoSwitch?.let { a ->
+            val left = produceState(AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis()), a) {
+                while (true) {
+                    value = AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis())
+                    delay(250)
+                }
+            }.value
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 32.dp, end = 32.dp)
+                    .width(440.dp)
+                    .background(Overlay, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(text = "★ Începe meciul favorit", fontSize = 13.sp, color = AkColors.Accent)
+                Text(text = a.match.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(text = "Trec pe meci în $left s · Back: anulează", fontSize = 14.sp, color = AkColors.TextDim)
+            }
+        }
+
+        if (autoSwitch == null) kickoff?.let { k ->
             if (panel != Panel.Quick) {
                 Column(
                     modifier = Modifier
@@ -787,6 +850,20 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                     if (state.textTracks > 0) "subtitrări" else null,
                 ).joinToString(" · ")
                 if (details.isNotEmpty()) Text(text = details, fontSize = 13.sp, color = AkColors.TextDim)
+                // Verificarea redării: decodorul, cadrele aruncate și frecvența ecranului (sacadările se văd aici).
+                val hz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate
+                val check = listOfNotNull(
+                    state.decoder?.let { "decodor ${it.removePrefix("c2.").removePrefix("OMX.").removeSuffix(".decoder")}" },
+                    if (state.videoSize != null) "${state.droppedFrames} cadre pierdute" else null,
+                    hz?.let { "ecran ${Math.round(it)} Hz" },
+                ).joinToString(" · ")
+                if (check.isNotEmpty()) Text(text = check, fontSize = 12.sp, color = AkColors.TextDim)
+                val fps = state.frameRate
+                if (fps != null && hz != null && PlaybackCheck.mismatch(fps, hz)) {
+                    Text(text = "Cadrele nu se potrivesc cu ecranul: pornește „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                } else if (state.droppedFrames >= PlaybackCheck.MANY_DROPPED) {
+                    Text(text = "Multe cadre pierdute: încearcă „Imagine fluidă” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                }
             }
         }
     }
@@ -1002,5 +1079,18 @@ private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick
                 }
             }
         }
+    }
+}
+
+/** Pragurile verificării redării din informațiile playerului. */
+internal object PlaybackCheck {
+    /** De la câte cadre aruncate sugerăm „Imagine fluidă”. */
+    const val MANY_DROPPED = 30
+
+    /** 25/50 fps pe un ecran de 60 Hz (sau 30/60 pe 50 Hz): mișcarea sacadează regulat (judder). */
+    fun mismatch(fps: Float, hz: Float): Boolean {
+        if (fps <= 0f || hz <= 0f) return false
+        val ratio = hz / fps
+        return kotlin.math.abs(ratio - Math.round(ratio)) > 0.05f
     }
 }

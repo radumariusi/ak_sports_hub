@@ -70,3 +70,15 @@ class ChannelNameParserTest {
         )
     }
 }
+
+class SeparatorChannelTest {
+    @org.junit.Test
+    fun `separatoarele din lista nu sunt canale`() {
+        listOf("#### DAZN LALIGA VIP SD ####", "##### SPORTS", "===== UK =====", "--- ES ---", "★★ USA ★★", "*****", "  ").forEach {
+            org.junit.Assert.assertTrue(it, ChannelNameParser.isSeparator(it))
+        }
+        listOf("#0 Movistar", "#Vamos FHD", "|UK| Sky Sports Main Event", "DAZN LaLiga 1 FHD", "Sport 1 *", "ESPN 2 -").forEach {
+            org.junit.Assert.assertFalse(it, ChannelNameParser.isSeparator(it))
+        }
+    }
+}

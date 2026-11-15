@@ -19,6 +19,24 @@ data class ChannelName(
 
 object ChannelNameParser {
 
+    /** Caracterele cu care furnizorii desenează separatoarele din listă („#### DAZN ####”, „===== UK =====”). */
+    private const val DECOR = "#=*-~_+.|•●★☆▬═─━►◄▶◀♦◆"
+
+    /**
+     * Un „canal” care e de fapt un separator în lista furnizorului: începe sau se termină cu cel puțin două
+     * caractere de decor la rând („#### DAZN LALIGA VIP SD ####”, „--- UK ---”), sau nu are nicio literă/cifră.
+     * „#0”, „#Vamos” sau „|UK| Sky Sports” rămân canale.
+     */
+    fun isSeparator(name: String): Boolean {
+        val t = name.trim()
+        if (t.isEmpty() || t.none { it.isLetterOrDigit() }) return true
+        fun run(chars: Sequence<Char>): Boolean {
+            val first = chars.firstOrNull() ?: return false
+            return first in DECOR && chars.drop(1).firstOrNull() == first
+        }
+        return run(t.asSequence()) || run(t.reversed().asSequence())
+    }
+
     private val countryPrefix = Regex("""^\s*\|?\s*([A-Za-z]{2,3})\s*[|:]\s*""")
 
     private val superscripts = mapOf(

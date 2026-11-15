@@ -83,6 +83,8 @@ data class StatLine(val name: String, val home: String, val away: String)
 /** Tot ce știm despre un meci pentru taburile Pre-meci și Live. Fiecare parte poate lipsi. */
 data class MatchDetails(
     val event: EventDetails? = null,
+    /** Înainte de meci: statisticile sezonului ale echipelor și cei mai buni jucători (ESPN). */
+    val seasonStats: List<StatLine> = emptyList(),
     /** Ultimele meciuri ale gazdelor și ale oaspeților, cele mai noi primele. */
     val homeRecent: List<SportEvent> = emptyList(),
     val awayRecent: List<SportEvent> = emptyList(),
@@ -94,7 +96,7 @@ data class MatchDetails(
 ) {
     val isEmpty: Boolean
         get() = event == null && homeRecent.isEmpty() && awayRecent.isEmpty() && headToHead.isEmpty() &&
-            table.isEmpty() && lineup.isEmpty() && timeline.isEmpty() && stats.isEmpty()
+            table.isEmpty() && lineup.isEmpty() && timeline.isEmpty() && stats.isEmpty() && seasonStats.isEmpty()
 }
 
 /** Rezultatul unei echipe într-un meci trecut. */

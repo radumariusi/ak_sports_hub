@@ -19,6 +19,8 @@ import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.LiveDelay
 import ro.ak.sportshub.core.sports.PanelView
+import ro.ak.sportshub.core.sports.StandingRow
+import ro.ak.sportshub.core.sports.TeamNames
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchDetails
 import ro.ak.sportshub.core.sports.MatchInsights
@@ -47,6 +49,8 @@ class MatchDetailsRepository(
     private val log: DiagnosticLog? = null,
     /** Meciul ESPN pentru un meci din Sports Hub („EPL-401879243”), din programul descărcat; null dacă nu e. */
     private val espnEventFor: (Match) -> String? = { null },
+    /** Clasamentele ESPN (aceleași fișiere ca tabul „Clasamente”), pentru Pre-meci când `summary` nu are clasament. */
+    private val standings: StandingsRepository? = null,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -81,16 +85,19 @@ class MatchDetailsRepository(
 
     private suspend fun refresh(match: Match, part: DetailsSchedule.Part, force: Boolean) {
         val s = settings.current
-        val espn = espnRef(match)
-        if (espn == null && !s.sportsDbEnabled) {
-            set(match.id) { it.copy(status = "Meciul nu e la ESPN, iar TheSportsDB e oprit în Setări → Sports Hub.") }
-            return
-        }
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 dir.mkdirs()
                 cleanup()
                 set(match.id) { it.copy(details = read(match), loading = true) }
+                // Meciul nu e în programul ESPN descărcat (azi și mâine): îl caut în programul ligii, în ziua lui.
+                val espn = espnRef(match) ?: lookupEspn(match)
+                if (espn == null && !s.sportsDbEnabled) {
+                    set(match.id) {
+                        it.copy(loading = false, status = "Meciul nu e la ESPN, iar TheSportsDB e oprit în Setări → Sports Hub.")
+                    }
+                    return@withContext
+                }
                 val stamp = File(dir, "${base(match)}-${part.name}.stamp")
                 val now = System.currentTimeMillis()
                 val due = force || DetailsSchedule.isDue(part, match.status, match.start, match.end, now, stamp.lastModifiedOrZero())
@@ -103,6 +110,10 @@ class MatchDetailsRepository(
                     } else {
                         errors++
                     }
+                }
+                // Clasamentul ligii, când `summary` nu-l are (înainte de meci, ESPN nu-l pune): din tabul „Clasamente”.
+                if (espn != null && part == DetailsSchedule.Part.PRE_MATCH && espnDetails(match)?.table.isNullOrEmpty()) {
+                    runCatching { standings?.load(espn.first) }
                 }
                 // Fără ESPN (sau dacă ESPN n-a dat nimic): TheSportsDB, ca înainte.
                 if (due && s.sportsDbEnabled && (espn == null || espnDetails(match) == null)) {
@@ -178,9 +189,46 @@ class MatchDetailsRepository(
 
     /** Liga și id-ul ESPN (doar ligile cu echipe: ESPN nu are pagina meciului pentru curse sau turnee de golf). */
     private fun espnRef(match: Match): Pair<Espn.League, String>? {
-        val ref = runCatching { espnEventFor(match) }.getOrNull() ?: return null
+        val ref = runCatching { espnEventFor(match) }.getOrNull()
+            ?: File(dir, "${base(match)}-espnref.txt").takeIf { it.exists() }?.let { f -> runCatching { f.readText().trim() }.getOrNull() }
+            ?: return null
         val (league, id) = Espn.splitId(ref) ?: return null
         return if (league.kind == Espn.Kind.TEAM) league to id else null
+    }
+
+    /**
+     * Caută meciul în programul ESPN al ligii lui (după numele competiției, cel mult două ligi), în ziua meciului:
+     * pentru meciurile de peste două zile sau venite de la alți furnizori. O cerere pe ligă, reluată cel mult la 6 ore.
+     */
+    private fun lookupEspn(match: Match): Pair<Espn.League, String>? {
+        if (match.away.isBlank()) return null
+        val b = base(match)
+        val day = Espn.today(match.start)
+        for (league in Espn.leaguesFor(match.sport, match.competition)) {
+            if (league.kind != Espn.Kind.TEAM) continue
+            val f = File(dir, "$b-espnday-${league.key}.json")
+            if (System.currentTimeMillis() - f.lastModifiedOrZero() > LOOKUP_MS) {
+                set(match.id) { it.copy(status = "Caut meciul în programul ESPN (${league.competition})…") }
+                download(Espn.scoreboardUrl(league, day), f)
+            }
+            val events = parseFile(f.name) { Espn.parse(it, league, day) }.orEmpty()
+            val found = MatchInsights.pickEvent(events, match.home, match.away, match.start) ?: continue
+            runCatching { File(dir, "$b-espnref.txt").writeText(found.providerId) }
+            log?.log("statistici", "Găsit la ESPN după competiție: ${league.key}")
+            return Espn.splitId(found.providerId)
+        }
+        return null
+    }
+
+    /** Clasamentul ligii ESPN a meciului, din fișierul tabului „Clasamente”: grupa cu una din echipe. */
+    private fun espnTable(match: Match): List<StandingRow> {
+        val league = espnRef(match)?.first ?: return emptyList()
+        val groups = standings?.cached(league).orEmpty()
+        val group = groups.firstOrNull { g -> g.rows.any { r -> TeamNames.same(r.team, match.home) || TeamNames.same(r.team, match.away) } }
+            ?: return emptyList()
+        return group.rows.map { r ->
+            StandingRow(r.rank, r.team, r.teamId, r.played, r.won, r.drawn, r.lost, r.goalsFor, r.goalsAgainst, r.points?.toIntOrNull())
+        }
     }
 
     private fun espnDetails(match: Match): MatchDetails? =
@@ -193,10 +241,11 @@ class MatchDetailsRepository(
         if (espn == null) return db
         return MatchDetails(
             event = espn.event ?: db.event,
+            seasonStats = espn.seasonStats,
             homeRecent = espn.homeRecent.ifEmpty { db.homeRecent },
             awayRecent = espn.awayRecent.ifEmpty { db.awayRecent },
             headToHead = espn.headToHead.ifEmpty { db.headToHead },
-            table = espn.table.ifEmpty { db.table },
+            table = espn.table.ifEmpty { espnTable(match) }.ifEmpty { db.table },
             lineup = espn.lineup.ifEmpty { db.lineup },
             timeline = espn.timeline.ifEmpty { db.timeline },
             stats = espn.stats.ifEmpty { db.stats },
@@ -283,6 +332,7 @@ class MatchDetailsRepository(
 
     private companion object {
         const val REQUEST_GAP_MS = 1_200L
+        val LOOKUP_MS = TimeUnit.HOURS.toMillis(6)
         val KEEP_MS = TimeUnit.DAYS.toMillis(3)
     }
 }

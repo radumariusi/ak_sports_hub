@@ -78,109 +78,112 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
         deepLink.value = null
     }
 
-    NavHost(navController = nav, startDestination = HOME) {
-        composable(HOME) {
-            HomeScreen(
-                onOpenMatch = { id -> nav.navigate("match/" + Uri.encode(id)) },
-                onOpenPlaylists = { nav.navigate(PLAYLISTS) },
-                onOpenEpg = { nav.navigate(EPG) },
-                onPlayChannel = { id, zapGroup -> nav.navigate("player/$id?zapGroup=$zapGroup") { launchSingleTop = true } },
-                onOpenChannel = { id -> nav.navigate("channel/$id") },
-                onOpenSportsSettings = { nav.navigate(SPORTS_SETTINGS) },
-                onOpenBackup = { nav.navigate(BACKUP) },
-                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
-                onOpenQrSetup = { nav.navigate(QR_SETUP) },
-            )
-        }
-        composable(BACKUP) { BackupScreen() }
-        composable(QR_SETUP) { QrSetupScreen(onDone = { nav.popBackStack() }) }
-        composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
-            ChannelScreen(
-                channelId = entry.arguments?.getLong("channelId") ?: 0L,
-                onPlay = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
-                onOpenSchedule = { id -> nav.navigate("schedule/$id") },
-            )
-        }
-        composable(SCHEDULE, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
-            ScheduleScreen(
-                channelId = entry.arguments?.getLong("channelId") ?: 0L,
-                onPlay = { id ->
-                    nav.navigate("player/$id") {
-                        popUpTo(SCHEDULE) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
-            )
-        }
-        composable(EPG) { EpgSettingsScreen() }
-        composable(SPORTS_SETTINGS) { SportsSettingsScreen(onOpenKnowledge = { nav.navigate(SPORTS_KNOWLEDGE) }) }
-        composable(SPORTS_KNOWLEDGE) { SportsKnowledgeScreen() }
-        composable(
-            PLAYER,
-            arguments = listOf(
-                navArgument("channelId") { type = NavType.LongType },
-                navArgument("zapGroup") {
-                    type = NavType.LongType
-                    defaultValue = 0L
-                },
-                navArgument("archiveStart") {
-                    type = NavType.LongType
-                    defaultValue = 0L
-                },
-                navArgument("archiveEnd") {
-                    type = NavType.LongType
-                    defaultValue = 0L
-                },
-                navArgument("matchId") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
-        ) { entry ->
-            val archiveStart = entry.arguments?.getLong("archiveStart") ?: 0L
-            val archiveEnd = entry.arguments?.getLong("archiveEnd") ?: 0L
-            PlayerScreen(
-                channelId = entry.arguments?.getLong("channelId") ?: 0L,
-                zapGroup = entry.arguments?.getLong("zapGroup") ?: 0L,
-                archive = if (archiveStart > 0 && archiveEnd > archiveStart) Archive(archiveStart, archiveEnd) else null,
-                matchId = entry.arguments?.getString("matchId"),
-                onExit = { nav.popBackStack() },
-            )
-        }
-        composable(MATCH) { entry ->
-            val matchId = entry.arguments?.getString("matchId").orEmpty()
-            MatchScreen(
-                matchId = matchId,
-                onPlay = { id -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } },
-                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end, matchId)) { launchSingleTop = true } },
-            )
-        }
-        composable(PLAYLISTS) {
-            PlaylistsScreen(
-                onEdit = { id -> nav.navigate("playlist/$id") },
-                onAdd = { type -> nav.navigate("playlist/0?type=${type.name}") },
-            )
-        }
-        composable(
-            PLAYLIST_EDIT,
-            arguments = listOf(
-                navArgument("id") { type = NavType.LongType },
-                navArgument("type") {
-                    type = NavType.StringType
-                    defaultValue = PlaylistType.M3U_URL.name
-                },
-            ),
-        ) { entry ->
-            val type = entry.arguments?.getString("type")
-                ?.let { runCatching { PlaylistType.valueOf(it) }.getOrNull() }
-                ?: PlaylistType.M3U_URL
-            PlaylistEditScreen(
-                playlistId = entry.arguments?.getLong("id") ?: 0L,
-                newType = type,
-                onClose = { nav.popBackStack() },
-            )
+    // Comutarea automată pe meciul favorit și alertele de gol, peste toate ecranele.
+    MatchAlertsHost(onPlayMatch = { id, matchId -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } }) {
+        NavHost(navController = nav, startDestination = HOME) {
+            composable(HOME) {
+                HomeScreen(
+                    onOpenMatch = { id -> nav.navigate("match/" + Uri.encode(id)) },
+                    onOpenPlaylists = { nav.navigate(PLAYLISTS) },
+                    onOpenEpg = { nav.navigate(EPG) },
+                    onPlayChannel = { id, zapGroup -> nav.navigate("player/$id?zapGroup=$zapGroup") { launchSingleTop = true } },
+                    onOpenChannel = { id -> nav.navigate("channel/$id") },
+                    onOpenSportsSettings = { nav.navigate(SPORTS_SETTINGS) },
+                    onOpenBackup = { nav.navigate(BACKUP) },
+                    onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
+                    onOpenQrSetup = { nav.navigate(QR_SETUP) },
+                )
+            }
+            composable(BACKUP) { BackupScreen() }
+            composable(QR_SETUP) { QrSetupScreen(onDone = { nav.popBackStack() }) }
+            composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
+                ChannelScreen(
+                    channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                    onPlay = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
+                    onOpenSchedule = { id -> nav.navigate("schedule/$id") },
+                )
+            }
+            composable(SCHEDULE, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
+                ScheduleScreen(
+                    channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                    onPlay = { id ->
+                        nav.navigate("player/$id") {
+                            popUpTo(SCHEDULE) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                    onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
+                )
+            }
+            composable(EPG) { EpgSettingsScreen() }
+            composable(SPORTS_SETTINGS) { SportsSettingsScreen(onOpenKnowledge = { nav.navigate(SPORTS_KNOWLEDGE) }) }
+            composable(SPORTS_KNOWLEDGE) { SportsKnowledgeScreen() }
+            composable(
+                PLAYER,
+                arguments = listOf(
+                    navArgument("channelId") { type = NavType.LongType },
+                    navArgument("zapGroup") {
+                        type = NavType.LongType
+                        defaultValue = 0L
+                    },
+                    navArgument("archiveStart") {
+                        type = NavType.LongType
+                        defaultValue = 0L
+                    },
+                    navArgument("archiveEnd") {
+                        type = NavType.LongType
+                        defaultValue = 0L
+                    },
+                    navArgument("matchId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                val archiveStart = entry.arguments?.getLong("archiveStart") ?: 0L
+                val archiveEnd = entry.arguments?.getLong("archiveEnd") ?: 0L
+                PlayerScreen(
+                    channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                    zapGroup = entry.arguments?.getLong("zapGroup") ?: 0L,
+                    archive = if (archiveStart > 0 && archiveEnd > archiveStart) Archive(archiveStart, archiveEnd) else null,
+                    matchId = entry.arguments?.getString("matchId"),
+                    onExit = { nav.popBackStack() },
+                )
+            }
+            composable(MATCH) { entry ->
+                val matchId = entry.arguments?.getString("matchId").orEmpty()
+                MatchScreen(
+                    matchId = matchId,
+                    onPlay = { id -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } },
+                    onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end, matchId)) { launchSingleTop = true } },
+                )
+            }
+            composable(PLAYLISTS) {
+                PlaylistsScreen(
+                    onEdit = { id -> nav.navigate("playlist/$id") },
+                    onAdd = { type -> nav.navigate("playlist/0?type=${type.name}") },
+                )
+            }
+            composable(
+                PLAYLIST_EDIT,
+                arguments = listOf(
+                    navArgument("id") { type = NavType.LongType },
+                    navArgument("type") {
+                        type = NavType.StringType
+                        defaultValue = PlaylistType.M3U_URL.name
+                    },
+                ),
+            ) { entry ->
+                val type = entry.arguments?.getString("type")
+                    ?.let { runCatching { PlaylistType.valueOf(it) }.getOrNull() }
+                    ?: PlaylistType.M3U_URL
+                PlaylistEditScreen(
+                    playlistId = entry.arguments?.getLong("id") ?: 0L,
+                    newType = type,
+                    onClose = { nav.popBackStack() },
+                )
+            }
         }
     }
 }
