@@ -48,8 +48,10 @@ class SourcesWindowStreamingTest {
         val index = StationIndex(listOf("us:peacock 01", "us:peacock 02", "us:peacock 03", "au:stan sport 1", "uk:sky sport main event"))
         val m = match(at("2026-11-16T21:00:00"), stations = listOf(TvStation("Peacock", "USA")))
         val found = SourceFinder(index, SportsKnowledge(presetRights = false)).find(m, emptyList(), otherEventKeys = setOf("us:peacock 02"))
-        assertEquals(listOf("us:peacock 01", "us:peacock 03"), found.map { it.groupKey })
-        assertTrue(found.all { it.confidence == Confidence.DEDICATED && it.station == "Peacock" })
+        assertEquals(
+            listOf("us:peacock 01|DEDICATED|Peacock", "us:peacock 03|DEDICATED|Peacock"),
+            found.map { "${it.groupKey}|${it.confidence}|${it.station}" },
+        )
     }
 
     @Test
