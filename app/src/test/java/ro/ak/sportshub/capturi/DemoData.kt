@@ -105,7 +105,5 @@ object DemoData {
         container.teamLooks.learn(
             events.map { e -> SportEvent(Espn.PROVIDER, "demo-" + e.id, "Soccer", e.league, e.home, e.away, now, homeLook = looks[e.home], awayLook = looks[e.away]) },
         )
-        // O echipă favorită, pentru cardul „următorul meci al echipelor tale”.
-        container.sportsSettings.update { it.copy(favorites = it.favorites.copy(teams = listOf("Liverpool"))) }
     }
 }
