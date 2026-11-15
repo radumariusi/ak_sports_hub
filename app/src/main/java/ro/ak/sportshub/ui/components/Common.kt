@@ -278,7 +278,12 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
     val seen by container.observedVideo.state.collectAsStateWithLifecycle()
     val variants by container.variantStore.state.collectAsStateWithLifecycle()
     val view = ro.ak.sportshub.data.qualityView(playlistId, name, quality, seen, variants)
+    val suspect by container.suspectChannels.keys.collectAsStateWithLifecycle()
     Row(verticalAlignment = Alignment.CenterVertically) {
+        // Semnalat din player: rămâne sursă, doar cu eticheta asta.
+        if (ro.ak.sportshub.data.CorrectionKey(playlistId, name) in suspect) {
+            Text(text = "canal posibil greșit", fontSize = 13.sp, color = accentText(), modifier = Modifier.padding(end = 6.dp))
+        }
         QualityTag(text = view.label + if (view.verified) " ✓" else "", quality = view.quality)
         view.playlistLabel?.let { old ->
             Text(text = ", în playlist ", fontSize = 13.sp, color = dimText(), modifier = Modifier.padding(start = 4.dp))

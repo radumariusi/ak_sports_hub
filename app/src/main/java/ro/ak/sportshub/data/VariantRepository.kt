@@ -23,6 +23,8 @@ class VariantRepository(
     private val preferences: () -> SourcePreferences = { SourcePreferences() },
     /** Rezoluțiile văzute la redare ([ObservedVideoStore]): ordinea folosește rezoluția reală. */
     private val observed: () -> Map<CorrectionKey, ObservedVideo> = { emptyMap() },
+    /** Variantele semnalate „canal posibil greșit” ([SuspectChannelsStore]): rămân, dar după celelalte. */
+    private val suspect: () -> Set<CorrectionKey> = { emptySet() },
 ) {
 
     /** Calitatea pentru ordine: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist. */
@@ -38,7 +40,8 @@ class VariantRepository(
     fun order(variants: List<ChannelWithPlaylist>, s: VariantState = store.current): List<ChannelWithPlaylist> {
         val now = System.currentTimeMillis()
         val seen = observed()
-        return VariantOrder.sort(
+        val flagged = suspect()
+        val sorted = VariantOrder.sort(
             variants,
             quality = { effectiveQuality(it, s, seen) },
             language = { it.language },
@@ -46,6 +49,7 @@ class VariantRepository(
             failedRecently = { failedRecently(it, s, now) },
             prefs = preferences(),
         )
+        return if (flagged.isEmpty()) sorted else sorted.sortedBy { CorrectionKey(it.playlistId, it.name) in flagged }
     }
 
     /** Variantele unui canal, în ordinea de pornire. */

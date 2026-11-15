@@ -368,8 +368,21 @@ class PlayerController(context: Context, private val container: AppContainer) {
         val best = sessionBest
         if (best != null && best.height * best.width > w * h) return
         sessionBest = seen
+        val stored = container.observedVideo.of(c.playlistId, c.name)
+        downgradeJob?.cancel()
+        if (stored != null && seen.quality.rank < stored.quality.rank) {
+            // O calitate mai mică decât cea notată se scrie doar dacă rămâne așa un timp: la HLS adaptiv primele
+            // secunde vin adesea mai mici, iar un canal schimbat repede nu trebuie să-și piardă eticheta verificată.
+            downgradeJob = scope.launch {
+                kotlinx.coroutines.delay(DOWNGRADE_CONFIRM_MS)
+                if (sessionBest === seen && _state.value.channel?.id == c.id) container.observedVideo.record(c.playlistId, c.name, seen)
+            }
+            return
+        }
         container.observedVideo.record(c.playlistId, c.name, seen)
     }
+
+    private var downgradeJob: kotlinx.coroutines.Job? = null
 
     // ---------- interne ----------
 
@@ -638,6 +651,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
         const val LEASE_TIMEOUT_MS = 20_000L
         const val STALL_TIMEOUT_MS = 20_000L
         const val STABLE_AFTER_MS = 30_000L
+        const val DOWNGRADE_CONFIRM_MS = 20_000L
         const val DEFAULT_USER_AGENT = "AKSportsHub/1.0 (Android TV)"
         const val MIN_ARCHIVE_MS = 10 * 60_000L
 

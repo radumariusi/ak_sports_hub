@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import ro.ak.sportshub.data.AppUpdater
 import ro.ak.sportshub.data.CatchupStore
 import ro.ak.sportshub.data.ChannelFavoritesStore
+import ro.ak.sportshub.data.SuspectChannelsStore
 import ro.ak.sportshub.data.EpgRepository
 import ro.ak.sportshub.data.SettingsBackup
 import ro.ak.sportshub.home.HomeChannel
@@ -71,11 +72,15 @@ class AppContainer(app: Application) {
     /** Rezoluția și cadrele văzute la redare, pe variantă. */
     val observedVideo = ObservedVideoStore(app)
 
+    /** Variantele semnalate din player ca „canal posibil greșit”. */
+    val suspectChannels = SuspectChannelsStore(app)
+
     val variants = VariantRepository(
         database.channels(),
         variantStore,
         preferences = { sportsSettings.current.sourcePreferences },
         observed = { observedVideo.current },
+        suspect = { suspectChannels.keys.value },
     )
 
     /** Fusul orar al serverelor Xtream (pentru catch-up). */

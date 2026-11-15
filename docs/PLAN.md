@@ -157,6 +157,10 @@ Normalizarea echipelor: fără diacritice, fără `FC`, `CF`, `AFC`, `SC`, `CS`,
 | **10** | Mai multe meciuri și surse: canale EVENT / PPV din playlist (tab și sursă sigură), canale dedicate, posturi pe țară din Sofascore (toate sporturile), FutbolEnLaTV, evenimente fără două echipe (F1, ciclism, gale), „De ce nu are sursă?”, raport „canale de sport fără EPG” | mai multe meciuri cu surse, și la alte sporturi decât fotbalul |
 | **11** | Meciul în player și în arhivă: panou lateral cu detaliile meciului, salt la eveniment în arhivă, reluări din Sports Hub, spoilere sincronizate, meniu rapid, anunț pentru meciul favorit, formațiile pe teren | în player, panoul arată scorul cu întârzierea stream-ului, iar OK pe un gol pornește arhiva cu un minut înainte |
 | **12** | Restul: LiveOnSat, FotMob, API-urile ligilor americane, drepturi TV preumplute, „Acum pe canalele tale”, rezumate în catch-up, potrivirea cadrelor, configurare prin QR, rezoluția reală văzută la redare (fără verificări separate) | variantele redate au eticheta „✓” sau eticheta reală, „Acum pe canale” arată ce rulează pe fiecare canal de sport |
+| **13** | Viteză (după analiza Nuvio + IPTV): asamblarea meciurilor cu index pe echipe, lista Sports Hub salvată pe disc și refăcută doar la schimbări, canalele de sport clasificate o dată, nimic greu în fundal cât rulează playerul; Live fără reluări datate, sporturile de iarnă; navigarea (Back un pas, taburile țin minte), OK ținut = favorit, ieșirea confirmată, eticheta verificată în ordinea surselor, „canal posibil greșit” | la a doua intrare lista apare imediat; Back din canal întoarce la rezultatele căutării |
+| **14** | Furnizori: ESPN extins și API-ul EuroLeague în locul TheSportsDB gratuit (fără cheie plătită, fără job GitHub) | mai multe meciuri la toate sporturile |
+| **15** | Vizual: sigle, culorile echipelor, forma | lista arată ca un program sportiv |
+| **16** | Funcții: comutare automată la start, alertă la gol, clasamente, urmărirea numelor | |
 
 Etapele 2–5 pot fi reordonate dacă vrei Sports Hub mai devreme: minimul pentru etapa 6 este 2 + 3 + 4.
 

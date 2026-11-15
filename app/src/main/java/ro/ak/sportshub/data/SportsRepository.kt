@@ -210,7 +210,7 @@ class SportsRepository(
             // s-a schimbat ceva de atunci.
             withContext(Dispatchers.IO) { stored.read() }?.let { st ->
                 if (_snapshot.value.loading) {
-                    _snapshot.value = SportsSnapshotFile.retime(st.snapshot, System.currentTimeMillis())
+                    _snapshot.value = requality(SportsSnapshotFile.retime(st.snapshot, System.currentTimeMillis()))
                     computedKey = st.key
                 }
             }
@@ -226,6 +226,19 @@ class SportsRepository(
                 // Rezoluția văzută la redare schimbă ordinea surselor.
                 observed.state.map { "observed" },
             ).debounce(1_000).collect { reason ->
+                // Rezoluția văzută la redare schimbă doar eticheta și ordinea surselor: se aplică pe lista existentă,
+                // fără recalcul (după ce se oprește playerul, ca nimic să nu încetinească redarea).
+                if (reason == "observed") {
+                    if (playing.value) playing.first { !it }
+                    computeMutex.withLock {
+                        val next = requality(_snapshot.value)
+                        if (next !== _snapshot.value) {
+                            _snapshot.value = next
+                            computedKey?.let { key -> withContext(Dispatchers.IO) { stored.write(next, key) } }
+                        }
+                    }
+                    return@collect
+                }
                 // Canalele sau potrivirile EPG s-au putut schimba: lista canalelor de sport se reface.
                 if (reason == "playlists") nameScanCache = null
                 if (reason != "knowledge" && reason != "settings" && reason != "observed") {
@@ -834,7 +847,6 @@ class SportsRepository(
         sb.append(fetchKey(settings.current)).append('|')
         sb.append(knowledge.current.hashCode()).append('|')
         sb.append(variantStore.current.corrections.hashCode()).append('|')
-        sb.append(observed.current.hashCode()).append('|')
         db.playlists().all().forEach { p -> sb.append(p.id).append(':').append(p.enabled).append(':').append(p.lastUpdated).append(':').append(p.channelCount).append(',') }
         sb.append('|').append(epg.observeStates().first().hashCode())
         sb.append('|').append(epg.observeMappedCount().first())
@@ -842,6 +854,26 @@ class SportsRepository(
         dir.listFiles().orEmpty().filterNot { it.name.endsWith(".tmp") }.sortedBy { it.name }
             .forEach { f -> sb.append(f.name).append(':').append(f.lastModified()).append(':').append(f.length()).append(',') }
         sb.toString()
+    }
+
+    /**
+     * Calitatea surselor după ce s-a văzut la redare (corecția ta, altfel rezoluția reală, altfel playlistul):
+     * o sursă văzută urcă sau coboară în listă după eticheta verificată, fără să refacă lista de meciuri.
+     */
+    private fun requality(s: SportsSnapshot): SportsSnapshot {
+        val seen = observed.current
+        val variantState = variantStore.current
+        var changed = false
+        val matches = s.matches.map { e ->
+            var touched = false
+            val sources = e.sources.map { src ->
+                val c = src.channel
+                val q = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
+                if (q == src.quality) src else { touched = true; src.copy(quality = q) }
+            }
+            if (!touched) e else { changed = true; e.copy(sources = sources, summary = MatchSources.summary(sources)) }
+        }
+        return if (changed) s.copy(matches = matches) else s
     }
 
     /** Recalculează doar dacă s-a schimbat ceva de la ultimul calcul (sau de la lista salvată). */
@@ -1315,7 +1347,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 1
+        const val INPUTS_VERSION = 2
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
