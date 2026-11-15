@@ -394,7 +394,17 @@ object Espn {
             stations = stations(comp),
             homeLook = look(home),
             awayLook = look(away),
+            homeAlt = altNames(home),
+            awayAlt = altNames(away),
         )
+    }
+
+    /** Celelalte forme ale numelui echipei: scurt („Man United”), simplu („Colts”), codul („MUN”). */
+    private fun altNames(c: JsonObject): List<String> {
+        val t = c.obj("team") ?: return listOfNotNull(c.obj("athlete")?.text("shortName"))
+        val main = t.text("displayName") ?: t.text("name")
+        return listOfNotNull(t.text("shortDisplayName"), t.text("name"), t.text("nickname"), t.text("abbreviation"))
+            .map { it.trim() }.filter { it.isNotEmpty() && it != main }.distinct()
     }
 
     private fun teamName(c: JsonObject): String? =

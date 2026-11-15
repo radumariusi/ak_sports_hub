@@ -161,6 +161,8 @@ fun ListRow(
     trailing: @Composable (() -> Unit)? = null,
     /** Între coloana din stânga și text: sigle, banda culorilor echipelor. */
     icon: @Composable (() -> Unit)? = null,
+    /** În locul titlului de un rând (de exemplu echipele pe două rânduri, cu scorul în dreptul fiecăreia). */
+    titleContent: @Composable (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Surface(
@@ -189,7 +191,7 @@ fun ListRow(
                     Box(modifier = Modifier.padding(end = 10.dp)) { icon() }
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = title, fontSize = titleSize, fontWeight = FontWeight.Medium, maxLines = 1)
+                    if (titleContent != null) titleContent() else Text(text = title, fontSize = titleSize, fontWeight = FontWeight.Medium, maxLines = 1)
                     if (subtitle != null) {
                         Text(text = subtitle, fontSize = 14.sp, color = dimText(), maxLines = 1, modifier = Modifier.padding(top = 1.dp))
                     }

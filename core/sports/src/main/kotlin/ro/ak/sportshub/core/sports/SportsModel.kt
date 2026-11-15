@@ -30,6 +30,9 @@ data class SportEvent(
     val competitionLogo: String? = null,
     /** Pagina meciului la furnizor (LiveSoccerTV: lista posturilor pe țări). */
     val url: String? = null,
+    /** Alte forme ale numelor echipelor de la furnizor (ESPN: „Man United”, „MUN”), pentru catalogul de nume. */
+    val homeAlt: List<String> = emptyList(),
+    val awayAlt: List<String> = emptyList(),
 )
 
 /** O emisiune din EPG care poate fi un meci (vine din baza EPG, pe canalul EPG [epgChannelId]). */

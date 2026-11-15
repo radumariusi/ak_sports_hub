@@ -49,6 +49,11 @@ fun TextInputDialog(
     hint: String? = null,
     password: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
+    /**
+     * Sugestii pentru ce scrii (lista de favorite: ultimul nume de după virgulă). Alegerea înlocuiește numele început
+     * cu cel întreg și adaugă „, ” pentru următorul.
+     */
+    suggestions: ((String) -> List<Pair<String, String?>>)? = null,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(initial.length))) }
     val focus = remember { FocusRequester() }
@@ -85,6 +90,28 @@ fun TextInputDialog(
                     .border(2.dp, AkColors.Accent, RoundedCornerShape(6.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
+            if (suggestions != null) {
+                val typed = value.text.substringAfterLast(',').trim()
+                val found = remember(typed) { if (typed.length >= 2) suggestions(typed) else emptyList() }
+                if (found.isNotEmpty()) {
+                    Text(text = "Sugestii (↓ și OK pentru a alege)", fontSize = 13.sp, color = AkColors.TextDim, modifier = Modifier.padding(top = 10.dp))
+                    Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        found.forEach { (name, detail) ->
+                            ListRow(
+                                title = name,
+                                subtitle = detail,
+                                titleSize = 16.sp,
+                                onClick = {
+                                    val head = value.text.substringBeforeLast(',', "").trim()
+                                    val text = (if (head.isEmpty()) "" else "$head, ") + name + ", "
+                                    value = TextFieldValue(text, TextRange(text.length))
+                                    runCatching { focus.requestFocus() }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.padding(top = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

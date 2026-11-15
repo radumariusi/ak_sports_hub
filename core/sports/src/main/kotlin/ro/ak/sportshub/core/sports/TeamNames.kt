@@ -49,6 +49,22 @@ object TeamNames {
     @Volatile
     private var userAliases: Map<String, String> = emptyMap()
 
+    /** Formele scurte învățate din catalogul de nume ([NameCatalog.teamAliases]): după cele încorporate. */
+    @Volatile
+    private var learnedAliases: Map<String, String> = emptyMap()
+
+    /** Pune formele învățate (formă scurtă → cheia echipei); golește cache-urile doar dacă s-a schimbat ceva. */
+    fun setLearnedAliases(map: Map<String, String>) {
+        val next = map.entries.mapNotNull { (alias, key) ->
+            val a = base(alias)
+            if (a.isEmpty() || a == key || aliases.containsKey(a) || userAliases.containsKey(a)) null else a to key
+        }.toMap()
+        if (next == learnedAliases) return
+        learnedAliases = next
+        partsCache.clear()
+        partsOrder.clear()
+    }
+
     /** Pune alias-urile tale (alias → numele complet, așa cum le-ai scris). */
     fun setUserAliases(map: Map<String, String>) {
         userAliases = map.entries.mapNotNull { (alias, full) ->
@@ -115,7 +131,7 @@ object TeamNames {
         userAliases[folded]?.let { return it }
         aliases[folded]?.let { return it }
         val joined = base(name)
-        return userAliases[joined] ?: aliases[joined] ?: joined
+        return userAliases[joined] ?: aliases[joined] ?: learnedAliases[joined] ?: joined
     }
 
     private fun base(name: String): String {
