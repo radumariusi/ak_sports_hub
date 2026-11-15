@@ -62,6 +62,7 @@ class AppVersionsTest {
         assertEquals(42, AppVersions.fromTitle("AK Sports Hub v1.0.42"))
         assertEquals(39, AppVersions.fromTitle("Ultima versiune (build 39)"))
         assertEquals(null, AppVersions.fromTitle("altceva"))
-        assertEquals("1.0.7", AppVersions.name(7))
+        assertEquals("1.1.7", AppVersions.name(7))
+        assertEquals(115, AppVersions.fromTitle("AK Sports Hub v1.1.115 (build 115)"))
     }
 }

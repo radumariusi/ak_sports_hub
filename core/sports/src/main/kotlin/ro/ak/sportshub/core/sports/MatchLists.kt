@@ -26,14 +26,14 @@ data class SportsFavorites(
     fun isFavorite(m: Match): Boolean =
         (m.sport != null && m.sport in sports) ||
             teams.any { t -> TeamNames.same(t, m.home) || (m.away.isNotBlank() && TeamNames.same(t, m.away)) } ||
-            competitions.any { c -> m.competition != null && Sport.fold(c) == Sport.fold(m.competition) } ||
+            competitions.any { c -> m.competition != null && NameSeeds.sameCompetition(c, m.competition) } ||
             (names.isNotEmpty() && FollowedNames.mentionsAny(names, m.home, m.away, m.competition))
 
     fun isName(name: String): Boolean = names.any { Sport.fold(it) == Sport.fold(name) }
 
     fun isTeam(name: String): Boolean = teams.any { TeamNames.same(it, name) }
 
-    fun isCompetition(name: String?): Boolean = name != null && competitions.any { Sport.fold(it) == Sport.fold(name) }
+    fun isCompetition(name: String?): Boolean = name != null && competitions.any { NameSeeds.sameCompetition(it, name) }
 }
 
 /** Ce știm despre sursele găsite pentru un meci (pentru filtre și pentru listă). */

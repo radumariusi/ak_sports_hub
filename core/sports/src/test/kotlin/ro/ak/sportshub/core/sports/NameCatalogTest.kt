@@ -43,4 +43,53 @@ class NameCatalogTest {
         assertEquals(catalog.size, back.size)
         assertEquals("Manchester United", back.search("man u").first().name)
     }
+
+    @Test
+    fun lista_fixa_competitii_prescurtate_si_sportivi() {
+        val c = NameCatalog.EMPTY
+        assertEquals("UEFA Champions League", c.search("ucl", setOf(NameCatalog.Kind.COMPETITION)).first().name)
+        assertEquals("English Premier League", c.search("EPL", setOf(NameCatalog.Kind.COMPETITION)).first().name)
+        assertEquals("Romanian Liga I", c.search("liga 1", setOf(NameCatalog.Kind.COMPETITION)).first().name)
+        assertEquals("Ronnie O'Sullivan", c.search("o sull", setOf(NameCatalog.Kind.ATHLETE)).first().name)
+        assertEquals("Michael van Gerwen", c.search("mvg", setOf(NameCatalog.Kind.ATHLETE)).first().name)
+        assertEquals("Manchester United", c.search("man utd", setOf(NameCatalog.Kind.TEAM)).first().name)
+    }
+
+    @Test
+    fun aceeasi_echipa_apare_o_data() {
+        val found = catalog.search("manchester united", setOf(NameCatalog.Kind.TEAM))
+        assertEquals(1, found.count { TeamNames.key(it.name) == TeamNames.key("Manchester United") })
+    }
+
+    @Test
+    fun sportivii_din_curse_intra_in_catalog() {
+        val race = SportEvent(Espn.PROVIDER, "f1-1", "Motorsport", "Formula 1", "Las Vegas Grand Prix", "", 1_800_000_000_000L,
+            athletes = listOf("Yuki Tsunoda" to "Y. Tsunoda"))
+        val c = NameCatalog.EMPTY.learn(listOf(race))
+        assertEquals("Yuki Tsunoda", c.search("tsun", setOf(NameCatalog.Kind.ATHLETE)).first().name)
+        val back = NameCatalog.decode(c.encode())
+        assertEquals("Yuki Tsunoda", back.search("y. tsunoda", setOf(NameCatalog.Kind.ATHLETE)).first().name)
+    }
+
+    @Test
+    fun competitia_favorita_prescurtata() {
+        val fav = SportsFavorites(competitions = listOf("UCL", "ATP", "Liga 1"))
+        assertTrue(fav.isCompetition("UEFA Champions League"))
+        assertTrue(fav.isCompetition("ATP · Paris Masters"))
+        assertTrue(fav.isCompetition("Romanian Liga I"))
+        assertTrue(!fav.isCompetition("UEFA Europa League"))
+    }
+
+    @Test
+    fun cluburile_cu_formele_lor() {
+        for (form in listOf("U Craiova", "UCV", "Univ Craiova", "Univ Cr", "CSU Craiova", "Universitatea Craiova")) {
+            assertTrue(form, TeamNames.same(form, "Universitatea Craiova"))
+        }
+        assertTrue(TeamNames.same("Steaua", "FCSB"))
+        assertTrue(TeamNames.same("Inter", "Internazionale"))
+        assertTrue(TeamNames.same("Atleti", "Atlético Madrid"))
+        assertTrue(TeamNames.same("Gladbach", "Borussia Mönchengladbach"))
+        assertTrue(!TeamNames.same("U Cluj", "Universitatea Craiova"))
+        assertEquals("Universitatea Craiova", NameCatalog.EMPTY.search("ucv", setOf(NameCatalog.Kind.TEAM)).first().name)
+    }
 }

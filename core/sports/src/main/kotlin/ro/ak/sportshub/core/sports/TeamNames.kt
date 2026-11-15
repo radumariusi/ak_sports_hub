@@ -21,7 +21,7 @@ object TeamNames {
     )
 
     /** Alias-uri cunoscute (după normalizare) → numele complet normalizat. */
-    private val aliases = mapOf(
+    private val clubAliases = mapOf(
         "man utd" to "manchester united", "man united" to "manchester united", "man u" to "manchester united",
         "man city" to "manchester city", "psg" to "paris saint germain", "paris sg" to "paris saint germain",
         "paris st germain" to "paris saint germain", "spurs" to "tottenham hotspur", "tottenham" to "tottenham hotspur",
@@ -40,7 +40,21 @@ object TeamNames {
         "rapid" to "rapid bucuresti", "dinamo" to "dinamo bucuresti",
         "sporting" to "sporting cp", "sporting lisbon" to "sporting cp", "benfica lisbon" to "benfica",
         "porto" to "fc porto", "ajax amsterdam" to "ajax", "psv eindhoven" to "psv",
-    ) + NationNames.aliases + NativeClubNames.aliases
+    )
+    private val aliases: Map<String, String> = run {
+        val known = clubAliases + NationNames.aliases + NativeClubNames.aliases
+        // Cheia clubului după alias-urile de mai sus, ca formele noi să ducă la aceeași cheie („Inter” = „Inter Milan”).
+        fun keyOf(name: String): String {
+            val folded = Sport.fold(name)
+            known[folded]?.let { return it }
+            val b = base(name)
+            return known[b] ?: b
+        }
+        known + ClubNames.aliases(::base, ::keyOf).filterKeys { it !in known }
+    }
+
+    /** Prescurtările încorporate ale cluburilor (formă scurtă → nume complet normalizat), pentru catalogul de nume. */
+    internal val builtInClubAliases: Map<String, String> get() = clubAliases
 
     /**
      * Alias-urile tale (din dicționar), deja normalizate: alias → nume. Au prioritate față de cele încorporate.

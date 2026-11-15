@@ -33,6 +33,8 @@ data class SportEvent(
     /** Alte forme ale numelor echipelor de la furnizor (ESPN: „Man United”, „MUN”), pentru catalogul de nume. */
     val homeAlt: List<String> = emptyList(),
     val awayAlt: List<String> = emptyList(),
+    /** Sportivii unei curse, unui turneu de golf sau unei gale (ESPN), cu forma scurtă („M. Verstappen”), pentru catalogul de nume. */
+    val athletes: List<Pair<String, String?>> = emptyList(),
 )
 
 /** O emisiune din EPG care poate fi un meci (vine din baza EPG, pe canalul EPG [epgChannelId]). */

@@ -177,6 +177,8 @@ object MatchAssembler {
         if (es != null && x.sport != null && es != x.sport) return false
         val xc = x.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() } ?: return true
         val ec = e.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() } ?: return true
+        // Prescurtările știute („UCL”, „EPL”, „Liga 1”) sunt aceeași competiție.
+        if (NameSeeds.competitionKey(xc) == NameSeeds.competitionKey(e.competition!!.substringBefore(" · "))) return true
         val ew = ec.split(' ').filter { it.length >= 4 && it !in GENERIC_COMPETITION_WORDS }.toSet()
         val xw = xc.split(' ').filter { it.length >= 4 && it !in GENERIC_COMPETITION_WORDS }
         return ew.isEmpty() || xw.isEmpty() || xw.any { it in ew }

@@ -483,9 +483,22 @@ object Espn {
                 status = status(c),
                 venue = c.obj("venue")?.text("fullName"),
                 stations = stations(c),
+                athletes = athletes(listOf(c)),
             )
         }
     }
+
+    /** Sportivii din `competitors[].athlete` (piloți, golfiști, luptători), cel mult [MAX_ATHLETES]. */
+    private fun athletes(comps: List<JsonObject>): List<Pair<String, String?>> =
+        comps.asSequence().flatMap { it.arr("competitors").filterIsInstance<JsonObject>().asSequence() }
+            .mapNotNull { c ->
+                val a = c.obj("athlete") ?: return@mapNotNull null
+                val name = (a.text("displayName") ?: a.text("fullName"))?.trim()?.takeIf { it.length >= 3 } ?: return@mapNotNull null
+                name to a.text("shortName")?.trim()?.takeIf { it.isNotEmpty() && it != name }
+            }
+            .distinctBy { it.first }.take(MAX_ATHLETES).toList()
+
+    private const val MAX_ATHLETES = 200
 
     /** O gală sau un turneu de golf: un singur eveniment, fără echipe. Turneele de mai multe zile apar în fiecare zi. */
     private fun single(o: JsonObject, league: League, day: LocalDate?): SportEvent? {
@@ -516,6 +529,7 @@ object Espn {
             status = status(o) ?: comp.firstNotNullOfOrNull { status(it) },
             venue = comp.firstOrNull()?.obj("venue")?.text("fullName"),
             stations = stations,
+            athletes = athletes(comp),
         )
     }
 

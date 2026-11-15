@@ -415,7 +415,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         SportsDialog.TEAMS -> TextInputDialog(
             title = "Echipe favorite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM, ro.ak.sportshub.core.sports.NameCatalog.Kind.ATHLETE)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.teams.joinToString(", "),
             hint = "Separate prin virgulă. Scrie începutul numelui (de exemplu „man u”) și alege din sugestii: forma întreagă e recunoscută și scrisă altfel (Man Utd, Man. United).",
             onDismiss = { dialog = null },
@@ -429,7 +429,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             title = "Competiții favorite",
             suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.COMPETITION)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.competitions.joinToString(", "),
-            hint = "Numele ca în listă, separate prin virgulă (de exemplu: Premier League, Liga 1)",
+            hint = "Separate prin virgulă. Merg și prescurtate (UCL, EPL, L1, Liga 1): alege din sugestii",
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -439,7 +439,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         )
         SportsDialog.NAMES -> TextInputDialog(
             title = "Nume urmărite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.ATHLETE, ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.names.joinToString(", "),
             hint = "Separate prin virgulă (de exemplu: Djokovic, Max Verstappen, Simona Halep). Se caută în titlul și descrierea emisiunilor de sport",
             onDismiss = { dialog = null },

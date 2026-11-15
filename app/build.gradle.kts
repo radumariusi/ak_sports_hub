@@ -16,7 +16,7 @@ android {
         minSdk = 23
         targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "1.0.$versionCode"
+        versionName = "1.1.$versionCode"
         // Televizoarele și boxurile sunt ARM; fără x86 APK-ul rămâne mic (decodorul FFmpeg are biblioteci native).
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }

@@ -7,7 +7,7 @@ package ro.ak.sportshub.core.sports
  */
 class NameCatalog private constructor(private val entries: Map<String, Entry>) {
 
-    enum class Kind { TEAM, COMPETITION }
+    enum class Kind { TEAM, ATHLETE, COMPETITION }
 
     /** [name] = forma întreagă; [alt] = celelalte forme; [seen] = de câte ori a adus ceva nou (cele mai cunoscute primele). */
     data class Entry(val name: String, val kind: Kind, val alt: Set<String>, val seen: Int)
@@ -36,6 +36,12 @@ class NameCatalog private constructor(private val entries: Map<String, Entry>) {
             add(e.home, Kind.TEAM, e.homeAlt)
             if (e.away.isNotBlank()) add(e.away, Kind.TEAM, e.awayAlt)
             add(e.competition, Kind.COMPETITION, e.competition?.substringBefore(" · ")?.let { listOf(it) }.orEmpty())
+            for ((name, short) in e.athletes) add(name, Kind.ATHLETE, listOfNotNull(short))
+            // Tenisul: cei doi jucători sunt și sportivi (pentru „Nume urmărite”).
+            if (e.sport == Sport.TENNIS.sportsDbName && e.away.isNotBlank() && '/' !in e.home && '/' !in e.away) {
+                add(e.home, Kind.ATHLETE, e.homeAlt)
+                add(e.away, Kind.ATHLETE, e.awayAlt)
+            }
         }
         val n = next ?: return this
         // Prea mare: rămân cele mai văzute.
@@ -54,7 +60,11 @@ class NameCatalog private constructor(private val entries: Map<String, Entry>) {
         val qTokens = q.split(' ').filter { it.isNotEmpty() }
         val qKey = TeamNames.key(query)
         val scored = ArrayList<Pair<Int, Entry>>()
-        for (e in entries.values) {
+        // Lista fixă din aplicație (competițiile cu prescurtări, snooker, darts, F1) completează ce s-a învățat.
+        val seeds = NameSeeds.entries
+        val all = entries.asSequence().map { (k, e) -> seeds[k]?.let { e.copy(alt = e.alt + it.alt) } ?: e } +
+            seeds.asSequence().filter { (k, _) -> k !in entries }.map { it.value }
+        for (e in all) {
             if (e.kind !in kinds) continue
             var best = Int.MAX_VALUE
             for (form in listOf(e.name) + e.alt) {
@@ -72,7 +82,10 @@ class NameCatalog private constructor(private val entries: Map<String, Entry>) {
             if (best != Int.MAX_VALUE) scored += best to e
         }
         return scored.sortedWith(compareBy<Pair<Int, Entry>> { it.first }.thenByDescending { it.second.seen }.thenBy { it.second.name.length })
-            .take(limit).map { it.second }
+            .asSequence().map { it.second }
+            // Aceeași echipă scrisă altfel (din lista fixă și de la ESPN) apare o dată.
+            .distinctBy { e -> e.kind.name + ":" + if (e.kind == Kind.TEAM) TeamNames.key(e.name) else Sport.fold(e.name) }
+            .take(limit).toList()
     }
 
     /**

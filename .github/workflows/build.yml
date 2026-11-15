@@ -70,8 +70,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Titlul e citit de aplicație (actualizarea din aplicație): păstrează forma „v1.0.N”.
-          titlu="AK Sports Hub v1.0.${{ github.run_number }}"
+          # Titlul e citit de aplicație (actualizarea din aplicație): „v1.1.N (build N)”; „build N” e forma pe care o înțeleg și versiunile 1.0.
+          titlu="AK Sports Hub v1.1.${{ github.run_number }} (build ${{ github.run_number }})"
           note="Construit automat din ${GITHUB_SHA::7}. Fișierul este înlocuit la fiecare build."
           if gh release view ultima-versiune --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload ultima-versiune ak-sports-hub.apk --clobber --repo "$GITHUB_REPOSITORY"
