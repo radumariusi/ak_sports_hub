@@ -61,7 +61,9 @@ class NameCatalog private constructor(private val entries: Map<String, Entry>) {
         val qKey = TeamNames.key(query)
         val scored = ArrayList<Pair<Int, Entry>>()
         // Lista fixă din aplicație (competițiile cu prescurtări, snooker, darts, F1) completează ce s-a învățat.
-        val all = entries.values.asSequence() + NameSeeds.entries.asSequence().filter { (k, _) -> k !in entries }.map { it.value }
+        val seeds = NameSeeds.entries
+        val all = entries.asSequence().map { (k, e) -> seeds[k]?.let { e.copy(alt = e.alt + it.alt) } ?: e } +
+            seeds.asSequence().filter { (k, _) -> k !in entries }.map { it.value }
         for (e in all) {
             if (e.kind !in kinds) continue
             var best = Int.MAX_VALUE
