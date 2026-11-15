@@ -135,7 +135,7 @@ fun MatchScreen(
             val hs = event?.homeScore ?: m.homeScore
             val aw = event?.awayScore ?: m.awayScore
             val score = if (!hideSpoilers && liveStatus != MatchStatus.SCHEDULED && hs != null && aw != null) "   $hs–$aw" else ""
-            Text(text = m.title + score, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = m.title + score, fontSize = 34.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
             if (liveStatus == MatchStatus.LIVE) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
             if (favorite) Text(text = "  ★", fontSize = 22.sp, color = AkColors.Accent)
         }

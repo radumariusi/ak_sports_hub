@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Sigla „Reflector”: patru reflectoare chihlimbar deasupra literelor AK, pe negru-albastru. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="180"
     android:viewportHeight="180">
-    <path android:fillColor="#0E1116" android:pathData="M0,0h180v180h-180z" />
-    <path android:fillColor="#35C46A" android:pathData="M0,150h180v30h-180z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M10,125 L40,45 L60,45 L90,125 L70,125 L64,107 L36,107 L30,125 Z M42,91 L58,91 L50,67 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M100,45 L118,45 L118,77 L144,45 L166,45 L136,81 L168,125 L146,125 L124,94 L118,101 L118,125 L100,125 Z" />
+    <path android:fillColor="#0B0F14" android:pathData="M0,0h180v180h-180z" />
+    <group android:rotation="-24" android:pivotX="37.5" android:pivotY="50.0">
+        <path android:fillColor="#FFB547" android:pathData="M29.9,43.5h15.2a3.6,3.6 0 0 1 3.6,3.6v5.7a3.6,3.6 0 0 1 -3.6,3.6h-15.2a3.6,3.6 0 0 1 -3.6,-3.6v-5.7a3.6,3.6 0 0 1 3.6,-3.6z" />
+    </group>
+    <group android:rotation="-8" android:pivotX="71.0" android:pivotY="37.0">
+        <path android:fillColor="#FFB547" android:pathData="M63.4,30.5h15.2a3.6,3.6 0 0 1 3.6,3.6v5.7a3.6,3.6 0 0 1 -3.6,3.6h-15.2a3.6,3.6 0 0 1 -3.6,-3.6v-5.7a3.6,3.6 0 0 1 3.6,-3.6z" />
+    </group>
+    <group android:rotation="8" android:pivotX="109.0" android:pivotY="37.0">
+        <path android:fillColor="#FFB547" android:pathData="M101.4,30.5h15.2a3.6,3.6 0 0 1 3.6,3.6v5.7a3.6,3.6 0 0 1 -3.6,3.6h-15.2a3.6,3.6 0 0 1 -3.6,-3.6v-5.7a3.6,3.6 0 0 1 3.6,-3.6z" />
+    </group>
+    <group android:rotation="24" android:pivotX="142.5" android:pivotY="50.0">
+        <path android:fillColor="#FFB547" android:pathData="M134.9,43.5h15.2a3.6,3.6 0 0 1 3.6,3.6v5.7a3.6,3.6 0 0 1 -3.6,3.6h-15.2a3.6,3.6 0 0 1 -3.6,-3.6v-5.7a3.6,3.6 0 0 1 3.6,-3.6z" />
+    </group>
+    <group android:scaleX="0.75" android:scaleY="0.75" android:translateX="23.5" android:translateY="48">
+        <path android:fillColor="#EEF1F4" android:pathData="M10,125 L40,45 L60,45 L90,125 L70,125 L64,107 L36,107 L30,125 Z M42,91 L58,91 L50,67 Z" />
+        <path android:fillColor="#EEF1F4" android:pathData="M100,45 L118,45 L118,77 L144,45 L166,45 L136,81 L168,125 L146,125 L124,94 L118,101 L118,125 L100,125 Z" />
+    </group>
 </vector>

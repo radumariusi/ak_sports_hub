@@ -41,7 +41,7 @@ fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit, onPlayArchive: (chan
         val ready = state as? ScheduleState.Ready
         val channel = ready?.channel
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = channel?.name ?: "Program", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = channel?.name ?: "Program", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
             channel?.let { VariantQualityBadge(it.playlistId, it.name, it.quality) }
             Spacer(Modifier.width(20.dp))
             if (channel != null) ActionButton(text = "Pornește canalul", onClick = { onPlay(channel.id) })

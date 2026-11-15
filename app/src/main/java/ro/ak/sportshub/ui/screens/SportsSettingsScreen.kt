@@ -54,7 +54,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        item { Text(text = "Sports Hub", fontSize = 24.sp, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp)) }
+        item { Text(text = "Sports Hub", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp)) }
 
         item { SectionLabel("Ordinea surselor") }
         item {

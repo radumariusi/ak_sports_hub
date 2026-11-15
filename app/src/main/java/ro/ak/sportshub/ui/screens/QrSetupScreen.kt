@@ -76,7 +76,7 @@ fun QrSetupScreen(onDone: () -> Unit) {
     val qr = remember(url) { url?.let { qrBitmap(it) } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
-        Text(text = "Adaugă un playlist din telefon", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = "Adaugă un playlist din telefon", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
         Row(modifier = Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             Box(modifier = Modifier.size(300.dp).background(Color.White, RoundedCornerShape(12.dp)).padding(12.dp)) {
                 if (qr != null) Image(bitmap = qr, contentDescription = "Cod QR", modifier = Modifier.fillMaxSize())

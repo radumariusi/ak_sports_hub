@@ -1,6 +1,23 @@
 package ro.ak.sportshub.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.tv.material3.Border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusGroup
@@ -31,8 +48,29 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.ui.theme.AkColors
+import ro.ak.sportshub.ui.theme.AkFonts
 
-/** Rând de taburi text. Tabul se schimbă când primește focus, fără să apeși OK. */
+/** Adevărat în conținutul unui rând focusat (fundal alb): etichetele și textele secundare își inversează culorile. */
+val LocalOnFocus = compositionLocalOf { false }
+
+/** Textul secundar, potrivit fundalului (rând focusat sau nu). */
+@Composable
+@ReadOnlyComposable
+fun dimText(): Color = if (LocalOnFocus.current) AkColors.TextDimOnFocus else AkColors.TextDim
+
+/** Chihlimbarul, potrivit fundalului (pe alb e mai închis, ca să se vadă). */
+@Composable
+@ReadOnlyComposable
+fun accentText(): Color = if (LocalOnFocus.current) AkColors.AccentOnFocus else AkColors.Accent
+
+/** Rama chihlimbar a elementului focusat. */
+private val FocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(10.dp))
+private val PillFocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(50))
+
+/**
+ * Rând de taburi text, cu litere înguste. Tabul curent e alb cu o linie chihlimbar dedesubt; cel focusat e alb plin.
+ * Tabul se schimbă când primește focus, fără să apeși OK.
+ */
 @Composable
 fun TabStrip(
     tabs: List<String>,
@@ -40,6 +78,7 @@ fun TabStrip(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     firstTabModifier: Modifier = Modifier,
+    fontSize: TextUnit = 20.sp,
 ) {
     // focusRestorer: când revii din listă în rândul de taburi, focusul se întoarce pe tabul curent.
     Row(
@@ -53,27 +92,43 @@ fun TabStrip(
                 onClick = { onSelect(index) },
                 modifier = (if (index == 0) firstTabModifier else Modifier)
                     .onFocusChanged { if (it.isFocused) onSelect(index) },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (selected) AkColors.Panel else Color.Transparent,
-                    contentColor = if (selected) AkColors.Accent else AkColors.TextDim,
+                    containerColor = Color.Transparent,
+                    contentColor = if (selected) AkColors.Text else AkColors.TextDim,
                     focusedContainerColor = AkColors.Focus,
                     focusedContentColor = AkColors.OnFocus,
                 ),
             ) {
-                Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                )
+                Column(
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = fontSize,
+                        fontFamily = AkFonts.Condensed,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.5.sp,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .height(3.dp)
+                            .width(28.dp)
+                            .background(if (selected) AkColors.Accent else Color.Transparent, RoundedCornerShape(2.dp)),
+                    )
+                }
             }
         }
     }
 }
 
-/** Un rând de listă: text principal, text secundar, conținut la dreapta. */
+/**
+ * Un rând de listă: text principal, text secundar, conținut la dreapta.
+ * Focusat: alb, cu ramă chihlimbar și ușor mărit; conținutul vede [LocalOnFocus] ca să-și inverseze culorile.
+ */
 @Composable
 fun ListRow(
     title: String,
@@ -85,14 +140,19 @@ fun ListRow(
     onLongClick: (() -> Unit)? = null,
     /** Cât s-a scurs din emisiunea curentă (0–1); o linie subțire sub text. */
     progress: Float? = null,
+    /** Coloana din stânga (ora, minutul), cu litere înguste. */
+    leading: @Composable (() -> Unit)? = null,
+    titleSize: TextUnit = 17.sp,
     trailing: @Composable (() -> Unit)? = null,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f),
+        border = ClickableSurfaceDefaults.border(focusedBorder = FocusBorder),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) AkColors.Panel else Color.Transparent,
             contentColor = AkColors.Text,
@@ -100,18 +160,23 @@ fun ListRow(
             focusedContentColor = AkColors.OnFocus,
         ),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, fontSize = 16.sp, maxLines = 1)
-                if (subtitle != null) {
-                    Text(text = subtitle, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+        CompositionLocalProvider(LocalOnFocus provides focused) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (leading != null) {
+                    Box(modifier = Modifier.width(76.dp)) { leading() }
                 }
-                if (progress != null) ProgressLine(progress, Modifier.padding(top = 4.dp).width(160.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = title, fontSize = titleSize, fontWeight = FontWeight.Medium, maxLines = 1)
+                    if (subtitle != null) {
+                        Text(text = subtitle, fontSize = 14.sp, color = dimText(), maxLines = 1, modifier = Modifier.padding(top = 1.dp))
+                    }
+                    if (progress != null) ProgressLine(progress, Modifier.padding(top = 4.dp).width(160.dp))
+                }
+                if (trailing != null) trailing()
             }
-            if (trailing != null) trailing()
         }
     }
 }
@@ -119,42 +184,79 @@ fun ListRow(
 /** O bară subțire de progres (cât s-a scurs din emisiune). */
 @Composable
 fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.height(3.dp).background(Color(0x40FFFFFF), RoundedCornerShape(2.dp))) {
+    val track = if (LocalOnFocus.current) Color(0x330B0F14) else Color(0x33FFFFFF)
+    Box(modifier = modifier.height(3.dp).background(track, RoundedCornerShape(2.dp))) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(progress.coerceIn(0f, 1f))
                 .height(3.dp)
-                .background(AkColors.Accent, RoundedCornerShape(2.dp)),
+                .background(accentText(), RoundedCornerShape(2.dp)),
         )
     }
 }
 
+/**
+ * O etichetă plină, cu litere înguste. Eticheta albă ([AkColors.Focus]) devine închisă pe un rând focusat,
+ * ca să nu dispară pe fundalul alb.
+ */
 @Composable
 fun Badge(text: String, color: Color = AkColors.Accent, modifier: Modifier = Modifier) {
+    val onFocus = LocalOnFocus.current
+    val (bg, fg) = when {
+        onFocus && color == AkColors.Focus -> AkColors.OnFocus to AkColors.Text
+        else -> color to AkColors.OnFocus
+    }
     Text(
         text = text,
-        color = Color.Black,
-        fontSize = 12.sp,
+        color = fg,
+        fontSize = 15.sp,
+        fontFamily = AkFonts.Condensed,
         fontWeight = FontWeight.Bold,
+        letterSpacing = 0.3.sp,
         modifier = modifier
-            .padding(start = 6.dp)
-            .background(color, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(start = 8.dp)
+            .background(bg, RoundedCornerShape(5.dp))
+            .padding(horizontal = 7.dp),
     )
 }
 
 @Composable
 fun QualityBadge(quality: Quality) {
-    Badge(text = quality.label, color = qualityColor(quality))
+    QualityTag(text = quality.label, quality = quality)
 }
 
-/** Culoarea etichetei de calitate. */
-fun qualityColor(quality: Quality): Color = when (quality) {
-    Quality.UHD -> Color(0xFFF2C94C)
-    Quality.FHD -> AkColors.Accent
-    Quality.HD -> Color(0xFF56B6F7)
-    Quality.SD -> Color(0xFFB0B7C3)
-    Quality.UNKNOWN -> Color(0xFF6B7280)
+/**
+ * Eticheta de calitate, după luminozitate: 4K chihlimbar plin, FHD alb plin, HD doar contur, SD doar text.
+ * Pe rândul focusat (alb), 4K și FHD trec pe fundal închis.
+ */
+@Composable
+fun QualityTag(text: String, quality: Quality, modifier: Modifier = Modifier) {
+    val onFocus = LocalOnFocus.current
+    val base = modifier.padding(start = 8.dp)
+    val shape = RoundedCornerShape(5.dp)
+    val style = Modifier.padding(horizontal = 7.dp)
+    when (quality) {
+        Quality.UHD -> Text(
+            text = text, fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold,
+            color = if (onFocus) AkColors.Accent else AkColors.OnFocus,
+            modifier = base.background(if (onFocus) AkColors.OnFocus else AkColors.Accent, shape).then(style),
+        )
+        Quality.FHD -> Text(
+            text = text, fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold,
+            color = if (onFocus) AkColors.Text else AkColors.OnFocus,
+            modifier = base.background(if (onFocus) AkColors.OnFocus else AkColors.Focus, shape).then(style),
+        )
+        Quality.HD -> Text(
+            text = text, fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold,
+            color = if (onFocus) AkColors.OnFocus else AkColors.Text,
+            modifier = base.border(2.dp, if (onFocus) AkColors.TextDimOnFocus else AkColors.TextDim, shape).padding(horizontal = 5.dp),
+        )
+        Quality.SD, Quality.UNKNOWN -> Text(
+            text = text, fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold,
+            color = dimText(),
+            modifier = base.padding(horizontal = 2.dp),
+        )
+    }
 }
 
 /**
@@ -169,11 +271,43 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
     val variants by container.variantStore.state.collectAsStateWithLifecycle()
     val view = ro.ak.sportshub.data.qualityView(playlistId, name, quality, seen, variants)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Badge(text = view.label + if (view.verified) " ✓" else "", color = qualityColor(view.quality))
+        QualityTag(text = view.label + if (view.verified) " ✓" else "", quality = view.quality)
         view.playlistLabel?.let { old ->
-            Text(text = ", în playlist ", fontSize = 12.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 4.dp))
-            Text(text = old, fontSize = 12.sp, color = AkColors.TextDim, textDecoration = TextDecoration.LineThrough)
+            Text(text = ", în playlist ", fontSize = 13.sp, color = dimText(), modifier = Modifier.padding(start = 4.dp))
+            Text(text = old, fontSize = 13.sp, color = dimText(), textDecoration = TextDecoration.LineThrough)
         }
+    }
+}
+
+/** Sigla: patru reflectoare chihlimbar deasupra literelor „AK”. */
+@Composable
+fun AkLogo(size: Dp = 40.dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(size).background(AkColors.Panel, RoundedCornerShape(size * 0.23f)),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val u = this.size.width / 96f
+            // Reflectoarele, înclinate spre centru (ca în pictograma aplicației).
+            listOf(Triple(20f, 23f, -24f), Triple(38f, 16f, -8f), Triple(58f, 16f, 8f), Triple(76f, 23f, 24f)).forEach { (cx, cy, angle) ->
+                rotate(angle, pivot = Offset(cx * u, cy * u)) {
+                    drawRoundRect(
+                        color = AkColors.Accent,
+                        topLeft = Offset((cx - 6f) * u, (cy - 3.5f) * u),
+                        size = Size(12f * u, 7f * u),
+                        cornerRadius = CornerRadius(2f * u),
+                    )
+                }
+            }
+        }
+        Text(
+            text = "AK",
+            fontSize = (size.value * 0.46f).sp,
+            fontFamily = AkFonts.Condensed,
+            fontWeight = FontWeight.Bold,
+            color = AkColors.Text,
+            modifier = Modifier.padding(bottom = size * 0.06f),
+        )
     }
 }
 
@@ -181,7 +315,7 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
 fun EmptyState(title: String, hint: String, modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = title, fontSize = 20.sp)
+            Text(text = title, fontSize = 26.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
             Text(
                 text = hint,
                 fontSize = 14.sp,
@@ -196,14 +330,16 @@ fun EmptyState(title: String, hint: String, modifier: Modifier = Modifier) {
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text.uppercase(),
-        fontSize = 12.sp,
+        fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
+        letterSpacing = 2.sp,
         color = AkColors.TextDim,
-        modifier = modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+        maxLines = 1,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 6.dp),
     )
 }
 
-/** Buton text compact, pentru acțiuni (Salvează, Actualizează…). */
+/** Buton text compact, în formă de pastilă, pentru acțiuni și filtre (Salvează, Actualizează…). */
 @Composable
 fun ActionButton(
     text: String,
@@ -216,8 +352,9 @@ fun ActionButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        border = ClickableSurfaceDefaults.border(focusedBorder = PillFocusBorder),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = AkColors.Panel,
             contentColor = if (danger) AkColors.Live else AkColors.Text,
@@ -227,6 +364,6 @@ fun ActionButton(
             disabledContentColor = AkColors.TextDim,
         ),
     ) {
-        Text(text = text, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp))
     }
 }

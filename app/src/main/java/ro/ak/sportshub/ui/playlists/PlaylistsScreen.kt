@@ -39,7 +39,7 @@ fun PlaylistsScreen(onEdit: (Long) -> Unit, onAdd: (PlaylistType) -> Unit) {
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Text(text = "Playlisturi", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = "Playlisturi", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
         Text(
             text = "Doar canalele live sunt păstrate. Fiecare playlist folosește o singură conexiune.",
             fontSize = 14.sp,

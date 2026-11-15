@@ -46,6 +46,26 @@ import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
+import ro.ak.sportshub.ui.theme.AkFonts
+import ro.ak.sportshub.ui.components.LocalOnFocus
+import ro.ak.sportshub.ui.components.accentText
+import ro.ak.sportshub.ui.components.dimText
+import ro.ak.sportshub.core.sports.Countdown
+import ro.ak.sportshub.core.sports.MatchSources
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.tv.material3.LocalContentColor
 
 private enum class FilterDialog { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY }
 
@@ -69,6 +89,7 @@ fun SportsHubScreen(
     val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
+    var focusedId by remember { mutableStateOf<String?>(null) }
 
     val filter = settings.filter
     val zone = remember { ZoneId.systemDefault() }
@@ -169,41 +190,58 @@ fun SportsHubScreen(
                 },
             )
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                calendar.forEach { (team, entries) ->
-                    item(key = "team:$team") { SectionLabel("$team · următoarele meciuri", modifier = Modifier.padding(top = 6.dp)) }
-                    if (entries.isEmpty()) {
-                        item(key = "team-empty:$team") {
-                            Text(
-                                text = "Niciun meci în zilele din program.",
-                                fontSize = 13.sp,
-                                color = AkColors.TextDim,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+            // Din „Foaie de meci”: panoul din dreapta arată meciul focusat (ora, cât mai e, primele surse), fără OK.
+            val all = calendar.flatMap { it.second } + otherFavorites
+            val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
+            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                    calendar.forEach { (team, entries) ->
+                        item(key = "team:$team") { SectionLabel("$team · următoarele meciuri", modifier = Modifier.padding(top = 6.dp)) }
+                        if (entries.isEmpty()) {
+                            item(key = "team-empty:$team") {
+                                Text(
+                                    text = "Niciun meci în zilele din program.",
+                                    fontSize = 13.sp,
+                                    color = AkColors.TextDim,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                        items(entries, key = { "team:$team:" + it.match.id }) { entry ->
+                            MatchRow(
+                                entry = entry,
+                                favorite = true,
+                                hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
+                                showDay = true,
+                                zone = zone,
+                                onClick = { onOpenMatch(entry.match.id) },
+                                onFocused = { focusedId = entry.match.id },
                             )
                         }
                     }
-                    items(entries, key = { "team:$team:" + it.match.id }) { entry ->
+                    if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) {
+                        item(key = "others") { SectionLabel("Alte meciuri favorite", modifier = Modifier.padding(top = 6.dp)) }
+                    }
+                    items(otherFavorites, key = { it.match.id }) { entry ->
                         MatchRow(
                             entry = entry,
-                            favorite = true,
+                            favorite = settings.favorites.isFavorite(entry.match),
                             hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
-                            showDay = true,
+                            showDay = currentTab == MatchTab.WEEK || currentTab == MatchTab.FAVORITES,
                             zone = zone,
                             onClick = { onOpenMatch(entry.match.id) },
+                            onFocused = { focusedId = entry.match.id },
                         )
                     }
                 }
-                if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) {
-                    item(key = "others") { SectionLabel("Alte meciuri favorite", modifier = Modifier.padding(top = 6.dp)) }
-                }
-                items(otherFavorites, key = { it.match.id }) { entry ->
-                    MatchRow(
+                preview?.let { entry ->
+                    MatchPreviewPanel(
                         entry = entry,
                         favorite = settings.favorites.isFavorite(entry.match),
                         hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
-                        showDay = currentTab == MatchTab.WEEK || currentTab == MatchTab.FAVORITES,
+                        prefs = settings.sourcePreferences,
                         zone = zone,
-                        onClick = { onOpenMatch(entry.match.id) },
+                        modifier = Modifier.width(400.dp).fillMaxHeight().padding(bottom = 8.dp),
                     )
                 }
             }
@@ -271,24 +309,51 @@ private fun summaryLine(visible: Int, total: Int, loading: Boolean): String = wh
 }
 
 @Composable
-private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, showDay: Boolean, zone: ZoneId, onClick: () -> Unit) {
+private fun MatchRow(
+    entry: MatchEntry,
+    favorite: Boolean,
+    hideScore: Boolean,
+    showDay: Boolean,
+    zone: ZoneId,
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {},
+) {
     val m = entry.match
     val start = Instant.ofEpochMilli(m.start).atZone(zone)
-    val time = if (showDay) "${start.format(DayFormat)} ${start.format(TimeFormat)}" else start.format(TimeFormat)
     val score = if (!hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED) {
-        "  ${m.homeScore}–${m.awayScore}"
+        "   ${m.homeScore} – ${m.awayScore}   "
     } else {
-        ""
+        null
     }
+    val title = if (score != null && m.away.isNotBlank()) m.home + score + m.away else m.title
     val count = entry.summary.count
     ListRow(
-        title = "$time   ${m.title}$score",
-        subtitle = listOfNotNull(m.sport?.label, m.competition, if (m.status == MatchStatus.FINISHED) "încheiat" else null)
-            .joinToString(" · "),
+        title = title,
+        titleSize = 20.sp,
+        subtitle = listOfNotNull(
+            if (showDay) start.format(DayFormat) else null,
+            m.sport?.label,
+            m.competition,
+            if (m.status == MatchStatus.FINISHED) "încheiat" else null,
+        ).joinToString(" · "),
         onClick = onClick,
+        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
+        leading = {
+            // Ora (sau LIVE), cu cifre înguste, ca pe o tabelă.
+            if (m.isLive) {
+                Text(
+                    text = "LIVE",
+                    fontSize = 22.sp,
+                    fontFamily = AkFonts.Condensed,
+                    fontWeight = FontWeight.Bold,
+                    color = if (LocalOnFocus.current) AkColors.LiveOnFocus else AkColors.Live,
+                )
+            } else {
+                Text(text = start.format(TimeFormat), fontSize = 22.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+            }
+        },
         trailing = {
-            if (favorite) Text(text = "★", fontSize = 16.sp, color = AkColors.Accent)
-            if (m.isLive) Badge(text = "LIVE", color = AkColors.Live)
+            if (favorite) Text(text = "★", fontSize = 20.sp, color = accentText(), modifier = Modifier.padding(end = 4.dp))
             // Meci terminat cu arhivă pe o sursă: se poate vedea ca reluare (niciodată marcat drept live).
             if (m.status == MatchStatus.FINISHED && entry.hasReplay(System.currentTimeMillis())) Badge(text = "RELUARE", color = AkColors.Focus)
             if (count > 0) QualityBadge(entry.summary.best)
@@ -302,12 +367,99 @@ private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, s
                     count -> if (count == 1) " presupusă" else " presupuse"
                     else -> " ($guesses presupuse)"
                 },
-                fontSize = 13.sp,
-                color = if (count == 0) AkColors.TextDim else AkColors.Text,
-                modifier = Modifier.padding(start = 12.dp),
+                fontSize = 15.sp,
+                color = if (count == 0 || entry.summary.sure == 0) dimText() else LocalContentColor.current,
+                textAlign = TextAlign.End,
+                modifier = Modifier.padding(start = 12.dp).width(150.dp),
             )
         },
     )
+}
+
+/**
+ * Panoul din dreapta listei de meciuri: meciul focusat, ora și cât mai e până la start, primele trei surse
+ * (în ordinea preferințelor tale de surse, aceeași ca în ecranul meciului). Doar din lista calculată, fără cereri.
+ */
+@Composable
+private fun MatchPreviewPanel(
+    entry: MatchEntry,
+    favorite: Boolean,
+    hideScore: Boolean,
+    prefs: ro.ak.sportshub.core.sports.SourcePreferences,
+    zone: ZoneId,
+    modifier: Modifier = Modifier,
+) {
+    val m = entry.match
+    val now by androidx.compose.runtime.produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+    val best = remember(entry, favorite, prefs) {
+        MatchSources.order(entry.sources, isFavorite = favorite, prefs = prefs)
+            .map { it.members.first() }
+            .filterNot { it.rejected }
+            .take(3)
+    }
+    val start = Instant.ofEpochMilli(m.start).atZone(zone)
+    Column(
+        modifier = modifier
+            .background(AkColors.Panel, RoundedCornerShape(16.dp))
+            .padding(horizontal = 24.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = listOfNotNull(m.sport?.label, m.competition, m.venue).joinToString(" · "),
+            fontSize = 15.sp,
+            color = AkColors.TextDim,
+            maxLines = 2,
+        )
+        Column {
+            listOf(m.home, m.away).filter { it.isNotBlank() }.forEach { team ->
+                Text(
+                    text = team,
+                    fontSize = 32.sp,
+                    lineHeight = 34.sp,
+                    fontFamily = AkFonts.Condensed,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            val score = !hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED
+            Text(
+                text = if (score) "${m.homeScore} – ${m.awayScore}" else start.format(TimeFormat),
+                fontSize = 34.sp,
+                fontFamily = AkFonts.Condensed,
+                fontWeight = FontWeight.Bold,
+                color = if (m.isLive) AkColors.Live else AkColors.Text,
+            )
+            Text(
+                text = (if (score) start.format(TimeFormat) + " · " else "") + Countdown.text(m.start, now, m.status),
+                fontSize = 17.sp,
+                color = AkColors.TextDim,
+                modifier = Modifier.padding(start = 12.dp, bottom = 5.dp),
+            )
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(AkColors.Divider))
+        Text(text = "CELE MAI BUNE SURSE", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = AkColors.TextDim)
+        if (best.isEmpty()) {
+            Text(text = "Nicio sursă în playlisturile tale.", fontSize = 17.sp, color = AkColors.TextDim)
+        }
+        best.forEach { s ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = s.channel.name, fontSize = 18.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                Text(text = s.confidence.short(), fontSize = 14.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 8.dp))
+                VariantQualityBadge(s.channel.playlistId, s.channel.name, s.channel.quality)
+            }
+        }
+        val more = entry.summary.count - best.size
+        if (more > 0) Text(text = "+ încă $more " + (if (more == 1) "sursă" else "surse"), fontSize = 15.sp, color = AkColors.TextDim)
+        Spacer(Modifier.weight(1f))
+        Text(text = "OK deschide meciul: surse, pre-meci, live", fontSize = 15.sp, color = AkColors.TextDim)
+    }
 }
 
 private const val EventsTabLabel = "Evenimente"
@@ -456,10 +608,21 @@ private fun HighlightsList(zone: ZoneId, onPlayArchive: (Long, Long, Long) -> Un
                 subtitle = listOfNotNull(h.subtitle, h.channel.name, h.channel.playlistName).joinToString(" · "),
                 onClick = { onPlayArchive(h.channel.id, h.start, h.stop) },
                 trailing = {
-                    if (h.favorite) Text(text = "★", fontSize = 16.sp, color = AkColors.Accent)
+                    if (h.favorite) Text(text = "★", fontSize = 18.sp, color = accentText())
                     Badge(text = "ARHIVĂ", color = AkColors.Focus)
                 },
             )
         }
     }
+}
+
+/** Încrederea sursei, pe scurt, pentru panoul de previzualizare. */
+private fun ro.ak.sportshub.core.sports.Confidence.short(): String = when (this) {
+    ro.ak.sportshub.core.sports.Confidence.CONFIRMED -> "confirmat"
+    ro.ak.sportshub.core.sports.Confidence.EPG -> "EPG"
+    ro.ak.sportshub.core.sports.Confidence.EVENT -> "eveniment"
+    ro.ak.sportshub.core.sports.Confidence.STATION -> "anunțat"
+    ro.ak.sportshub.core.sports.Confidence.LEARNED -> "învățat"
+    ro.ak.sportshub.core.sports.Confidence.DEDICATED -> "dedicat"
+    ro.ak.sportshub.core.sports.Confidence.RIGHTS -> "drepturi TV"
 }
