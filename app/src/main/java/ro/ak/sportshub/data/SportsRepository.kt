@@ -58,6 +58,7 @@ import ro.ak.sportshub.core.sports.MatchSources
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.Sofascore
+import ro.ak.sportshub.core.sports.FollowedNames
 import ro.ak.sportshub.core.sports.SourceFinder
 import ro.ak.sportshub.core.sports.SourceSummary
 import ro.ak.sportshub.core.sports.SportChannels
@@ -271,7 +272,8 @@ class SportsRepository(
     private fun fetchKey(s: SportsSettings): String =
         "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}|" +
             "${s.liveSoccerTvEnabled}|${s.sofascoreEnabled}|${s.sofascoreTv}|${s.futbolEnLaTvEnabled}|${s.eventChannels}|${s.eventZone}|" +
-            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}"
+            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}|" +
+            s.favorites.names.joinToString(",")
 
     fun refreshInBackground(force: Boolean = true) {
         scope.launch { refreshDue(force) }
@@ -1029,7 +1031,15 @@ class SportsRepository(
     }
 
     /** Emisiunile EPG citite pentru o fereastră de timp, ținute în memorie (nu se recitesc la fiecare minut). */
-    private class BroadcastWindow(val from: Long, val until: Long, val loadedAt: Long, val list: List<MatchBroadcast>)
+    private class BroadcastWindow(
+        val from: Long,
+        val until: Long,
+        val loadedAt: Long,
+        val list: List<MatchBroadcast>,
+        /** Emisiunile care pomenesc un nume urmărit ([names]), recunoscute sau nu ca meci. */
+        val followed: List<EpgBroadcast> = emptyList(),
+        val names: List<String> = emptyList(),
+    )
 
     /** Azi și mâine (cu 30 de ore în urmă, pentru reluări): recitit la o oră sau când se schimbă EPG-ul. */
     @Volatile private var nearWindow: BroadcastWindow? = null
@@ -1089,15 +1099,19 @@ class SportsRepository(
         val scan = scanCache ?: scanChannels().also { scanCache = it; lap("canale") }
         // Emisiunile de până la 30 de ore în urmă: transmisia de aseară face din emisiunea de dimineață o reluare.
         // Întâi azi și mâine (lista apare repede), apoi restul săptămânii; amândouă rămân în memorie.
-        val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS }
+        // Numele urmărite se caută în aceeași citire a EPG-ului (alt nume urmărit = fereastra se recitește).
+        val names = s.favorites.names
+        val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS && it.names == names }
             ?: (now + NEAR_AHEAD_MS).let { end ->
-                BroadcastWindow(now - BROADCAST_BACK_MS, end, now, loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, end))
+                loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, end, names)
+                    .let { (list, followed) -> BroadcastWindow(now - BROADCAST_BACK_MS, end, now, list, followed, names) }
             }.also { nearWindow = it; lap("EPG azi-mâine (${it.list.size} emisiuni)") }
-        val far = farWindow?.takeIf { now - it.loadedAt < FAR_RELOAD_MS }
+        val far = farWindow?.takeIf { now - it.loadedAt < FAR_RELOAD_MS && it.names == names }
             ?: if (_snapshot.value.loading && farWindow == null) {
                 null
             } else {
-                BroadcastWindow(near.until, until, now, loadBroadcasts(scan.sportEpg, near.until, until))
+                loadBroadcasts(scan.sportEpg, near.until, until, names)
+                    .let { (list, followed) -> BroadcastWindow(near.until, until, now, list, followed, names) }
                     .also { farWindow = it; lap("EPG restul săptămânii (${it.list.size} emisiuni)") }
             }
         val broadcasts = if (far == null) near.list else (near.list + far.list).distinctBy { it.broadcast.programmeId }
@@ -1110,13 +1124,21 @@ class SportsRepository(
                 ?: EventChannels.parse(c.id, c.name, c.groupName, now, zone).also { slotCache[c.id] = key to it }
         }
         val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
-        val matches = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
+        val assembled = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
             .filter { m ->
                 // Meciurile doar din EPG sau din canale EVENT: după competiție, dacă se știe, altfel după echipe.
                 !s.topCompetitionsOnly || m.providers.any { it != MatchAssembler.EPG_PROVIDER && it != MatchAssembler.EVENT_PROVIDER } ||
-                    CompetitionFilter.keepMatch(m.sport, m.competition, m.home, m.away, knownTeams, fromProvider = false)
+                    CompetitionFilter.keepMatch(m.sport, m.competition, m.home, m.away, knownTeams, fromProvider = false) ||
+                    (names.isNotEmpty() && s.favorites.isFavorite(m))
             }
+        // F4: emisiunile care pomenesc un nume urmărit și nu sunt deja într-un meci (filtrul de competiții nu li se aplică).
+        val matches = if (names.isEmpty()) assembled else {
+            val used = HashSet<Long>()
+            assembled.forEach { m -> m.broadcasts.forEach { used += it.programmeId } }
+            val followed = (near.followed + far?.followed.orEmpty()).distinctBy { it.programmeId }.filter { it.programmeId !in used }
+            assembled + FollowedNames.matches(followed, names, now).filter { it.end > from && it.start < until }
+        }
         val slotChannels = activeSlots.map { it.channelId }.distinct().chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.associateBy { it.id }
         lap("asamblare (${matches.size} meciuri)")
 
@@ -1331,17 +1353,27 @@ class SportsRepository(
     }
 
     /** Emisiunile EPG care arată a meci (sau un eveniment fără echipe): de pe canalele de sport și cele cu categorie de sport. */
-    private suspend fun loadBroadcasts(sportEpg: Set<Long>, from: Long, until: Long): List<MatchBroadcast> {
+    private suspend fun loadBroadcasts(
+        sportEpg: Set<Long>,
+        from: Long,
+        until: Long,
+        names: List<String>,
+    ): Pair<List<MatchBroadcast>, List<EpgBroadcast>> {
         val rows = (epg.programmesOn(sportEpg, from, until) + epg.sportCategoryProgrammes(from, until, MAX_CATEGORY_ROWS))
             .distinctBy { it.id }
         // Titlurile se repetă (zile, canale): fiecare se analizează o singură dată; cache-ul se golește doar când e foarte mare.
         val cache = extractCache
         if (cache.size > MAX_EXTRACT_CACHE) cache.clear()
-        return rows.mapNotNull { r ->
+        val followed = ArrayList<EpgBroadcast>()
+        val list = rows.mapNotNull { r ->
             val sport = r.epgChannelId in sportEpg
             // Prima linie a descrierii contează doar pe canalele de sport (C4).
             val desc = if (sport) r.descriptionHead?.lineSequence()?.firstOrNull()?.takeIf { it.length <= 80 } else null
             val b = EpgBroadcast(r.id, r.epgChannelId, r.start, r.stop, r.title, r.subtitle, desc, r.category)
+            // Numele urmărite: și în începutul descrierii (des „Novak Djokovic vs …” e doar acolo).
+            if (names.isNotEmpty() && FollowedNames.nameIn(names, b.copy(description = r.descriptionHead)) != null) {
+                followed += b.copy(description = r.descriptionHead)
+            }
             val key = ExtractKey(r.title, r.subtitle, r.category, sport, desc)
             val x = if (cache.containsKey(key)) {
                 cache[key]
@@ -1351,6 +1383,7 @@ class SportsRepository(
             }
             x?.let { MatchBroadcast(b, it) }
         }
+        return list to followed
     }
 
     /** Ce contează pentru recunoașterea unui meci într-o emisiune (titlul se repetă pe multe canale și zile). */
@@ -1565,6 +1598,7 @@ fun providerLabel(provider: String): String = when (provider) {
     EuroLeague.PROVIDER -> "EuroLeague"
     UsLeagues.NHL_API -> "NHL"
     UsLeagues.MLB_API -> "MLB"
+    FollowedNames.PROVIDER -> "Nume urmărit (EPG)"
     else -> provider
 }
 

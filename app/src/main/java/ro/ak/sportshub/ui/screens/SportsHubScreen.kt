@@ -112,6 +112,7 @@ fun SportsHubScreen(
     val eventsTab = tab == MatchTab.entries.size
     val nowTab = tab == MatchTab.entries.size + 1
     val highlightsTab = tab == MatchTab.entries.size + 2
+    val standingsTab = tab == MatchTab.entries.size + 3
     val currentTab = MatchTab.entries[tab.coerceAtMost(MatchTab.entries.lastIndex)]
 
     val visible: List<MatchEntry> = remember(snapshot, settings, tab) {
@@ -155,7 +156,7 @@ fun SportsHubScreen(
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel, selectedIndex = tab, onSelect = { tab = it })
+        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel + StandingsTabLabel, selectedIndex = tab, onSelect = { tab = it })
 
         if (eventsTab) {
             EventChannelsList(snapshot = snapshot, enabled = settings.eventChannels, zone = zone, onOpenMatch = onOpenMatch, onPlay = onPlay)
@@ -172,6 +173,10 @@ fun SportsHubScreen(
         }
         if (highlightsTab) {
             HighlightsList(zone = zone, onPlayArchive = onPlayArchive)
+            return@Column
+        }
+        if (standingsTab) {
+            StandingsTab(onOpenMatch = onOpenMatch)
             return@Column
         }
 
@@ -212,8 +217,9 @@ fun SportsHubScreen(
                 hint = when {
                     snapshot.loading -> "Din EPG-ul tău, ESPN și ceilalți furnizori."
                     snapshot.matches.isEmpty() -> "Meciurile vin din EPG-ul playlisturilor, de la ESPN, EuroLeague și ceilalți furnizori (Setări → Sports Hub)."
-                    currentTab == MatchTab.FAVORITES && settings.favorites.teams.isEmpty() && settings.favorites.competitions.isEmpty() ->
-                        "Marchează echipe sau competiții ca favorite din ecranul unui meci sau din Setări."
+                    currentTab == MatchTab.FAVORITES && settings.favorites.teams.isEmpty() && settings.favorites.competitions.isEmpty() &&
+                        settings.favorites.names.isEmpty() ->
+                        "Marchează echipe sau competiții ca favorite din ecranul unui meci, din Clasamente sau din Setări (și nume urmărite: jucători, piloți)."
                     else -> "Încearcă alt tab sau scoate filtrele."
                 },
             )
@@ -590,6 +596,7 @@ private fun EventChannelsList(
 
 private const val NowTabLabel = "Acum pe canale"
 private const val HighlightsTabLabel = "Rezumate"
+private const val StandingsTabLabel = "Clasamente"
 
 /**
  * Tabul „Acum pe canalele tale”: fiecare canal de sport cu meciul care rulează acum pe el (din lista de meciuri,

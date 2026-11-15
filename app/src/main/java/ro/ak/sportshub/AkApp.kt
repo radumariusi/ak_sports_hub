@@ -39,6 +39,7 @@ import ro.ak.sportshub.data.SportsRepository
 import ro.ak.sportshub.data.SportsSettingsStore
 import ro.ak.sportshub.data.VariantRepository
 import ro.ak.sportshub.data.VariantStore
+import ro.ak.sportshub.data.StandingsRepository
 
 /** Dependențele aplicației, create o singură dată (fără bibliotecă de injecție, deocamdată). */
 class AppContainer(app: Application) {
@@ -146,6 +147,15 @@ class AppContainer(app: Application) {
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */
     val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor)
+
+    /** Clasamentele (tabul „Clasamente”), cerute doar cât e deschis tabul. */
+    val standings = StandingsRepository(app, http, diagnosticLog)
+
+    /** Meciul la care te uiți acum în player (pentru alertele de gol: nu pentru meciul de pe ecran). */
+    val watchingMatch = MutableStateFlow<String?>(null)
+
+    /** Meciurile deja comutate, anulate sau anunțate (o singură dată pe meci, cât rulează aplicația). */
+    val handledKickoffs: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 
     /** Trimite jurnalul ca issue în repo-ul aplicației, cu cheia GitHub din Setări → Despre. */
     val diagnosticReporter = DiagnosticReporter(http, scope, diagnosticLog, sports) { updater.token }

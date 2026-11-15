@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.model.SourcePreferences
+import ro.ak.sportshub.core.sports.FollowedNames
 import ro.ak.sportshub.core.sports.MatchFilter
 import ro.ak.sportshub.core.sports.MatchReminders
 import ro.ak.sportshub.core.sports.Sport
@@ -69,6 +70,10 @@ data class SportsSettings(
     val reminderMinutes: Int = MatchReminders.DEFAULT_LEAD_MINUTES,
     /** Rândul „Meciurile tale de azi” pe ecranul principal Android TV. */
     val homeRow: Boolean = true,
+    /** Comutare automată pe meciul favorit cu un minut înainte de start (cu 10 secunde ca s-o anulezi). */
+    val autoSwitch: Boolean = true,
+    /** Alertele de gol și „Final” pentru meciurile favorite (niciodată cu „Fără spoilere”). */
+    val goalAlerts: Boolean = true,
 )
 
 const val DEFAULT_STREAM_DELAY = 30
@@ -117,6 +122,14 @@ class SportsSettingsStore(context: Context) {
         s.copy(favorites = fav.copy(competitions = list))
     }
 
+    /** Urmărește un nume (jucător, pilot, luptător) sau oprește urmărirea lui. */
+    fun toggleFollowedName(name: String): Unit = update { s ->
+        val fav = s.favorites
+        val clean = FollowedNames.normalize(name) ?: return@update s
+        val names = if (fav.isName(clean)) fav.names.filterNot { Sport.fold(it) == Sport.fold(clean) } else fav.names + clean
+        s.copy(favorites = fav.copy(names = names))
+    }
+
     private fun read(): SportsSettings {
         val json = prefs.getString(KEY, null) ?: return SportsSettings()
         return runCatching {
@@ -154,10 +167,13 @@ class SportsSettingsStore(context: Context) {
                 reminders = o.optBoolean("reminders", d.reminders),
                 reminderMinutes = o.optInt("reminderMinutes", d.reminderMinutes).coerceIn(1, 120),
                 homeRow = o.optBoolean("homeRow", d.homeRow),
+                autoSwitch = o.optBoolean("autoSwitch", d.autoSwitch),
+                goalAlerts = o.optBoolean("goalAlerts", d.goalAlerts),
                 favorites = SportsFavorites(
                     teams = fav?.optJSONArray("teams").strings(),
                     competitions = fav?.optJSONArray("competitions").strings(),
                     sports = fav?.optJSONArray("sports").strings().mapNotNull(Sport::fromName).toSet(),
+                    names = fav?.optJSONArray("names").strings(),
                 ),
                 filter = if (f == null) MatchFilter() else MatchFilter(
                     sport = Sport.fromName(f.optString("sport")),
@@ -196,12 +212,15 @@ class SportsSettingsStore(context: Context) {
         put("reminders", s.reminders)
         put("reminderMinutes", s.reminderMinutes)
         put("homeRow", s.homeRow)
+        put("autoSwitch", s.autoSwitch)
+        put("goalAlerts", s.goalAlerts)
         put(
             "favorites",
             JSONObject().apply {
                 put("teams", JSONArray(s.favorites.teams))
                 put("competitions", JSONArray(s.favorites.competitions))
                 put("sports", JSONArray(s.favorites.sports.map { it.name }))
+                put("names", JSONArray(s.favorites.names))
             },
         )
         put(

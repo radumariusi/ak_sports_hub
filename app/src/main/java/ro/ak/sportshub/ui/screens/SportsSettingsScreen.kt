@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.sports.Sport
+import ro.ak.sportshub.core.sports.FollowedNames
 import ro.ak.sportshub.data.EventZones
 import ro.ak.sportshub.data.StreamDelays
 import ro.ak.sportshub.data.SportsSettings
@@ -33,7 +34,7 @@ import ro.ak.sportshub.core.sports.TheSportsDb
 import ro.ak.sportshub.core.sports.ProviderPolicy
 import ro.ak.sportshub.data.ReportState
 
-private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE, STREAM_DELAY }
+private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, NAMES, EVENT_ZONE, STREAM_DELAY }
 
 /** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
 @Composable
@@ -93,6 +94,22 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 subtitle = "Ascunde scorul, evenimentele și statisticile meciurilor începute; le poți arăta pe fiecare meci",
                 onClick = { update(false) { it.copy(noSpoilers = !it.noSpoilers) } },
                 trailing = { SettingValue(if (s.noSpoilers) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Comutare automată pe meciul favorit",
+                subtitle = "Cu un minut înainte de start: 10 secunde ca să anulezi (Back), apoi pornește sursa recomandată",
+                onClick = { update(false) { it.copy(autoSwitch = !it.autoSwitch) } },
+                trailing = { SettingValue(if (s.autoSwitch) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Alerte de gol și „Final”",
+                subtitle = "Pentru meciurile favorite de la ESPN, cât aplicația e pe ecran (și peste player). Niciodată cu „Fără spoilere”",
+                onClick = { update(false) { it.copy(goalAlerts = !it.goalAlerts) } },
+                trailing = { SettingValue(if (!s.goalAlerts) "Nu" else if (s.noSpoilers) "oprite de „Fără spoilere”" else "Da") },
             )
         }
         item {
@@ -326,6 +343,16 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 trailing = { SettingValue(s.favorites.competitions.size.toString()) },
             )
         }
+        item {
+            ListRow(
+                title = "Nume urmărite",
+                subtitle = s.favorites.names.joinToString(", ").ifEmpty {
+                    "Jucători, piloți, luptători: orice emisiune din EPG care îi pomenește apare în Sports Hub, la Favorite"
+                },
+                onClick = { dialog = SportsDialog.NAMES },
+                trailing = { SettingValue(s.favorites.names.size.toString()) },
+            )
+        }
     }
 
     when (dialog) {
@@ -395,6 +422,17 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 update(false) { it.copy(favorites = it.favorites.copy(competitions = list)) }
+                dialog = null
+            },
+        )
+        SportsDialog.NAMES -> TextInputDialog(
+            title = "Nume urmărite",
+            initial = s.favorites.names.joinToString(", "),
+            hint = "Separate prin virgulă (de exemplu: Djokovic, Max Verstappen, Simona Halep). Se caută în titlul și descrierea emisiunilor de sport",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                val list = text.split(',').mapNotNull { FollowedNames.normalize(it) }.distinctBy { Sport.fold(it) }
+                update(false) { it.copy(favorites = it.favorites.copy(names = list)) }
                 dialog = null
             },
         )

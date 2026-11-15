@@ -20,11 +20,16 @@ data class SportsFavorites(
     val teams: List<String> = emptyList(),
     val competitions: List<String> = emptyList(),
     val sports: Set<Sport> = emptySet(),
+    /** Numele urmărite (jucător, pilot, luptător): orice meci sau emisiune care le pomenește e favorit. */
+    val names: List<String> = emptyList(),
 ) {
     fun isFavorite(m: Match): Boolean =
         (m.sport != null && m.sport in sports) ||
             teams.any { t -> TeamNames.same(t, m.home) || (m.away.isNotBlank() && TeamNames.same(t, m.away)) } ||
-            competitions.any { c -> m.competition != null && Sport.fold(c) == Sport.fold(m.competition) }
+            competitions.any { c -> m.competition != null && Sport.fold(c) == Sport.fold(m.competition) } ||
+            (names.isNotEmpty() && FollowedNames.mentionsAny(names, m.home, m.away, m.competition))
+
+    fun isName(name: String): Boolean = names.any { Sport.fold(it) == Sport.fold(name) }
 
     fun isTeam(name: String): Boolean = teams.any { TeamNames.same(it, name) }
 

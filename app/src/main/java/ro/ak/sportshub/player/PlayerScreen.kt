@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -65,6 +66,7 @@ import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.KickoffNotices
+import ro.ak.sportshub.core.sports.AutoSwitch
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchClock
 import ro.ak.sportshub.core.sports.MatchStatus
@@ -223,6 +225,14 @@ fun PlayerScreen(
         }
     }
 
+    // Meciul de pe ecran: alertele de gol nu se dau pentru el (îl vezi).
+    LaunchedEffect(linkedMatch?.id) { container.watchingMatch.value = linkedMatch?.id }
+    DisposableEffect(Unit) { onDispose { container.watchingMatch.value = null } }
+
+    // F1: cu un minut înainte de un meci favorit, numărătoarea de 10 s (Back anulează), apoi sursa lui.
+    var autoSwitch by remember { mutableStateOf<MatchEntry?>(null) }
+    var autoSwitchSince by remember { mutableLongStateOf(0L) }
+
     // „A început meciul favorit X”: o dată pe meci, doar dacă are o sursă de pornit.
     val linkedId by rememberUpdatedState(linkedMatch?.id)
     LaunchedEffect(Unit) {
@@ -230,6 +240,20 @@ fun PlayerScreen(
             val snap = container.sports.snapshot.value
             val s = container.sportsSettings.current
             val t = System.currentTimeMillis()
+            if (s.autoSwitch && autoSwitch == null) {
+                val next = AutoSwitch.due(snap.matches.map { it.match }, s.favorites, t, container.handledKickoffs, linkedId)
+                if (next != null) {
+                    container.handledKickoffs += next.id
+                    snap.matches.firstOrNull { it.match.id == next.id && it.bestSource(s) != null }?.let {
+                        autoSwitchSince = System.currentTimeMillis()
+                        autoSwitch = it
+                    }
+                }
+            }
+            if (autoSwitch != null) {
+                delay(KICKOFF_CHECK_MS)
+                continue
+            }
             val due = KickoffNotices.due(snap.matches.map { it.match }, s.favorites, t, AnnouncedKickoffs, linkedId)
             val entry = due.firstNotNullOfOrNull { m -> snap.matches.firstOrNull { it.match.id == m.id && it.bestSource(s) != null } }
             due.forEach { AnnouncedKickoffs += it.id }
@@ -253,6 +277,15 @@ fun PlayerScreen(
         requestedMatch = entry.match.id
         kickoff = null
         if (best.id != state.channel?.id || replay) controller.play(best.id, zapGroup = 0) else Unit
+    }
+
+    // Numărătoarea comutării automate: la zero pornește meciul (stream-ul curent se oprește întâi).
+    LaunchedEffect(autoSwitch) {
+        val target = autoSwitch ?: return@LaunchedEffect
+        while (AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis()) > 0) delay(250)
+        autoSwitch = null
+        AnnouncedKickoffs += target.match.id
+        playMatch(target)
     }
 
     fun showInfo() {
@@ -300,6 +333,13 @@ fun PlayerScreen(
                 Panel.None
             }
         }
+    }
+
+    // Back în timpul numărătorii: comutarea se anulează (rămâi pe canal).
+    BackHandler(enabled = autoSwitch != null) {
+        autoSwitch?.let { AnnouncedKickoffs += it.match.id }
+        autoSwitch = null
+        toast = "Comutarea automată anulată."
     }
 
     fun onKey(code: Int): Boolean {
@@ -439,7 +479,28 @@ fun PlayerScreen(
             )
         }
 
-        kickoff?.let { k ->
+        autoSwitch?.let { a ->
+            val left = produceState(AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis()), a) {
+                while (true) {
+                    value = AutoSwitch.secondsLeft(autoSwitchSince, System.currentTimeMillis())
+                    delay(250)
+                }
+            }.value
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 32.dp, end = 32.dp)
+                    .width(440.dp)
+                    .background(Overlay, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(text = "★ Începe meciul favorit", fontSize = 13.sp, color = AkColors.Accent)
+                Text(text = a.match.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(text = "Trec pe meci în $left s · Back: anulează", fontSize = 14.sp, color = AkColors.TextDim)
+            }
+        }
+
+        if (autoSwitch == null) kickoff?.let { k ->
             if (panel != Panel.Quick) {
                 Column(
                     modifier = Modifier
