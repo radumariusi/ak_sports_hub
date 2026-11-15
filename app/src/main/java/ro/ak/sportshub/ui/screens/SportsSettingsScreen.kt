@@ -30,6 +30,8 @@ import ro.ak.sportshub.core.sports.FotMob
 import ro.ak.sportshub.core.sports.LiveOnSat
 import ro.ak.sportshub.core.sports.UsLeagues
 import ro.ak.sportshub.core.sports.TheSportsDb
+import ro.ak.sportshub.core.sports.ProviderPolicy
+import ro.ak.sportshub.data.ReportState
 
 private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE, STREAM_DELAY }
 
@@ -42,6 +44,8 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
     val s by store.settings.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
     val health by sports.health.collectAsStateWithLifecycle()
+    val reporter = container.diagnosticReporter
+    val report by reporter.state.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<SportsDialog?>(null) }
 
     // Schimbările care privesc TheSportsDB cer din nou doar ce lipsește (fără să forțeze descărcarea).
@@ -231,16 +235,22 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             if (s.usLeaguesEnabled) addAll(listOf(UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API))
         }
         item { SectionLabel("Starea furnizorilor (de la pornirea aplicației)") }
-        active.forEach { p ->
+        active.sortedBy { ProviderPolicy.rank(it) }.forEach { p ->
             item(key = "health-$p") {
                 val h = health[p]
+                val block = sports.blockOf(p)
+                val now = System.currentTimeMillis()
+                val pause = if (block.active(now)) {
+                    " · În pauză până la " + java.time.Instant.ofEpochMilli(block.until).atZone(java.time.ZoneId.systemDefault())
+                        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) + " (a refuzat de ${block.strikes} ori la rând)"
+                } else ""
                 ListRow(
                     title = providerLabel(p) + (h?.let { " · ${it.events} meciuri salvate" } ?: ""),
-                    subtitle = when {
+                    subtitle = ProviderPolicy.tier(p).label.replaceFirstChar { it.uppercase() } + " · " + when {
                         h == null || h.ok + h.failed == 0 -> "Nicio cerere de la pornire; se folosesc datele salvate"
                         h.failed == 0 -> "Ultima rundă: ${h.ok} cereri reușite"
                         else -> "Ultima rundă: ${h.ok} reușite, ${h.failed} nereușite · ${h.lastError.orEmpty()}"
-                    },
+                    } + pause,
                     onClick = {},
                 )
             }
@@ -250,6 +260,18 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 title = "Actualizează acum",
                 subtitle = status ?: "Cere din nou programul de la furnizorii activi",
                 onClick = { sports.refreshInBackground(force = true) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Trimite jurnalul pe GitHub",
+                subtitle = when (val r = report) {
+                    ReportState.Idle -> "Cererile la furnizori și ultimul răspuns al fiecăruia, ca issue în repo (fără nimic din playlisturi)"
+                    is ReportState.Sending -> r.step
+                    is ReportState.Sent -> "Trimis: issue #${r.number}"
+                    is ReportState.Failed -> r.reason
+                },
+                onClick = { reporter.send() },
             )
         }
 

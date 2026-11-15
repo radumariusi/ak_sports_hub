@@ -197,7 +197,7 @@ fun SettingsScreen(
         item {
             ListRow(
                 title = "Cheie GitHub pentru actualizări",
-                subtitle = "Doar dacă repo-ul e privat: un token „fine-grained” cu acces de citire la conținut. Nu intră în backup.",
+                subtitle = "Token „fine-grained” pe repo: Contents citire (actualizări) și Issues citire și scriere (jurnalul din Sports Hub). Nu intră în backup.",
                 onClick = { editingToken = true },
                 trailing = { Text(text = if (updater.token != null) "pusă" else "fără", fontSize = 14.sp) },
             )

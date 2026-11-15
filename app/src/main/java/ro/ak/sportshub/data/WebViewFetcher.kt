@@ -24,19 +24,22 @@ class WebViewFetcher(context: Context) {
     /** Rezultatul: textul paginii (JSON-ul ca text, sau HTML-ul) ori motivul pentru care nu s-a putut. */
     sealed interface Result {
         data class Ok(val text: String) : Result
-        data class Failed(val reason: String) : Result
+        /** [lastText]: ultimul text văzut în pagină (o pagină de verificare), pentru jurnal. */
+        data class Failed(val reason: String, val lastText: String? = null) : Result
     }
 
     /**
      * Deschide [url] și întoarce textul când [accept] îl găsește bun (o pagină de verificare se poate
      * transforma singură în pagina adevărată); cel mult [timeoutMs].
      */
-    suspend fun fetch(url: String, html: Boolean, accept: (String) -> Boolean, timeoutMs: Long = 25_000): Result =
-        withTimeoutOrNull(timeoutMs) { withContext(Dispatchers.Main) { load(url, html, accept) } }
-            ?: Result.Failed("timp depășit în browser")
+    suspend fun fetch(url: String, html: Boolean, accept: (String) -> Boolean, timeoutMs: Long = 25_000): Result {
+        var seen: String? = null
+        return withTimeoutOrNull(timeoutMs) { withContext(Dispatchers.Main) { load(url, html, accept) { seen = it } } }
+            ?: Result.Failed("timp depășit în browser", seen)
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun load(url: String, html: Boolean, accept: (String) -> Boolean): Result =
+    private suspend fun load(url: String, html: Boolean, accept: (String) -> Boolean, onText: (String) -> Unit): Result =
         suspendCancellableCoroutine { cont ->
             val web = runCatching { WebView(app) }.getOrElse {
                 cont.resume(Result.Failed("browserul sistemului lipsește (WebView)"))
@@ -66,6 +69,7 @@ class WebViewFetcher(context: Context) {
                     val js = if (html) "document.documentElement.outerHTML" else "document.body ? document.body.innerText : ''"
                     view.evaluateJavascript("(function(){return $js;})()") { raw ->
                         val text = runCatching { JSONArray("[$raw]").getString(0) }.getOrNull().orEmpty()
+                        onText(text)
                         if (accept(text)) finish(Result.Ok(text))
                         // altfel: poate e o pagină de verificare care se reîncarcă; se așteaptă până la limita de timp.
                     }
