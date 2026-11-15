@@ -43,7 +43,7 @@ fun SettingsPane(sections: List<SettingsSection>, modifier: Modifier = Modifier,
     val index = selected.coerceIn(0, (sections.size - 1).coerceAtLeast(0))
     val requesters = remember(sections.size) { List(sections.size) { FocusRequester() } }
     Row(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
+        LazyColumn(contentPadding = ListPadding, 
             modifier = Modifier
                 .width(300.dp)
                 .fillMaxHeight()
@@ -66,7 +66,7 @@ fun SettingsPane(sections: List<SettingsSection>, modifier: Modifier = Modifier,
         Spacer(Modifier.width(16.dp))
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             val section = sections.getOrNull(index)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 header()
                 if (section != null) {
                     item(key = "titlu-" + section.title) { SectionLabel(section.title) }

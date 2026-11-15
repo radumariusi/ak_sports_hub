@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.epg
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -113,7 +114,7 @@ fun ScheduleList(
     LaunchedEffect(rows) { if (focusOnStart) runCatching { focus.requestFocus() } }
 
     Column(modifier = modifier) {
-        LazyColumn(
+        LazyColumn(contentPadding = ListPadding, 
             state = listState,
             verticalArrangement = Arrangement.spacedBy(2.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),

@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.epg
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,7 +88,7 @@ fun EpgSettingsScreen() {
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         LoadsPanel()
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item { SectionLabel("Actualizare") }
             item {
                 ListRow(

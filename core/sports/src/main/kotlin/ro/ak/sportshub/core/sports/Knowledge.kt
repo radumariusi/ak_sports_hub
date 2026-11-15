@@ -17,7 +17,24 @@ data class RightsRule(
     val excludes: List<String> = emptyList(),
     /** Regulă livrată cu aplicația ([PresetRights]), nu scrisă de tine. */
     val preset: Boolean = false,
+    /**
+     * Furnizorul programului dă posturile acestei țări meci cu meci (ESPN, NHL, MLB pentru SUA): când meciul vine de la
+     * el, regula nu mai presupune nimic, contează doar posturile anunțate.
+     */
+    val listedPerGame: Boolean = false,
+    /** Regula prinde doar meciurile acestor echipe (de exemplu NBA în Canada = Toronto Raptors); gol = toate. */
+    val teams: List<String> = emptyList(),
 ) {
+    /** Dacă regula se aplică meciului (echipele și furnizorii lui), după ce [appliesTo] a prins competiția. */
+    fun appliesToMatch(match: Match): Boolean {
+        if (listedPerGame && match.providers.any { it in PER_GAME_PROVIDERS }) return false
+        if (teams.isEmpty()) return true
+        val sides = " ${Sport.fold(match.home)} | ${Sport.fold(match.away)} "
+        return foldedTeams.any { sides.contains(it) }
+    }
+
+    private val foldedTeams by lazy { teams.map { " " + Sport.fold(it) + " " }.map { it.replace("  ", " ") } }
+
     fun appliesTo(competition: String?): Boolean {
         if (!enabled || competition.isNullOrBlank()) return false
         val c = " ${Sport.fold(competition)} "
@@ -35,6 +52,9 @@ data class RightsRule(
     val label: String
         get() = competitions.firstOrNull().orEmpty() + " → " + stations.joinToString(", ") + (country?.let { " ($it)" } ?: "")
 }
+
+/** Furnizorii care dau posturile din SUA meci cu meci. */
+internal val PER_GAME_PROVIDERS = setOf(Espn.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API)
 
 /** Regulile cu care pornește aplicația (exemple editabile, nu adevăr absolut). */
 object DefaultRights {
@@ -201,12 +221,12 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
     private val rules = knowledge.allRules
 
     // Mii de meciuri, dar doar câteva sute de competiții: regulile se aplică o dată pe competiție.
-    private val rightsCache = HashMap<String, List<Pair<String, String>>>()
+    private val rightsCache = HashMap<String, List<Triple<RightsRule, String, String>>>()
 
-    /** (post, cheia canalului) din regulile de drepturi care prind competiția. */
-    private fun rightsFor(competition: String): List<Pair<String, String>> = rightsCache.getOrPut(competition) {
+    /** (regula, post, cheia canalului) din regulile de drepturi care prind competiția. */
+    private fun rightsFor(competition: String): List<Triple<RightsRule, String, String>> = rightsCache.getOrPut(competition) {
         rules.filter { it.appliesTo(competition) }.flatMap { rule ->
-            rule.stations.flatMap { station -> index.find(TvStation(station, rule.country)).map { station to it } }
+            rule.stations.flatMap { station -> index.find(TvStation(station, rule.country)).map { Triple(rule, station, it) } }
         }
     }
 
@@ -240,7 +260,8 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         dedicatedKeys.filter { comp == null || "$comp|$it" !in knowledge.rightsBlocks }.forEach { add(it, Confidence.DEDICATED) }
         if (comp != null) {
             knowledge.learnedRights[comp].orEmpty().forEach { add(it, Confidence.LEARNED) }
-            for ((station, key) in rightsFor(match.competition.orEmpty())) {
+            for ((rule, station, key) in rightsFor(match.competition.orEmpty())) {
+                if (!rule.appliesToMatch(match)) continue
                 if ("$comp|$key" !in knowledge.rightsBlocks) add(key, Confidence.RIGHTS, station)
             }
         }

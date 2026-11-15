@@ -52,8 +52,18 @@ object PresetRights {
     private val NOT_US_OPEN = listOf("golf", "pga", "cup", "squash", "badminton")
     private val NOT_MLS = listOf("next pro", "nextpro")
 
-    private fun rule(competitions: List<String>, country: String?, vararg stations: String, excludes: List<String> = emptyList()) =
-        RightsRule(competitions, stations.toList(), country, enabled = true, excludes = excludes, preset = true)
+    private fun rule(
+        competitions: List<String>,
+        country: String?,
+        vararg stations: String,
+        excludes: List<String> = emptyList(),
+        listedPerGame: Boolean = false,
+        teams: List<String> = emptyList(),
+    ) = RightsRule(competitions, stations.toList(), country, enabled = true, excludes = excludes, preset = true, listedPerGame = listedPerGame, teams = teams)
+
+    /** Echipele canadiene: TSN și Sportsnet dau NBA și MLB doar pentru ele (plus câteva meciuri naționale). */
+    private val RAPTORS = listOf("toronto raptors", "raptors")
+    private val BLUE_JAYS = listOf("toronto blue jays", "blue jays")
 
     val rules: List<RightsRule> = listOf(
         // ---------- Marea Britanie ----------
@@ -90,11 +100,11 @@ object PresetRights {
         rule(SNOOKER, null, "Eurosport 1", "Eurosport 2"),
 
         // ---------- SUA ----------
-        rule(NFL, "USA", "CBS", "FOX", "NBC", "ESPN", "ABC", "NFL Network", "Amazon Prime Video", "Peacock", "Netflix"),
-        rule(NBA, "USA", "ESPN", "ABC", "NBC", "Peacock", "Amazon Prime Video", "NBA TV"),
-        rule(NHL, "USA", "ESPN", "ESPN2", "ABC", "TNT", "TBS", "truTV", "NHL Network"),
-        rule(MLB, "USA", "FOX", "FS1", "NBC", "Netflix", "TBS", "MLB Network"),
-        rule(MLS, "USA", "Apple TV", "FOX", "FS1", excludes = NOT_MLS),
+        rule(NFL, "USA", "CBS", "FOX", "NBC", "ESPN", "ABC", "NFL Network", "Amazon Prime Video", "Peacock", "Netflix", listedPerGame = true),
+        rule(NBA, "USA", "ESPN", "ABC", "NBC", "Peacock", "Amazon Prime Video", "NBA TV", listedPerGame = true),
+        rule(NHL, "USA", "ESPN", "ESPN2", "ABC", "TNT", "TBS", "truTV", "NHL Network", listedPerGame = true),
+        rule(MLB, "USA", "FOX", "FS1", "NBC", "Netflix", "TBS", "MLB Network", listedPerGame = true),
+        rule(MLS, "USA", "Apple TV", "FOX", "FS1", excludes = NOT_MLS, listedPerGame = true),
         rule(EPL, "USA", "NBC", "USA Network", "Peacock", "CNBC", excludes = NOT_EPL),
         rule(UCL, "USA", "CBS", "CBS Sports Network", "Paramount+", "TUDN", "UniMas", excludes = NOT_UEFA),
         rule(LALIGA, "USA", "ESPN", "ESPN2", "ESPN Deportes", "ESPN+", excludes = NOT_LALIGA),
@@ -104,9 +114,9 @@ object PresetRights {
 
         // ---------- Canada ----------
         rule(NHL, "Canada", "Sportsnet", "Sportsnet ONE", "Sportsnet 360", "CBC", "TVA Sports"),
-        rule(NBA, "Canada", "TSN", "TSN 1", "TSN 2", "Sportsnet", "Sportsnet ONE"),
+        rule(NBA, "Canada", "TSN", "TSN 1", "TSN 2", "Sportsnet", "Sportsnet ONE", teams = RAPTORS),
         rule(NFL, "Canada", "TSN", "TSN 1", "CTV", "DAZN"),
-        rule(MLB, "Canada", "Sportsnet", "Sportsnet ONE"),
+        rule(MLB, "Canada", "Sportsnet", "Sportsnet ONE", teams = BLUE_JAYS),
 
         // ---------- Germania ----------
         rule(BUNDESLIGA, "Germany", "Sky Sport Bundesliga", "Sky Sport Top Event", "DAZN 1", "DAZN 2", excludes = NOT_BUNDESLIGA),

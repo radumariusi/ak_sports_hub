@@ -1248,7 +1248,9 @@ class SportsRepository(
                 // Lista vine doar din furnizorii de program (Radu): EPG-ul și canalele EVENT / PPV doar găsesc sursele.
                 // Un meci fără niciun furnizor (de exemplu „UEFA Nations League in 60” din EPG) nu intră; reluările și
                 // rezumatele sunt în tabul Rezumate, canalele EVENT în tabul Evenimente.
-                m.providers.any { it != MatchAssembler.EPG_PROVIDER && it != MatchAssembler.EVENT_PROVIDER }
+                // Site-urile FutbolEnLaTV (spaniolă, germană, italiană…) scriu echipele și competițiile în limba lor:
+                // ele doar adaugă posturi meciurilor găsite de furnizorii în engleză, nu fac meciuri singure.
+                m.providers.any { it !in SOURCE_ONLY_PROVIDERS }
             }
             .filter { m ->
                 // Meciurile doar din EPG sau din canale EVENT: după competiție, dacă se știe, altfel după echipe.
@@ -1690,7 +1692,10 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 6
+        const val INPUTS_VERSION = 7
+
+        /** Furnizorii care doar găsesc surse (posturi, canale), fără să adauge meciuri în listă. */
+        val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER)
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1

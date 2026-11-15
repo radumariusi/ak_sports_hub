@@ -19,7 +19,7 @@ internal object NationNames {
         "bulgaria" to listOf("bulgarien", "bulgarie", "bulgarije"),
         "croatia" to listOf("croacia", "kroatien", "croazia", "croatie", "croacia", "kroatie"),
         "cyprus" to listOf("chipre", "zypern", "cipro", "chypre", "cipru"),
-        "czech republic" to listOf("czechia", "chequia", "republica checa", "tschechien", "repubblica ceca", "cechia", "republique tcheque", "tchequie", "cehia", "tsjechie"),
+        "czech republic" to listOf("czechia", "chequia", "republica checa", "tschechien", "repubblica ceca", "cechia", "republique tcheque", "tchequie", "cehia", "tsjechie", "tschechische republik", "tschechische", "tschech republik", "republica cehă"),
         "denmark" to listOf("dinamarca", "danemark", "danimarca", "danemarca", "denemarken", "danmark"),
         "england" to listOf("inglaterra", "england", "inghilterra", "angleterre", "anglia", "engeland"),
         "estonia" to listOf("estland", "estonie"),

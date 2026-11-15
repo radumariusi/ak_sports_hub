@@ -293,12 +293,12 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Semnalat din player: rămâne sursă, doar cu eticheta asta.
         if (ro.ak.sportshub.data.CorrectionKey(playlistId, name) in suspect) {
-            Text(text = "canal posibil greșit", fontSize = 13.sp, color = accentText(), modifier = Modifier.padding(end = 6.dp))
+            Text(text = "canal posibil greșit", fontSize = 13.sp, color = accentText(), maxLines = 1, softWrap = false, modifier = Modifier.padding(end = 6.dp))
         }
         QualityTag(text = view.label + if (view.verified) " ✓" else "", quality = view.quality)
         view.playlistLabel?.let { old ->
-            Text(text = ", în playlist ", fontSize = 13.sp, color = dimText(), modifier = Modifier.padding(start = 4.dp))
-            Text(text = old, fontSize = 13.sp, color = dimText(), textDecoration = TextDecoration.LineThrough)
+            Text(text = ", în playlist ", fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+            Text(text = old, fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, textDecoration = TextDecoration.LineThrough)
         }
     }
 }
@@ -426,3 +426,9 @@ fun rememberReturnFocus(): ReturnFocus {
     }
     return rf
 }
+
+/**
+ * Marginea listelor: rândul focusat e ușor mărit și are ramă, iar fără loc în jur primul (și ultimul) rând
+ * apărea tăiat sus.
+ */
+val ListPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)

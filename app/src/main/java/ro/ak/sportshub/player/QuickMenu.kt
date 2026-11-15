@@ -1,5 +1,6 @@
 package ro.ak.sportshub.player
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -63,7 +64,7 @@ fun QuickMenuContent(
     val previousModifier = firstFocus()
 
     SidePanel(modifier.width(560.dp)) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(key = "title") { SectionLabel("Meniu rapid") }
             if (announced != null) {
                 item(key = "announced") {

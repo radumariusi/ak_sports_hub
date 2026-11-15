@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -264,7 +265,7 @@ fun SportsHubScreen(
             val all = calendar.flatMap { it.second } + otherFavorites
             val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -620,7 +621,7 @@ private fun EventChannelsList(
         return
     }
     val returnFocus = rememberReturnFocus()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(events, key = { "ev:" + it.channel.id }) { e ->
             val rowKey = "ev:" + e.channel.id
             val time = e.slot.start?.let { val z = Instant.ofEpochMilli(it).atZone(zone); "${z.format(DayFormat)} ${z.format(TimeFormat)}" } ?: "oră necunoscută"
@@ -674,7 +675,7 @@ private fun NowOnChannelsList(
         return
     }
     val returnFocus = rememberReturnFocus()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(rows, key = { "now:" + it.groupKey }) { row ->
             val rowKey = "now:" + row.groupKey
             val m = row.match
@@ -732,7 +733,7 @@ private fun HighlightsList(zone: ZoneId, onPlayArchive: (Long, Long, Long) -> Un
         return
     }
     val returnFocus = rememberReturnFocus()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(items, key = { "hl:" + it.channel.id + ":" + it.start }) { h ->
             val rowKey = "hl:" + h.channel.id + ":" + h.start
             val start = Instant.ofEpochMilli(h.start).atZone(zone)
