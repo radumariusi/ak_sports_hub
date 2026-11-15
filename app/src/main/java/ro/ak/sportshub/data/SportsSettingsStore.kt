@@ -79,7 +79,8 @@ data class SportsSettings(
 const val DEFAULT_STREAM_DELAY = 30
 
 /** Valorile din care alegi întârzierea stream-ului (secunde). */
-val StreamDelays: List<Int> = listOf(0, 10, 20, 30, 45, 60, 90, 120, 180)
+/** Întârzierea stream-ului, din 10 în 10 secunde, până la 5 minute. */
+val StreamDelays: List<Int> = (0..300 step 10).toList()
 
 /** Fusurile din care poți alege pentru orele din numele canalelor EVENT (gol = fusul televizorului). */
 val EventZones: List<Pair<String, String>> = listOf(
@@ -163,7 +164,7 @@ class SportsSettingsStore(context: Context) {
                 },
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
-                streamDelaySeconds = o.optInt("streamDelay", d.streamDelaySeconds).coerceIn(0, 600),
+                streamDelaySeconds = ((o.optInt("streamDelay", d.streamDelaySeconds).coerceIn(0, 300) + 5) / 10 * 10).coerceAtMost(300),
                 reminders = o.optBoolean("reminders", d.reminders),
                 reminderMinutes = o.optInt("reminderMinutes", d.reminderMinutes).coerceIn(1, 120),
                 homeRow = o.optBoolean("homeRow", d.homeRow),

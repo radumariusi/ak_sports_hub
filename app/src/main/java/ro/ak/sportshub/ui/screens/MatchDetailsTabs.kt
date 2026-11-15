@@ -410,6 +410,47 @@ internal fun LazyListScope.lineupList(team: String, players: List<LineupPlayer>,
     }
 }
 
+/** Cele două echipe una lângă alta (gazdele stânga, oaspeții dreapta), rând cu rând: titularii, apoi rezervele. */
+internal fun LazyListScope.lineupColumns(home: String, away: String, players: List<LineupPlayer>) {
+    val h = players.filter { it.home }
+    val a = players.filter { !it.home }
+    if (h.isEmpty() && a.isEmpty()) return
+    item(key = "luc-h") {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
+            listOf(home to h, away to a).forEach { (team, ps) ->
+                Text(
+                    text = team + (Formation.of(ps)?.label?.let { " · $it" } ?: ""),
+                    fontSize = 14.sp,
+                    fontFamily = AkFonts.Condensed,
+                    fontWeight = FontWeight.Bold,
+                    color = AkColors.Accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp, bottom = 2.dp),
+                )
+            }
+        }
+    }
+    fun pairs(prefix: String, left: List<LineupPlayer>, right: List<LineupPlayer>) {
+        val n = maxOf(left.size, right.size)
+        items((0 until n).toList(), key = { "luc:$prefix:$it" }) { i ->
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) { left.getOrNull(i)?.let { PlayerLine(it) } }
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) { right.getOrNull(i)?.let { PlayerLine(it) } }
+            }
+        }
+    }
+    val (hs, hStart) = h.partition { it.substitute }
+    val (aws, aStart) = a.partition { it.substitute }
+    pairs("t", hStart, aStart)
+    if (hs.isNotEmpty() || aws.isNotEmpty()) {
+        item(key = "luc-s") {
+            Text(text = "REZERVE", fontSize = 11.sp, letterSpacing = 1.5.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 1.dp))
+        }
+        pairs("s", hs, aws)
+    }
+}
+
 /**
  * Evenimentele pe o axă: gazdele în stânga (aliniate spre mijloc), minutul la mijloc, oaspeții în dreapta.
  * [onClick] (panoul din player): saltul în arhivă.

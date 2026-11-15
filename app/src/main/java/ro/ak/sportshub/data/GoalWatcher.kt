@@ -26,11 +26,14 @@ class GoalWatcher(
     /** Ultimul scor citit, pe meci (doar în memorie). */
     private val last = HashMap<String, ScoreState>()
 
+    /** Când s-a cerut ultima dată fiecare meci (cererile rămân una pe minut). */
+    private val fetchedAt = HashMap<String, Long>()
+
     /** Rulează cât e apelat (aplicația e pe ecran); se oprește odată cu corutina. */
     suspend fun run() {
         while (true) {
             runCatching { tick() }
-            delay(GoalAlerts.REFRESH_MS)
+            delay(TICK_MS)
         }
     }
 
@@ -55,10 +58,16 @@ class GoalWatcher(
             .take(GoalAlerts.MAX_WATCHED)
             .toList()
         last.keys.retainAll(candidates.map { it.id }.toSet())
+        fetchedAt.keys.retainAll(last.keys + candidates.map { it.id })
         for (m in candidates) {
             val stillLive = last[m.id]?.status != MatchStatus.FINISHED
-            details.refreshLive(if (stillLive) m.copy(status = MatchStatus.LIVE, end = maxOf(m.end, now + TimeUnit.MINUTES.toMillis(2))) else m)
-            val e = details.states.value[m.id]?.details?.event ?: continue
+            if (now - (fetchedAt[m.id] ?: 0L) >= GoalAlerts.REFRESH_MS) {
+                fetchedAt[m.id] = now
+                details.refreshLive(if (stillLive) m.copy(status = MatchStatus.LIVE, end = maxOf(m.end, now + TimeUnit.MINUTES.toMillis(2))) else m)
+            }
+            // Golul apare abia după întârzierea stream-ului (setarea din Sports Hub), ca peste tot.
+            val raw = details.states.value[m.id]?.details ?: continue
+            val e = details.delayedDetails(m, System.currentTimeMillis(), s.streamDelaySeconds * 1_000L, raw).event ?: continue
             val state = ScoreState(e.homeScore, e.awayScore, e.status)
             // Numele echipelor ca la ESPN (gazdele și oaspeții din răspuns, nu din unirea furnizorilor).
             val named = m.copy(home = e.home.ifBlank { m.home }, away = e.away.ifBlank { m.away })
@@ -69,5 +78,8 @@ class GoalWatcher(
 
     private companion object {
         val LATE_MS: Long = TimeUnit.HOURS.toMillis(2)
+
+        /** Verificarea la 10 s (alerta iese la timp după întârziere); cererile rămân una pe minut ([GoalAlerts.REFRESH_MS]). */
+        const val TICK_MS = 10_000L
     }
 }

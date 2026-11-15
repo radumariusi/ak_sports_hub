@@ -75,6 +75,10 @@ class MatchDetailsRepository(
      */
     fun delayedView(match: Match, now: Long, delayMs: Long): PanelView? = delays[match.id]?.view(now, delayMs, match)
 
+    /** Detaliile live întârziate cât stream-ul (tabul Live, Statistici, alertele); [raw] dacă nu s-a cerut live. */
+    fun delayedDetails(match: Match, now: Long, delayMs: Long, raw: MatchDetails): MatchDetails =
+        delays[match.id]?.details(now, delayMs) ?: raw
+
     /** Pre-meci: detaliile, forma, meciurile directe, clasamentul și echipele de start. */
     suspend fun refreshPreMatch(match: Match, force: Boolean = false) =
         refresh(match, DetailsSchedule.Part.PRE_MATCH, force)

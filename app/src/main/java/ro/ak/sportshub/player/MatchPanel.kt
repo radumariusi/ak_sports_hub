@@ -26,7 +26,7 @@ import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.screens.PitchView
 import ro.ak.sportshub.ui.screens.formSection
 import ro.ak.sportshub.ui.screens.headToHeadSection
-import ro.ak.sportshub.ui.screens.lineupList
+import ro.ak.sportshub.ui.screens.lineupColumns
 import ro.ak.sportshub.ui.screens.tableSection
 import ro.ak.sportshub.core.sports.LineupPlayer
 import ro.ak.sportshub.core.sports.Match
@@ -257,8 +257,7 @@ private fun LazyListScope.lineupTab(match: Match, lineup: List<LineupPlayer>) {
     if (homeF != null && awayF != null) {
         item(key = "pitch") { PitchView(homeF, awayF, Modifier.padding(horizontal = 4.dp, vertical = 4.dp), height = 230.dp) }
     }
-    lineupList(match.home, lineup.filter { it.home }, "h")
-    lineupList(match.away, lineup.filter { !it.home }, "a")
+    lineupColumns(match.home, match.away, lineup)
 }
 
 private fun LazyListScope.preTab(match: Match, details: MatchDetails, hidden: Boolean, onReveal: () -> Unit) {

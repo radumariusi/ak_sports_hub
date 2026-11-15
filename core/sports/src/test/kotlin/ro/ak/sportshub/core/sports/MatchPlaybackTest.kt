@@ -152,4 +152,44 @@ class MatchPlaybackTest {
         assertNull(Formation.of(players.drop(1)))
         assertNull(Formation.of(players.map { it.copy(position = null) }))
     }
+
+    @Test
+    fun scorul_din_lista_apare_dupa_intarziere() {
+        val d = ScoreDelay()
+        val live = match.copy(status = MatchStatus.LIVE, homeScore = 0, awayScore = 0, end = kickoff + min(115))
+        val t0 = kickoff + min(10)
+        d.observe(listOf(live), t0)
+        // Ce se știa de la început apare imediat.
+        assertEquals(0, d.apply(live, t0, sec(30)).homeScore)
+        val goal = live.copy(homeScore = 1)
+        d.observe(listOf(goal), t0 + sec(60))
+        assertTrue(d.pending(t0 + sec(70), sec(30)))
+        assertEquals(0, d.apply(goal, t0 + sec(70), sec(30)).homeScore)
+        assertEquals(1, d.apply(goal, t0 + sec(91), sec(30)).homeScore)
+        assertFalse(d.pending(t0 + sec(91), sec(30)))
+        // Fără întârziere: scorul de acum.
+        assertEquals(1, d.apply(goal, t0 + sec(61), 0).homeScore)
+        // Finalul tot după întârziere: meciul rămâne LIVE până atunci.
+        val end = goal.copy(status = MatchStatus.FINISHED, end = t0 + sec(120))
+        d.observe(listOf(end), t0 + sec(120))
+        assertEquals(MatchStatus.LIVE, d.apply(end, t0 + sec(130), sec(30)).status)
+        assertEquals(MatchStatus.FINISHED, d.apply(end, t0 + sec(151), sec(30)).status)
+    }
+
+    @Test
+    fun emisiunea_de_acum_alege_meciul() {
+        val belgium = match.copy(id = "a", home = "Belgium", away = "Italy", status = MatchStatus.LIVE)
+        val spain = match.copy(id = "b", home = "Spain", away = "England", status = MatchStatus.LIVE)
+        val found = OnAirMatch.find("UEFA Nations League - Spain vs. England", null, null, kickoff + min(20), listOf(belgium, spain))
+        assertEquals("b", found?.id)
+        assertNull(OnAirMatch.find("LaLiga Goals Galore", null, null, kickoff + min(20), listOf(belgium, spain)))
+    }
+
+    @Test
+    fun minutul_merge_intre_cereri() {
+        assertEquals("25", LiveClock.advance("22", "1H", Sport.FOOTBALL, min(3)))
+        assertEquals("45+2", LiveClock.advance("44", "1H", Sport.FOOTBALL, min(3)))
+        assertEquals("22", LiveClock.advance("22", "HT", Sport.FOOTBALL, min(3)))
+        assertEquals("22", LiveClock.advance("22", "1H", Sport.BASKETBALL, min(3)))
+    }
 }

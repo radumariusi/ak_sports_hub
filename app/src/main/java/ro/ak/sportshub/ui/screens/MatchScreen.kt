@@ -132,7 +132,13 @@ fun MatchScreen(
     }
     val m = entry.match
     val currentMatch by rememberUpdatedState(m)
-    val detailsState = detailsStates[m.id] ?: MatchDetailsState()
+    // Scorul, evenimentele și statisticile live întârziate cât stream-ul (setarea din Sports Hub), reîmprospătate la 5 s.
+    var delayTick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); delayTick++ } }
+    val rawDetailsState = detailsStates[m.id] ?: MatchDetailsState()
+    val detailsState = remember(rawDetailsState, delayTick, settings.streamDelaySeconds) {
+        rawDetailsState.copy(details = details.delayedDetails(m, System.currentTimeMillis(), settings.streamDelaySeconds * 1_000L, rawDetailsState.details))
+    }
     val event = detailsState.details.event
     val liveStatus = listOfNotNull(event?.status, m.status).maxBy { it.ordinal }
     val hideSpoilers = Spoilers.hide(settings.noSpoilers, m.id in revealed, liveStatus)

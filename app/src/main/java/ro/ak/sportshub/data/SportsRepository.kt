@@ -204,17 +204,46 @@ class SportsRepository(
     /** Cum a mers ultima rundă de cereri la fiecare furnizor (cheia: [providerOf]) și câte meciuri a dat. */
     val health: StateFlow<Map<String, ProviderHealth>> = _health.asStateFlow()
 
-    val snapshot: StateFlow<SportsSnapshot> = _snapshot.asStateFlow()
+    /** Lista arătată: ca [_snapshot], cu scorul și starea întârziate cât stream-ul ([ScoreDelay]). */
+    private val _shown = MutableStateFlow(SportsSnapshot())
+    private val scoreDelay = ro.ak.sportshub.core.sports.ScoreDelay()
+
+    val snapshot: StateFlow<SportsSnapshot> = _shown.asStateFlow()
+
+    /** Reface lista arătată din cea calculată, cu întârzierea scorurilor din setări. */
+    private fun publishShown() {
+        val raw = _snapshot.value
+        val now = System.currentTimeMillis()
+        val delayMs = settings.settings.value.streamDelaySeconds * 1_000L
+        if (!raw.loading) scoreDelay.observe(raw.matches.map { it.match }, now)
+        var changed = false
+        val matches = raw.matches.map { e ->
+            val m = scoreDelay.apply(e.match, now, delayMs)
+            if (m === e.match) e else { changed = true; e.copy(match = m) }
+        }
+        _shown.value = if (changed) raw.copy(matches = matches) else raw
+    }
 
     /** Ce face acum („Se descarcă programul…”) sau ultima eroare; null dacă nimic. */
     val status: StateFlow<String?> = _status.asStateFlow()
 
-    fun find(id: String): MatchEntry? = _snapshot.value.matches.firstOrNull { it.match.id == id }
+    fun find(id: String): MatchEntry? = _shown.value.matches.firstOrNull { it.match.id == id }
 
     /** Pornește recalcularea la orice schimbare (EPG, playlisturi, corecții, setări) și la fiecare minut. */
     @OptIn(FlowPreview::class)
     fun start() {
         if (!started.compareAndSet(false, true)) return
+        // Lista arătată urmează lista calculată; cât o schimbare de scor își așteaptă întârzierea, la 5 s.
+        scope.launch {
+            merge(_snapshot.map { "list" }, settings.settings.map { it.streamDelaySeconds }.distinctUntilChanged().map { "delay" })
+                .collect { publishShown() }
+        }
+        scope.launch {
+            while (true) {
+                delay(DELAY_TICK_MS)
+                if (scoreDelay.pending(System.currentTimeMillis(), settings.settings.value.streamDelaySeconds * 1_000L)) publishShown()
+            }
+        }
         scope.launch {
             // Lista de data trecută apare imediat (și după ce Android a închis aplicația); se recalculează doar dacă
             // s-a schimbat ceva de atunci.
@@ -762,7 +791,8 @@ class SportsRepository(
     }
 
     /**
-     * ESPN: o cerere pe ligă și zi (azi și mâine, zile ESPN), doar în zilele cu meciuri din calendarul ligii.
+     * ESPN: o cerere pe ligă și zi (azi și mâine, zile ESPN; restul săptămânii o dată pe zi, doar zilele cu meciuri
+     * sigure din calendar sau prima zi a unui turneu), doar în zilele cu meciuri din calendarul ligii.
      * Calendarul se reîmprospătează cam o dată pe săptămână (cu cererea pentru azi); o ligă inexistentă (404) se
      * mai încearcă abia peste o lună. „Actualizează acum” nu trece peste calendar (ar însemna sute de cereri).
      */
@@ -770,9 +800,12 @@ class SportsRepository(
         val today = Espn.today()
         val now = System.currentTimeMillis()
         for (league in Espn.leaguesFor(s.sports)) {
-            for (offset in 0..1) {
+            for (offset in 0 until ESPN_DAYS) {
                 val day = today.plusDays(offset.toLong())
                 if (!espnWanted(league, day, offset, now)) continue
+                // „Actualizează acum” nu reface zilele 3-7: se schimbă rar, iar ar fi zeci de cereri.
+                val f0 = File(dir, "espn-${league.key}-$day.json")
+                if (offset >= 2 && f0.exists() && !isStale(f0, fresh(Espn.PROVIDER, offset))) continue
                 val f = File(dir, "espn-${league.key}-$day.json")
                 if (force || isStale(f, fresh(Espn.PROVIDER, offset))) jobs += Job(Espn.scoreboardUrl(league, day), f, espn = league)
             }
@@ -792,6 +825,11 @@ class SportsRepository(
         val refresh = CAL_REFRESH_MS + TimeUnit.HOURS.toMillis((league.key.hashCode() and 0x7fffffff) % 48L)
         if (offset == 0 && age > refresh) return true
         val cal = Espn.Calendar.decode(text) ?: return offset == 0
+        if (offset >= 2) {
+            // Restul săptămânii: doar zilele știute sigur (nu calendar necunoscut), iar la turnee doar prima zi.
+            if (cal.unknown) return false
+            return day in cal.days || cal.ranges.any { it.start == day }
+        }
         return cal.has(day)
     }
 
@@ -1402,6 +1440,24 @@ class SportsRepository(
             lap("verificare EPG ($moved surse arată altceva)")
         }
 
+        // EPG-ul găsit pe o variantă se dă tuturor variantelor canalului (același nume, alt playlist sau altă țară).
+        // O variantă cu EPG-ul ei, care la ora meciului arată altă emisiune, nu e sursa meciului (beIN Sports 3 AU
+        // arăta Spania–Anglia, cel din altă țară Belgia–Italia): coboară la „EPG-ul arată altceva”.
+        val ownEpg = HashMap<Long, MutableSet<Long>>()
+        val epgFamilyKeys = foundByMatch.values.flatten().filter { !it.rejected && it.confidence == Confidence.EPG }.map { it.groupKey }.toSet()
+        val epgFamilyChannels = epgFamilyKeys.flatMap { k -> variants[k].orEmpty().map { it.id } }
+        if (epgFamilyChannels.isNotEmpty() && airingByEpg.isNotEmpty()) {
+            epg.mapForChannels(epgFamilyChannels).forEach { (ch, e) -> ownEpg.getOrPut(ch) { HashSet() } += e }
+        }
+        fun elsewhere(m: Match, c: ChannelWithPlaylist): String? {
+            val ids = ownEpg[c.id] ?: return null
+            val matchEpg = m.broadcasts.map { it.epgChannelId }
+            if (ids.any { it in matchEpg }) return null
+            val at = m.start + AIRING_CHECK_AFTER_MS
+            val now = ids.flatMap { airingByEpg[it].orEmpty() }.filter { at >= it.start && at < it.stop }
+            if (now.isEmpty()) return null
+            return now.first().title
+        }
         val seen = observed.current
         val variantState = variantStore.current
         val entries = matches.map { m ->
@@ -1411,7 +1467,12 @@ class SportsRepository(
                 if (ChannelNameParser.isSeparator(c.name)) return@forEach
                 // Calitatea: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist.
                 val quality = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
-                sources += MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
+                val other = if (f.confidence == Confidence.EPG && !f.rejected) elsewhere(m, c) else null
+                sources += if (other != null) {
+                    MatchSource(c, c.groupKey, c.language, quality, Confidence.ELSEWHERE, f.station, f.rejected, f.origin, other)
+                } else {
+                    MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
+                }
             }
             val unique = sources.distinctBy { it.channel.id }
             MatchEntry(m, unique, MatchSources.summary(unique))
@@ -1740,6 +1801,15 @@ class SportsRepository(
         const val ESPN_GAP_MS = 300L
         /** Calendarul unei ligi ESPN se reîmprospătează cam o dată pe săptămână. */
         val CAL_REFRESH_MS = TimeUnit.DAYS.toMillis(7)
+
+        /** Zilele ESPN cerute: azi, mâine și restul săptămânii (tabul „Săptămâna asta”). */
+        const val ESPN_DAYS = 7
+
+        /** Cât de des se verifică scorurile care își așteaptă întârzierea. */
+        const val DELAY_TICK_MS = 5_000L
+
+        /** Ce arată EPG-ul unei variante la 10 minute după start. */
+        val AIRING_CHECK_AFTER_MS: Long = TimeUnit.MINUTES.toMillis(10)
         /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
         val CAL_MISSING_MS = TimeUnit.DAYS.toMillis(30)
         const val CAL_MISSING = "missing"
@@ -1756,7 +1826,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 7
+        const val INPUTS_VERSION = 8
         private const val LIVE_SCORES_MS = 60_000L
         private const val LIVE_CHECK_MS = 4 * 60 * 60_000L
         private const val LIVE_SCORES_MAX_LEAGUES = 8
@@ -1858,15 +1928,22 @@ fun providerLabel(provider: String): String = when (provider) {
  * Meciul care rulează pe canalul cu cheia [groupKey] la ora [at] (live sau, la reluare, ora din arhivă):
  * dintre meciurile care au canalul ca sursă (nerespinsă), cel cu sursa cea mai sigură.
  */
-fun SportsSnapshot.matchOn(groupKey: String, at: Long): MatchEntry? =
+fun SportsSnapshot.matchOn(groupKey: String, at: Long, channelId: Long? = null): MatchEntry? =
     matches.asSequence()
         .filter { at >= it.match.start - MATCH_LEAD_MS && at <= it.match.end }
-        .mapNotNull { e -> e.sources.filter { it.groupKey == groupKey && !it.rejected }.minOfOrNull { it.confidence.ordinal }?.let { e to it } }
+        .mapNotNull { e -> e.sourcesOn(groupKey, channelId).minOfOrNull { it.confidence.ordinal }?.let { e to it } }
         .minByOrNull { it.second }
         ?.first
 
-/** Meciul are canalul cu cheia [groupKey] printre sursele lui (nerespinse). */
-fun MatchEntry.hasSource(groupKey: String): Boolean = sources.any { it.groupKey == groupKey && !it.rejected }
+/** Meciul are canalul cu cheia [groupKey] (varianta [channelId]) printre sursele lui (nerespinse, nu „arată altceva”). */
+fun MatchEntry.hasSource(groupKey: String, channelId: Long? = null): Boolean = sourcesOn(groupKey, channelId).isNotEmpty()
+
+/** Sursele care sunt canalul acesta: varianta exactă, dacă e printre surse, altfel orice variantă cu aceeași cheie. */
+private fun MatchEntry.sourcesOn(groupKey: String, channelId: Long?): List<MatchSource<ChannelWithPlaylist>> {
+    val exact = if (channelId == null) emptyList() else sources.filter { it.channel.id == channelId && !it.rejected }
+    val list = exact.ifEmpty { sources.filter { it.groupKey == groupKey && !it.rejected } }
+    return list.filter { it.confidence != Confidence.ELSEWHERE }
+}
 
 /** Meciul a început și o sursă (nerespinsă) are încă arhiva lui: se poate vedea ca reluare. */
 fun MatchEntry.hasReplay(now: Long): Boolean =

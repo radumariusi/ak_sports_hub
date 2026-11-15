@@ -73,11 +73,120 @@ internal object NationNames {
         "egypt" to listOf("egipto", "agypten", "egitto", "egypte", "egipt"),
     )
 
+    /**
+     * Aceleași naționale în turcă, poloneză, maghiară, cehă, croată/sârbă, rusă, ucraineană, greacă și arabă
+     * (titlurile EPG ale canalelor din acele țări). Alfabetele nelatine trec prin [Translit] la normalizare.
+     */
+    private val more: Map<String, List<String>> = mapOf(
+        "portugal" to listOf("portekiz", "portugália", "portugalsko", "португалия", "португалія", "πορτογαλία", "البرتغال"),
+        "spain" to listOf("ispanya", "hiszpania", "spanyolország", "španělsko", "španjolska", "španija", "испания", "іспанія", "ισπανία", "إسبانيا", "اسبانيا"),
+        "germany" to listOf("almanya", "niemcy", "németország", "německo", "njemačka", "nemačka", "германия", "німеччина", "γερμανία", "ألمانيا", "المانيا"),
+        "france" to listOf("fransa", "francja", "franciaország", "francie", "francuska", "франция", "франція", "γαλλία", "فرنسا"),
+        "italy" to listOf("italya", "włochy", "olaszország", "itálie", "italija", "италия", "італія", "ιταλία", "إيطاليا", "ايطاليا"),
+        "england" to listOf("ingiltere", "anglie", "engleska", "англия", "англія", "αγγλία", "إنجلترا", "انجلترا", "إنكلترا"),
+        "netherlands" to listOf("hollanda", "holandia", "hollandia", "nizozemsko", "nizozemska", "holandija", "нидерланды", "голландия", "нідерланди", "ολλανδία", "هولندا"),
+        "belgium" to listOf("belçika", "belgie", "belgija", "бельгия", "бельгія", "βέλγιο", "بلجيكا"),
+        "croatia" to listOf("hırvatistan", "chorwacja", "horvátország", "chorvatsko", "hrvatska", "хорватия", "хорватія", "κροατία", "كرواتيا"),
+        "czech republic" to listOf("çekya", "czechy", "csehország", "česko", "česká republika", "češka", "чехия", "чехія", "τσεχία", "التشيك"),
+        "poland" to listOf("polonya", "polska", "lengyelország", "polsko", "poljska", "польша", "польща", "πολωνία", "بولندا"),
+        "romania" to listOf("romanya", "rumunia", "románia", "rumunsko", "rumunjska", "rumunija", "румыния", "румунія", "ρουμανία", "رومانيا"),
+        "turkey" to listOf("turcja", "törökország", "turecko", "turska", "турция", "туреччина", "τουρκία", "تركيا"),
+        "greece" to listOf("yunanistan", "grecja", "görögország", "řecko", "grčka", "греция", "греція", "ελλάδα", "اليونان"),
+        "serbia" to listOf("sırbistan", "szerbia", "srbsko", "srbija", "сербия", "сербія", "србија", "σερβία", "صربيا"),
+        "switzerland" to listOf("isviçre", "szwajcaria", "svájc", "švýcarsko", "švicarska", "švajcarska", "швейцария", "швейцарія", "ελβετία", "سويسرا"),
+        "austria" to listOf("avusturya", "ausztria", "rakousko", "austrija", "австрия", "австрія", "αυστρία", "النمسا"),
+        "denmark" to listOf("danimarka", "dania", "dánia", "dánsko", "danska", "дания", "данія", "δανία", "الدنمارك"),
+        "sweden" to listOf("isveç", "szwecja", "svédország", "švédsko", "švedska", "швеция", "швеція", "σουηδία", "السويد"),
+        "norway" to listOf("norveç", "norwegia", "norvégia", "norsko", "norveška", "норвегия", "норвегія", "νορβηγία", "النرويج"),
+        "scotland" to listOf("iskoçya", "szkocja", "skócia", "skotsko", "škotska", "шотландия", "шотландія", "σκωτία", "اسكتلندا"),
+        "wales" to listOf("galler", "walia", "уэльс", "уельс", "ουαλία", "ويلز"),
+        "ukraine" to listOf("ukrayna", "ukraina", "ukrajna", "ukrajina", "украина", "україна", "ουκρανία", "أوكرانيا", "اوكرانيا"),
+        "hungary" to listOf("macaristan", "węgry", "magyarország", "maďarsko", "mađarska", "венгрия", "угорщина", "ουγγαρία", "المجر"),
+        "albania" to listOf("arnavutluk", "albánie", "albanija", "албания", "албанія", "αλβανία", "ألبانيا"),
+        "armenia" to listOf("ermenistan", "örményország", "arménie", "armenija", "армения", "вірменія", "αρμενία", "أرمينيا", "ارمينيا"),
+        "georgia" to listOf("gürcistan", "gruzja", "grúzia", "gruzie", "gruzija", "грузия", "грузія", "γεωργία", "جورجيا"),
+        "azerbaijan" to listOf("azerbejdżan", "azerbajdzsán", "ázerbájdžán", "азербайджан", "αζερμπαϊτζάν", "أذربيجان"),
+        "kazakhstan" to listOf("kazakistan", "kazachstan", "kazahsztán", "kazachstán", "казахстан", "καζακστάν", "كازاخستان"),
+        "belarus" to listOf("belarus", "białoruś", "fehéroroszország", "bělorusko", "bjelorusija", "беларусь", "белоруссия", "білорусь", "λευκορωσία", "بيلاروسيا"),
+        "finland" to listOf("finlandiya", "finlandia", "finnország", "finsko", "finska", "финляндия", "фінляндія", "φινλανδία", "فنلندا"),
+        "iceland" to listOf("izlanda", "islandia", "izland", "island", "исландия", "ісландія", "ισλανδία", "أيسلندا", "آيسلندا"),
+        "ireland" to listOf("irlanda", "irlandia", "írország", "irsko", "irska", "ирландия", "ірландія", "ιρλανδία", "أيرلندا", "ايرلندا"),
+        "northern ireland" to listOf("kuzey irlanda", "irlandia północna", "észak írország", "severní irsko", "sjeverna irska", "северная ирландия", "північна ірландія", "βόρεια ιρλανδία", "أيرلندا الشمالية"),
+        "bulgaria" to listOf("bulgaristan", "bułgaria", "bulgária", "bulharsko", "bugarska", "болгария", "болгарія", "βουλγαρία", "بلغاريا"),
+        "north macedonia" to listOf("kuzey makedonya", "macedonia północna", "észak macedónia", "severní makedonie", "sjeverna makedonija", "северная македония", "північна македонія", "βόρεια μακεδονία", "مقدونيا الشمالية"),
+        "montenegro" to listOf("karadağ", "czarnogóra", "montenegró", "černá hora", "crna gora", "черногория", "чорногорія", "μαυροβούνιο", "الجبل الأسود"),
+        "slovakia" to listOf("slovakya", "słowacja", "szlovákia", "slovensko", "slovačka", "словакия", "словаччина", "σλοβακία", "سلوفاكيا"),
+        "slovenia" to listOf("slovenya", "słowenia", "szlovénia", "slovinsko", "slovenija", "словения", "словенія", "σλοβενία", "سلوفينيا"),
+        "bosnia and herzegovina" to listOf("bosna hersek", "bośnia i hercegowina", "bosznia hercegovina", "bosna a hercegovina", "bosna i hercegovina", "босния и герцеговина", "боснія і герцеговина", "βοσνία", "البوسنة والهرسك"),
+        "russia" to listOf("rusya", "rosja", "oroszország", "rusko", "rusija", "россия", "росія", "ρωσία", "روسيا"),
+        "israel" to listOf("izrael", "израиль", "ізраїль", "ισραήλ"),
+        "cyprus" to listOf("kıbrıs", "cypr", "ciprus", "kypr", "cipar", "кипр", "кіпр", "κύπρος", "قبرص"),
+        "latvia" to listOf("letonya", "łotwa", "lettország", "lotyšsko", "latvija", "латвия", "латвія", "λετονία", "لاتفيا"),
+        "lithuania" to listOf("litvanya", "litwa", "litvánia", "litva", "литва", "λιθουανία", "ليتوانيا"),
+        "estonia" to listOf("estonya", "észtország", "estonsko", "estonija", "эстония", "естонія", "εσθονία", "إستونيا"),
+        "moldova" to listOf("mołdawia", "moldávia", "moldavsko", "moldavija", "молдова", "молдавия", "μολδαβία", "مولدوفا"),
+        "kosovo" to listOf("kosowo", "koszovó", "косово", "κόσοβο", "كوسوفو"),
+        "luxembourg" to listOf("lüksemburg", "luksemburg", "lucemburk", "luksemburg", "люксембург", "λουξεμβούργο", "لوكسمبورغ"),
+        "brazil" to listOf("brezilya", "brazylia", "brazília", "brazílie", "brazil", "бразилия", "бразилія", "βραζιλία", "البرازيل"),
+        "argentina" to listOf("arjantin", "argentyna", "argentína", "argentina", "аргентина", "αργεντινή", "الأرجنتين", "الارجنتين"),
+        "united states" to listOf("abd", "stany zjednoczone", "сша", "ηπα", "الولايات المتحدة", "أمريكا"),
+        "mexico" to listOf("meksika", "meksyk", "mexikó", "meksiko", "мексика", "μεξικό", "المكسيك"),
+        "japan" to listOf("japonya", "japonia", "japán", "japonsko", "japan", "япония", "японія", "ιαπωνία", "اليابان"),
+        "morocco" to listOf("maroko", "marokkó", "марокко", "μαρόκο", "المغرب"),
+        "egypt" to listOf("mısır", "egipt", "egyiptom", "egypt", "египет", "єгипет", "αίγυπτος", "مصر"),
+        "saudi arabia" to listOf("suudi arabistan", "arabia saudyjska", "szaúd arábia", "саудовская аравия", "السعودية", "العربية السعودية"),
+        "qatar" to listOf("katar", "катар", "κατάρ", "قطر"),
+        "algeria" to listOf("cezayir", "algieria", "algéria", "alžírsko", "alžir", "алжир", "αλγερία", "الجزائر"),
+        "tunisia" to listOf("tunus", "tunezja", "tunézia", "tunisko", "tunis", "тунис", "туніс", "τυνησία", "تونس"),
+    )
+
     /** Numele străin → numele englezesc (cheie deja normalizată). */
+    val aliases: Map<String, String> = buildMap {
+        for ((english, others) in table + more.mapValues { (k, v) -> table[k].orEmpty() + v }) for (o in others) {
+            val k = Sport.fold(o)
+            if (k.isNotEmpty() && k != english) put(k, english)
+        }
+    }
+}
+
+/** Cele mai mari cluburi scrise în arabă și în rusă (canalele arabe și cele din est), aduse la numele englezesc. */
+internal object NativeClubNames {
+    private val table: Map<String, List<String>> = mapOf(
+        "real madrid" to listOf("ريال مدريد"),
+        "barcelona" to listOf("برشلونة", "барселона"),
+        "manchester united" to listOf("مانشستر يونايتد", "манчестер юнайтед", "ман юнайтед"),
+        "manchester city" to listOf("مانشستر سيتي", "манчестер сити", "ман сити"),
+        "liverpool" to listOf("ليفربول", "ливерпуль"),
+        "chelsea" to listOf("تشيلسي", "челси"),
+        "arsenal" to listOf("آرسنال", "أرسنال"),
+        "tottenham hotspur" to listOf("توتنهام", "тоттенхэм", "тоттенхем"),
+        "bayern munich" to listOf("بايرن ميونخ", "بايرن ميونيخ", "бавария"),
+        "borussia dortmund" to listOf("بوروسيا دورتموند", "боруссия дортмунд", "боруссия д"),
+        "paris saint germain" to listOf("باريس سان جيرمان", "пари сен жермен", "псж"),
+        "juventus" to listOf("يوفنتوس", "ювентус"),
+        "inter milan" to listOf("إنتر ميلان", "انتر ميلان", "интер"),
+        "ac milan" to listOf("ميلان", "эй си милан"),
+        "atletico madrid" to listOf("أتلتيكو مدريد", "اتلتيكو مدريد", "атлетико", "атлетико мадрид"),
+        "napoli" to listOf("نابولي"),
+        "benfica" to listOf("بنفيكا", "бенфика"),
+        "fc porto" to listOf("بورتو", "порту"),
+        "sporting cp" to listOf("سبورتينغ لشبونة", "سبورتنغ لشبونة", "спортинг"),
+        "ajax" to listOf("أياكس", "اياكس", "аякс"),
+        "galatasaray" to listOf("غلطة سراي", "جالطة سراي"),
+        "fenerbahce" to listOf("فنربخشة", "فنربهتشة", "фенербахче"),
+        "al hilal" to listOf("الهلال"),
+        "al nassr" to listOf("النصر"),
+        "al ittihad" to listOf("الاتحاد"),
+        "al ahli" to listOf("الأهلي"),
+        "newcastle united" to listOf("نيوكاسل", "نيوكاسل يونايتد", "ньюкасл"),
+        "aston villa" to listOf("أستون فيلا", "استون فيلا", "астон вилла"),
+        "bayer leverkusen" to listOf("باير ليفركوزن", "байер", "байер леверкузен"),
+    )
+
     val aliases: Map<String, String> = buildMap {
         for ((english, others) in table) for (o in others) {
             val k = Sport.fold(o)
-            if (k != english) put(k, english)
+            if (k.isNotEmpty() && k != english) put(k, english)
         }
     }
 }

@@ -101,7 +101,7 @@ import ro.ak.sportshub.ui.epg.formatTime
 import ro.ak.sportshub.ui.theme.AkColors
 import ro.ak.sportshub.ui.theme.AkFonts
 
-private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants, Match, Quick }
+private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants, Match, Quick, Sources }
 
 /** Ferestrele de alegere din panoul meciului. */
 private enum class PanelDialog { DELAY, OFFSET }
@@ -276,10 +276,20 @@ fun PlayerScreen(
         }
     }
     val minute = now / 60_000
-    val linked: MatchEntry? = remember(snapshot, state.channel?.groupKey, requestedMatch, state.archiveFrom, minute) {
+    // Ce arată acum EPG-ul canalului: dacă e un meci din listă, canalul se leagă de el (sursa „pleacă” la meciul real).
+    val onAir by produceState<Programme?>(null, state.channel?.id, minute) {
+        value = state.channel?.id?.let { id -> runCatching { container.epg.nowNext(listOf(id), System.currentTimeMillis())[id]?.now }.getOrNull() }
+    }
+    val linked: MatchEntry? = remember(snapshot, state.channel?.groupKey, state.channel?.id, requestedMatch, state.archiveFrom, minute, onAir) {
         val key = state.channel?.groupKey ?: return@remember null
-        requestedMatch?.let { id -> snapshot.matches.firstOrNull { it.match.id == id && it.hasSource(key) } }
-            ?: snapshot.matchOn(key, state.archiveFrom ?: System.currentTimeMillis())
+        val ch = state.channel?.id
+        if (state.archiveFrom == null) {
+            onAir?.let { p ->
+                ro.ak.sportshub.core.sports.OnAirMatch.find(p.title, p.subtitle, p.category, System.currentTimeMillis(), snapshot.matches.map { it.match })
+            }?.let { m -> snapshot.matches.firstOrNull { it.match.id == m.id } }?.let { return@remember it }
+        }
+        requestedMatch?.let { id -> snapshot.matches.firstOrNull { it.match.id == id && it.hasSource(key, ch) } }
+            ?: snapshot.matchOn(key, state.archiveFrom ?: System.currentTimeMillis(), ch)
     }
     val linkedMatch = linked?.match
     val replay = state.archiveFrom != null
@@ -295,14 +305,19 @@ fun PlayerScreen(
         }
     }
 
-    // Datele meciului se cer doar cât e deschis panoul: pre-meci o dată, live la un minut (cât se joacă).
-    LaunchedEffect(linkedMatch?.id, panel == Panel.Match) {
+    // Datele meciului: pre-meci cât e deschis panoul; live la un minut cât se joacă meciul de pe ecran, ca tabela de
+    // scor să nu rămână la scorul și minutul primei cereri (o cerere ESPN pe minut, fără conexiunea playlistului).
+    LaunchedEffect(linkedMatch?.id, panel == Panel.Match, replay) {
         val m = linkedMatch ?: return@LaunchedEffect
-        if (panel != Panel.Match) return@LaunchedEffect
-        details.refreshPreMatch(m)
+        if (replay && panel != Panel.Match) return@LaunchedEffect
+        if (panel == Panel.Match) details.refreshPreMatch(m)
         while (true) {
             val current = container.sports.snapshot.value.matches.firstOrNull { it.match.id == m.id }?.match ?: m
-            if (current.status == MatchStatus.SCHEDULED) break
+            if (current.status == MatchStatus.SCHEDULED) {
+                // Meciul n-a început: se așteaptă startul (lista își schimbă starea singură), fără cereri.
+                delay(DetailsSchedule.LIVE_REFRESH_MS)
+                continue
+            }
             details.refreshLive(current)
             if (current.status != MatchStatus.LIVE) break
             delay(DetailsSchedule.LIVE_REFRESH_MS)
@@ -653,6 +668,8 @@ fun PlayerScreen(
                 state = state,
                 matchTitle = linkedMatch?.title,
                 onMatch = { panel = Panel.Match },
+                sourceCount = linked?.sources?.size ?: 0,
+                onSources = { panel = Panel.Sources },
                 onQuick = { panel = Panel.Quick },
                 previousName = controller.previousName,
                 onAudio = { panel = Panel.Audio },
@@ -709,6 +726,20 @@ fun PlayerScreen(
                 channelName = state.channel?.name.orEmpty(),
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
+            Panel.Sources -> linked?.let { entry ->
+                MatchSourcesPanel(
+                    entry = entry,
+                    favorite = sportsSettings.favorites.isFavorite(entry.match),
+                    prefs = sportsSettings.sourcePreferences,
+                    currentId = state.channel?.id,
+                    onPick = { id ->
+                        panel = Panel.None
+                        // Aceeași cale ca schimbarea canalului: stream-ul vechi se oprește, apoi pornește sursa.
+                        if (id != state.channel?.id) controller.play(id)
+                    },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
+            }
             Panel.Variants -> VariantsPanel(
                 controller = controller,
                 currentId = state.channel?.id,
@@ -1044,6 +1075,8 @@ private fun MenuPanel(
     state: PlayerUiState,
     matchTitle: String?,
     onMatch: () -> Unit,
+    sourceCount: Int,
+    onSources: () -> Unit,
     onQuick: () -> Unit,
     previousName: String?,
     onAudio: () -> Unit,
@@ -1070,6 +1103,9 @@ private fun MenuPanel(
                     subtitle = "Scor, evenimente, statistici, echipe; salt la faze în arhivă",
                     onClick = onMatch,
                 )
+                if (sourceCount > 1) {
+                    ListRow(title = "Alte surse pentru meci", subtitle = "$sourceCount surse, în ordinea din Sports Hub", onClick = onSources)
+                }
             }
             ListRow(title = "Meniu rapid", subtitle = "Meciurile de acum (și cu OK ținut apăsat)", onClick = onQuick)
             ListRow(
@@ -1197,6 +1233,50 @@ private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick
                         modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
                         trailing = {
                             c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
+                            VariantQualityBadge(c.playlistId, c.name, c.quality)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Sursele meciului de pe ecran, în ordinea din Sports Hub (aceleași etichete: încredere, limbă, calitate). */
+@Composable
+private fun MatchSourcesPanel(
+    entry: MatchEntry,
+    favorite: Boolean,
+    prefs: ro.ak.sportshub.core.model.SourcePreferences,
+    currentId: Long?,
+    onPick: (Long) -> Unit,
+    modifier: Modifier,
+) {
+    val list = remember(entry, favorite, prefs) {
+        ro.ak.sportshub.core.sports.MatchSources.order(entry.sources, isFavorite = favorite, prefs = prefs).flatMap { it.members }
+    }
+    SidePanel(modifier.width(600.dp)) {
+        Column {
+            SectionLabel("Surse · ${entry.match.title}")
+            val current = list.indexOfFirst { it.channel.id == currentId }.coerceAtLeast(0)
+            val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(list) { runCatching { focus.requestFocus() } }
+            LazyColumn(contentPadding = ListPadding, state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(list, key = { i, src -> "${src.channel.id}:$i" }) { index, src ->
+                    val c = src.channel
+                    ListRow(
+                        title = c.name,
+                        subtitle = listOfNotNull(
+                            if (src.rejected) "respinsă de tine" else src.confidence.label,
+                            src.station,
+                            c.playlistName,
+                        ).joinToString(" · "),
+                        selected = c.id == currentId,
+                        onClick = { onPick(c.id) },
+                        modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
+                        trailing = {
+                            src.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                             VariantQualityBadge(c.playlistId, c.name, c.quality)
                         },
                     )

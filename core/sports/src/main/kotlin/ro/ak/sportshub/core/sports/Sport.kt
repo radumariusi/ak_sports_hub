@@ -76,7 +76,8 @@ enum class Sport(
 
         private val nonAlnum = Regex("""[^a-z0-9]+""")
 
+        /** Fără diacritice, litere mici, doar litere latine și cifre (chirilica, greaca și araba transcrise). */
         fun fold(text: String): String =
-            ChannelNameParser.fold(text).replace(nonAlnum, " ").trim()
+            Translit.latin(ChannelNameParser.fold(text)).replace(nonAlnum, " ").trim()
     }
 }
