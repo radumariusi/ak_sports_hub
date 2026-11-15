@@ -28,6 +28,7 @@ import okhttp3.Request
 import ro.ak.sportshub.core.database.AkDatabase
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.ChannelNameRow
+import ro.ak.sportshub.core.sports.CompetitionFilter
 import ro.ak.sportshub.core.sports.DedicatedChannels
 import ro.ak.sportshub.core.sports.EpgBroadcast
 import ro.ak.sportshub.core.sports.EventChannels
@@ -223,7 +224,7 @@ class SportsRepository(
     private fun fetchKey(s: SportsSettings): String =
         "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}|" +
             "${s.liveSoccerTvEnabled}|${s.sofascoreEnabled}|${s.sofascoreTv}|${s.futbolEnLaTvEnabled}|${s.eventChannels}|${s.eventZone}|" +
-            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}"
+            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.topCompetitionsOnly}"
 
     fun refreshInBackground(force: Boolean = true) {
         scope.launch { refreshDue(force) }
@@ -297,7 +298,7 @@ class SportsRepository(
                 if (force || isStale(f, fresh(FotMob.PROVIDER, 0))) jobs += Job(FotMob.url(cc), f, html = FotMob::looksValid)
             }
         }
-        if (s.usLeaguesEnabled && hasNorthAmerica()) addUsJobs(s, localToday, force, jobs)
+        if (s.usLeaguesEnabled) addUsJobs(s, localToday, force, jobs, hasNorthAmerica())
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
@@ -559,13 +560,14 @@ class SportsRepository(
     private suspend fun hasNorthAmerica(): Boolean = playlistCountries().any { it in NORTH_AMERICA }
 
     /** ESPN (o cerere pe ligă și zi), NHL și MLB (o cerere pe zi), azi și mâine, pentru sporturile alese. */
-    private fun addUsJobs(s: SportsSettings, localToday: LocalDate, force: Boolean, jobs: MutableList<Job>) {
+    private fun addUsJobs(s: SportsSettings, localToday: LocalDate, force: Boolean, jobs: MutableList<Job>, northAmerica: Boolean) {
         for (offset in 0..1) {
             val day = localToday.plusDays(offset.toLong())
-            for (league in UsLeagues.leaguesFor(s.sports)) {
+            for (league in UsLeagues.leaguesFor(s.sports, northAmerica)) {
                 val f = File(dir, "espn-${league.name}-$day.json")
                 if (force || isStale(f, fresh(UsLeagues.ESPN, offset))) jobs += Job(UsLeagues.espnUrl(league, day), f)
             }
+            if (!northAmerica) continue
             if (Sport.ICE_HOCKEY in s.sports) {
                 val f = File(dir, "nhl-$day.json")
                 if (force || isStale(f, fresh(UsLeagues.NHL_API, offset))) jobs += Job(UsLeagues.nhlUrl(day), f)
@@ -832,6 +834,11 @@ class SportsRepository(
 
     @Volatile private var farLoading = false
 
+    /** Competițiile scoase de „Doar competițiile importante” la ultimul calcul (pentru jurnal). */
+    @Volatile private var droppedCompetitions: Map<String, Int> = emptyMap()
+
+    private fun eventSport(e: SportEvent): Sport? = Sport.fromSportsDb(e.sport) ?: Sport.detect(e.sport, e.competition)
+
     /** Canalele EVENT citite: id → (nume, grup, fus, ora din zi) și rezultatul. */
     private val slotCache = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, EventSlot>>()
 
@@ -848,10 +855,28 @@ class SportsRepository(
             timing.append(label).append(' ').append(t - mark).append("ms, ")
             mark = t
         }
-        val (events, tv) = cachedEvents(s)
-        val counts = events.groupingBy { it.provider }.eachCount()
+        val (allEvents, tv) = cachedEvents(s)
+        val counts = allEvents.groupingBy { it.provider }.eachCount()
         _health.update { all ->
             (all.keys + counts.keys).associateWith { p -> (all[p] ?: ProviderHealth()).copy(events = counts[p] ?: 0) }
+        }
+        // Doar competițiile importante, înainte de orice calcul (setare).
+        val knownTeams = HashSet<String>()
+        val events = if (!s.topCompetitionsOnly) allEvents else {
+            val dropped = HashMap<String, Int>()
+            val verdicts = allEvents.map { e -> CompetitionFilter.verdict(eventSport(e), e.competition) }
+            allEvents.forEachIndexed { i, e ->
+                if (verdicts[i] == CompetitionFilter.Verdict.KEEP && e.away.isNotBlank()) {
+                    knownTeams += TeamNames.key(e.home)
+                    knownTeams += TeamNames.key(e.away)
+                }
+            }
+            allEvents.filterIndexed { i, e ->
+                val keep = verdicts[i] == CompetitionFilter.Verdict.KEEP ||
+                    CompetitionFilter.keepMatch(eventSport(e), e.competition, e.home, e.away, knownTeams, fromProvider = true)
+                if (!keep) dropped.merge("${e.sport ?: "?"} · ${e.competition ?: "fără competiție"}", 1, Int::plus)
+                keep
+            }.also { droppedCompetitions = dropped }
         }
         lap("fișiere")
         val scan = scanCache ?: scanChannels().also { scanCache = it; lap("canale") }
@@ -880,6 +905,11 @@ class SportsRepository(
         val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
         val matches = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
+            .filter { m ->
+                // Meciurile doar din EPG sau din canale EVENT: după competiție, dacă se știe, altfel după echipe.
+                !s.topCompetitionsOnly || m.providers.any { it != MatchAssembler.EPG_PROVIDER && it != MatchAssembler.EVENT_PROVIDER } ||
+                    CompetitionFilter.keepMatch(m.sport, m.competition, m.home, m.away, knownTeams, fromProvider = false)
+            }
         val slotChannels = activeSlots.map { it.channelId }.distinct().chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.associateBy { it.id }
         lap("asamblare (${matches.size} meciuri)")
 
@@ -1002,6 +1032,11 @@ class SportsRepository(
             val byProvider = snap.matches.flatMap { it.match.providers }.groupingBy { it }.eachCount()
             appendLine("- Meciuri pe furnizor (după unire): ${byProvider.entries.sortedByDescending { it.value }.joinToString(", ") { "${it.key} ${it.value}" }}")
             appendLine("- Canale de sport: ${snap.sportChannelCount}, EVENT/PPV cu eveniment: ${snap.events.size}, goale: ${snap.emptyEventChannels}, fără EPG: ${snap.noEpgChannels.size}")
+            if (s.topCompetitionsOnly) {
+                val d = droppedCompetitions
+                appendLine("- Doar competițiile importante: scoase ${d.values.sum()} meciuri din ${d.size} competiții; cele mai multe: " +
+                    d.entries.sortedByDescending { it.value }.take(60).joinToString("; ") { "${it.key} (${it.value})" })
+            }
             appendLine()
             appendLine("### Furnizori")
             appendLine("| furnizor | nivel | ok | eșuate | meciuri | ultima reușită | pauză | ultima eroare |")

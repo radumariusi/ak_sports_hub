@@ -42,6 +42,8 @@ data class SportsSettings(
     val usLeaguesEnabled: Boolean = true,
     /** Canalele EVENT / PPV din playlisturi: meciul citit din numele canalului. */
     val eventChannels: Boolean = true,
+    /** Doar competițiile importante (`CompetitionFilter`): restul meciurilor nu intră în listă. */
+    val topCompetitionsOnly: Boolean = true,
     /** Fusul orelor scrise fără fus în numele canalelor EVENT („20:00”); gol = fusul televizorului. */
     val eventZone: String = "",
     /** Câte zile (de azi încolo) se cer de la TheSportsDB. */
@@ -134,6 +136,7 @@ class SportsSettingsStore(context: Context) {
                 fotMobEnabled = o.optBoolean("fotMob", d.fotMobEnabled),
                 usLeaguesEnabled = o.optBoolean("usLeagues", d.usLeaguesEnabled),
                 eventChannels = o.optBoolean("eventChannels", d.eventChannels),
+                topCompetitionsOnly = o.optBoolean("topCompetitionsOnly", d.topCompetitionsOnly),
                 eventZone = o.optString("eventZone", d.eventZone),
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
@@ -174,6 +177,7 @@ class SportsSettingsStore(context: Context) {
         put("fotMob", s.fotMobEnabled)
         put("usLeagues", s.usLeaguesEnabled)
         put("eventChannels", s.eventChannels)
+        put("topCompetitionsOnly", s.topCompetitionsOnly)
         put("eventZone", s.eventZone)
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
