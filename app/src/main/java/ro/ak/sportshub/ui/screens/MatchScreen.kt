@@ -9,7 +9,9 @@ import ro.ak.sportshub.core.sports.LanguageGroups
 import ro.ak.sportshub.ui.components.ReturnFocus
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -590,15 +592,12 @@ private fun SourcesList(
         }
         groups.forEach { (g, list) ->
             item(key = "g:" + g.name) {
-                SectionLabel(
-                    LanguageGroups.label(g, preferred) + " · " + list.size + (if (list.size == 1) " canal" else " canale"),
-                    modifier = Modifier.padding(top = 10.dp),
-                )
+                GroupHeader(LanguageGroups.label(g, preferred), list.size)
             }
             list.forEach { family(it) }
         }
         if (rejected.isNotEmpty()) {
-            item(key = "g:rejected") { SectionLabel("Respinse de tine (nu e meciul)", modifier = Modifier.padding(top = 10.dp)) }
+            item(key = "g:rejected") { GroupHeader("Respinse de tine (nu e meciul)", rejected.size, dim = true) }
             rejected.forEach { family(it) }
         }
         item(key = "foot") {
@@ -611,6 +610,36 @@ private fun SourcesList(
                 modifier = Modifier.padding(14.dp),
             )
         }
+    }
+}
+
+/** Titlul unui grup de limbi: mare, chihlimbar, cu o linie dedesubt, ca grupurile să se vadă de departe. */
+@Composable
+private fun GroupHeader(title: String, count: Int, dim: Boolean = false) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 4.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.Bottom) {
+            Text(
+                text = title,
+                fontSize = 20.sp,
+                fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed,
+                fontWeight = FontWeight.Bold,
+                color = if (dim) AkColors.TextDim else AkColors.Accent,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                text = "  " + count + (if (count == 1) " canal" else " canale"),
+                fontSize = 14.sp,
+                color = AkColors.TextDim,
+            )
+        }
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .padding(top = 3.dp)
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(if (dim) AkColors.TextDim.copy(alpha = 0.3f) else AkColors.Accent.copy(alpha = 0.5f)),
+        )
     }
 }
 

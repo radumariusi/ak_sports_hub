@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -40,6 +41,7 @@ import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchDetails
 import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.core.sports.Positions
 import ro.ak.sportshub.core.sports.SportEvent
 import ro.ak.sportshub.core.sports.StatGroups
 import ro.ak.sportshub.core.sports.StatLine
@@ -125,7 +127,7 @@ fun PreMatchTab(
         },
         right = {
             tableSection(match, d, hideSpoilers, onReveal)
-            if (match.away.isNotBlank()) groupedStats(d.seasonStats, "ss", match.home, match.away, title = "Sezonul")
+            if (match.away.isNotBlank()) groupedStats(d.seasonStats, "ss", match.home, match.away, title = "Sezonul", compact = true)
             item(key = "foot") {
                 Text(
                     text = "ESPN (sau TheSportsDB), cerut doar cât e deschis meciul; nu folosește conexiunea playlisturilor.",
@@ -159,7 +161,7 @@ fun LineupsTab(match: Match, state: MatchDetailsState, modifier: Modifier = Modi
     val awayF = Formation.of(d.lineup.filter { !it.home })
     Row(modifier = modifier.padding(top = 10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         if (homeF != null && awayF != null) {
-            Column(modifier = Modifier.weight(1.25f)) {
+            Column(modifier = Modifier.weight(2f)) {
                 Text(
                     text = "${match.home} ${homeF.label}  ·  ${match.away} ${awayF.label}",
                     fontSize = 15.sp,
@@ -168,16 +170,17 @@ fun LineupsTab(match: Match, state: MatchDetailsState, modifier: Modifier = Modi
                     maxLines = 1,
                     modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
                 )
-                PitchView(homeF, awayF, height = 330.dp)
+                PitchView(homeF, awayF, height = 350.dp)
                 (e?.venue ?: match.venue)?.let { v ->
                     Text(text = v + (e?.city?.let { ", $it" } ?: ""), fontSize = 13.sp, color = AkColors.TextDim, modifier = Modifier.padding(4.dp))
                 }
             }
         }
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        // Listele înguste și mărunte (număr, nume, postul prescurtat), ca terenul să aibă loc și rezervele să se vadă.
+        LazyColumn(modifier = Modifier.weight(0.8f)) {
             lineupList(match.home, d.lineup.filter { it.home }, "h")
         }
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        LazyColumn(modifier = Modifier.weight(0.8f)) {
             lineupList(match.away, d.lineup.filter { !it.home }, "a")
         }
     }
@@ -283,12 +286,12 @@ fun StatsTab(
         left = {
             item(key = "title") { SectionLabel(if (live) "Statisticile meciului" else "Statisticile sezonului") }
             statTeams(match.home, match.away, "sl")
-            statGroups(left, "sl")
+            statGroups(left, "sl", compact = true)
         },
         right = {
             item(key = "title") { SectionLabel(" ") }
             if (right.isNotEmpty()) statTeams(match.home, match.away, "sr")
-            statGroups(right, "sr")
+            statGroups(right, "sr", compact = true)
         },
     )
 }
@@ -345,27 +348,36 @@ internal fun LazyListScope.tableSection(match: Match, d: MatchDetails, hideSpoil
     }
     val mine = MatchInsights.tableRowsFor(d.table, d.event, match.home, match.away)
     val rows = if (around <= 0 || mine.isEmpty()) d.table else d.table.filter { row -> mine.any { kotlin.math.abs(it - row.rank) <= around } }
+    // Rânduri mărunte, cu coloane fixe (meciuri, V-E-Î, goluri, golaveraj, puncte), ca tot clasamentul să încapă.
+    item(key = "t-head") {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Spacer(Modifier.width(22.dp))
+            Spacer(Modifier.weight(1f))
+            listOf("M" to 22.dp, "V-E-Î" to 52.dp, "Gol." to 44.dp, "GV" to 30.dp, "P" to 28.dp).forEach { (t, w) ->
+                Text(text = t, fontSize = 11.sp, color = AkColors.TextDim, textAlign = TextAlign.End, modifier = Modifier.width(w))
+            }
+        }
+    }
     items(rows, key = { "t:" + it.rank + it.team }) { row ->
-        FocusLine(selected = row.rank in mine) {
-            Text(text = "${row.rank}.", fontSize = 15.sp, fontFamily = AkFonts.Condensed, color = dimText(), modifier = Modifier.width(30.dp))
-            Text(text = row.team, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(
-                text = listOfNotNull(
-                    row.played?.toString(),
-                    if (row.won != null && row.drawn != null && row.lost != null) "${row.won}-${row.drawn}-${row.lost}" else null,
-                    if (row.goalsFor != null && row.goalsAgainst != null) "${row.goalsFor}:${row.goalsAgainst}" else null,
-                ).joinToString("   "),
-                fontSize = 14.sp,
-                fontFamily = AkFonts.Condensed,
-                color = dimText(),
-            )
+        FocusLine(selected = row.rank in mine, verticalPadding = 0.dp, horizontalPadding = 8.dp, spacing = 6.dp) {
+            Text(text = "${row.rank}.", fontSize = 12.sp, fontFamily = AkFonts.Condensed, color = dimText(), modifier = Modifier.width(22.dp))
+            Text(text = row.team, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            val gd = if (row.goalsFor != null && row.goalsAgainst != null) row.goalsFor!! - row.goalsAgainst!! else null
+            listOf(
+                (row.played?.toString() ?: "") to 22.dp,
+                (if (row.won != null && row.drawn != null && row.lost != null) "${row.won}-${row.drawn}-${row.lost}" else "") to 52.dp,
+                (if (row.goalsFor != null && row.goalsAgainst != null) "${row.goalsFor}:${row.goalsAgainst}" else "") to 44.dp,
+                (gd?.let { if (it > 0) "+$it" else it.toString() } ?: "") to 30.dp,
+            ).forEach { (t, w) ->
+                Text(text = t, fontSize = 12.sp, fontFamily = AkFonts.Condensed, color = dimText(), textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.width(w))
+            }
             Text(
                 text = row.points?.toString() ?: "",
-                fontSize = 16.sp,
+                fontSize = 13.sp,
                 fontFamily = AkFonts.Condensed,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.End,
-                modifier = Modifier.width(40.dp),
+                modifier = Modifier.width(28.dp),
             )
         }
     }
@@ -375,12 +387,23 @@ internal fun LazyListScope.tableSection(match: Match, d: MatchDetails, hideSpoil
 internal fun LazyListScope.lineupList(team: String, players: List<LineupPlayer>, prefix: String) {
     if (players.isEmpty()) return
     val formation = Formation.of(players)?.label
-    item(key = "lu-h:$prefix") { SectionLabel(team + (formation?.let { " · $it" } ?: "")) }
+    item(key = "lu-h:$prefix") {
+        Text(
+            text = team + (formation?.let { " · $it" } ?: ""),
+            fontSize = 14.sp,
+            fontFamily = AkFonts.Condensed,
+            fontWeight = FontWeight.Bold,
+            color = AkColors.Accent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
+        )
+    }
     val (subs, starters) = players.partition { it.substitute }
     items(starters.withIndex().toList(), key = { "lu:$prefix:" + it.index }) { (_, p) -> PlayerLine(p) }
     if (subs.isNotEmpty()) {
         item(key = "lu-s:$prefix") {
-            Text(text = "REZERVE", fontSize = 12.sp, letterSpacing = 1.5.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 2.dp))
+            Text(text = "REZERVE", fontSize = 11.sp, letterSpacing = 1.5.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 1.dp))
         }
         items(subs.withIndex().toList(), key = { "lus:$prefix:" + it.index }) { (_, p) -> PlayerLine(p) }
     }
@@ -450,6 +473,8 @@ internal fun FocusLine(
     selected: Boolean = false,
     onClick: () -> Unit = {},
     verticalPadding: Dp = 5.dp,
+    horizontalPadding: Dp = 14.dp,
+    spacing: Dp = 8.dp,
     content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -468,9 +493,9 @@ internal fun FocusLine(
     ) {
         CompositionLocalProvider(LocalOnFocus provides focused) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = verticalPadding),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = verticalPadding),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
                 content = content,
             )
         }
@@ -479,10 +504,12 @@ internal fun FocusLine(
 
 @Composable
 private fun PlayerLine(p: LineupPlayer) {
-    FocusLine(verticalPadding = 3.dp) {
-        Text(text = p.number ?: "", fontSize = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = accentText(), modifier = Modifier.width(28.dp))
-        Text(text = p.name, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        p.position?.let { Text(text = it, fontSize = 13.sp, color = dimText(), maxLines = 1) }
+    FocusLine(verticalPadding = 0.dp, horizontalPadding = 8.dp, spacing = 6.dp) {
+        Text(text = p.number ?: "", fontSize = 12.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = accentText(), modifier = Modifier.width(20.dp))
+        Text(text = p.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Positions.short(p.position)?.let {
+            Text(text = it, fontSize = 12.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold, color = dimText(), maxLines = 1)
+        }
     }
 }
 
