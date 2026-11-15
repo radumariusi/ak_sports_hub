@@ -28,6 +28,8 @@ data class SportEvent(
     val awayLook: TeamLook? = null,
     /** Sigla competiției. */
     val competitionLogo: String? = null,
+    /** Pagina meciului la furnizor (LiveSoccerTV: lista posturilor pe țări). */
+    val url: String? = null,
 )
 
 /** O emisiune din EPG care poate fi un meci (vine din baza EPG, pe canalul EPG [epgChannelId]). */
@@ -80,6 +82,12 @@ enum class Confidence(val label: String, val guess: Boolean = false) {
 
     /** O regulă de drepturi TV: competiția → posturile care o transmit de obicei. */
     RIGHTS("Presupus (drepturi TV)", guess = true),
+
+    /**
+     * Un post anunțat sau o presupunere pe un canal al cărui EPG arată, la ora meciului, altă emisiune
+     * („Snooker: UK Championship”). Rămâne în listă (nimic ascuns), dar după toate celelalte.
+     */
+    ELSEWHERE("EPG-ul arată altceva", guess = true),
 }
 
 /**

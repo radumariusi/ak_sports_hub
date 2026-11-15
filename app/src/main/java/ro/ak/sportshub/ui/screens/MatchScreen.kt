@@ -1,6 +1,12 @@
 package ro.ak.sportshub.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
+import ro.ak.sportshub.core.common.ChannelFamily
+import ro.ak.sportshub.core.sports.LanguageGroups
+import ro.ak.sportshub.ui.components.ReturnFocus
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
@@ -66,7 +72,7 @@ import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
 
-private val Tabs = listOf("Surse", "Pre-meci", "Live")
+private val Tabs = listOf("Surse", "Pre", "Formații", "Live", "Statistici")
 private val WhenFormat = DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm", Locale.forLanguageTag("ro"))
 
 /**
@@ -89,8 +95,8 @@ fun MatchScreen(
     val revealed by details.revealed.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    /** Sursa pe care ai ținut OK apăsat (meniul „e meciul / nu e”). */
-    var menuFor by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
+    /** Sursa previzualizată în fereastra din dreapta (OK ținut apăsat pe o sursă); un singur stream odată. */
+    var previewOf by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
     /** Căutarea unui canal de adăugat ca sursă: null = închisă, "" = se cere textul. */
     var addQuery by remember { mutableStateOf<String?>(null) }
     /** „De ce nu are sursă?”: în locul listei de surse apar posturile anunțate și ce s-a găsit pentru ele. */
@@ -118,10 +124,15 @@ fun MatchScreen(
     val liveStatus = listOfNotNull(event?.status, m.status).maxBy { it.ordinal }
     val hideSpoilers = Spoilers.hide(settings.noSpoilers, m.id in revealed, liveStatus)
 
-    // Pre-meci: se cere o dată la deschidere (doar ce e vechi). Live: la un minut, doar cât stai pe tabul Live.
-    LaunchedEffect(matchId) { details.refreshPreMatch(currentMatch) }
-    LaunchedEffect(matchId, tab == 2) {
-        if (tab != 2) return@LaunchedEffect
+    // Pre-meci: se cere o dată la deschidere (doar ce e vechi). Live: la un minut, doar cât stai pe Live sau Statistici.
+    // Posturile pe țări (pagina LiveSoccerTV a meciului), dacă sunt vechi.
+    LaunchedEffect(matchId) {
+        details.refreshPreMatch(currentMatch)
+        container.sports.refreshStationsFor(currentMatch)
+    }
+    val liveTab = tab == 3 || tab == 4
+    LaunchedEffect(matchId, liveTab) {
+        if (!liveTab) return@LaunchedEffect
         while (isActive) {
             details.refreshLive(currentMatch)
             delay(DetailsSchedule.LIVE_REFRESH_MS)
@@ -133,7 +144,11 @@ fun MatchScreen(
         MatchSources.order(entry.sources, isFavorite = favorite, prefs = settings.sourcePreferences)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
+    // Previzualizarea se oprește când pleci de pe tabul Surse.
+    LaunchedEffect(tab) { if (tab != 0) previewOf = null }
+    BackHandler(enabled = previewOf != null) { previewOf = null }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 16.dp)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             val hs = event?.homeScore ?: m.homeScore
             val aw = event?.awayScore ?: m.awayScore
@@ -144,7 +159,7 @@ fun MatchScreen(
             } else {
                 ro.ak.sportshub.ui.components.CompetitionLogo(m.competition, 44.dp, modifier = Modifier.padding(end = 12.dp))
             }
-            Text(text = m.title + score, fontSize = 34.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
+            Text(text = m.title + score, fontSize = 30.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
             if (m.away.isNotBlank()) ro.ak.sportshub.ui.components.TeamLogo(m.away, 44.dp, modifier = Modifier.padding(start = 12.dp))
             if (liveStatus == MatchStatus.LIVE) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
             if (favorite) Text(text = "  ★", fontSize = 22.sp, color = AkColors.Accent)
@@ -154,7 +169,7 @@ fun MatchScreen(
             text = listOfNotNull(start, m.sport?.label, m.competition, m.venue).joinToString(" · "),
             fontSize = 14.sp,
             color = AkColors.TextDim,
-            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
         TabStrip(
             tabs = Tabs,
@@ -170,125 +185,78 @@ fun MatchScreen(
                     onLink = { station -> linkStation = station to null },
                     modifier = Modifier.weight(1f),
                 )
-            } else LazyColumn(
-                modifier = Modifier.padding(top = 10.dp).weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                item {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 6.dp).horizontalScroll(rememberScrollState()),
-                    ) {
-                        families.firstOrNull { !it.members.first().rejected }?.members?.firstOrNull()?.let { best ->
-                            ActionButton(
-                                text = "▶ Pornește sursa recomandată",
-                                onClick = { returnFocus.clicked("best"); onPlay(best.channel.id) },
-                                modifier = returnFocus.on("best"),
-                            )
-                        }
-                        // Meci început, pe un canal cu arhivă (Xtream): de la fluierul de start.
-                        val now = System.currentTimeMillis()
-                        if (m.start < now && m.status != MatchStatus.SCHEDULED) {
-                            entry.archiveSource(settings)?.let { src ->
-                                if (Catchup.isAvailable(src.catchupDays, m.start, now)) {
-                                    ActionButton(
-                                        // Meci terminat: reluare, marcată ca atare (playerul arată „RELUARE”, nu „LIVE”).
-                                        text = if (m.status == MatchStatus.FINISHED) "⏮ Vezi reluarea" else "⏮ De la început",
-                                        onClick = { returnFocus.clicked("archive"); onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
-                                        modifier = returnFocus.on("archive"),
-                                    )
+            } else Row(modifier = Modifier.weight(1f).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                SourcesList(
+                    entry = entry,
+                    families = families,
+                    favorite = favorite,
+                    preferred = settings.sourcePreferences.preferredLanguages,
+                    previewId = previewOf?.channel?.id,
+                    returnFocus = returnFocus,
+                    header = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(bottom = 4.dp).horizontalScroll(rememberScrollState()),
+                        ) {
+                            families.firstOrNull { it.members.first().let { h -> !h.rejected && h.confidence != Confidence.ELSEWHERE } }?.members?.firstOrNull()?.let { best ->
+                                ActionButton(
+                                    text = "▶ Sursa recomandată",
+                                    onClick = { returnFocus.clicked("best"); onPlay(best.channel.id) },
+                                    modifier = returnFocus.on("best"),
+                                )
+                            }
+                            // Meci început, pe un canal cu arhivă (Xtream): de la fluierul de start.
+                            val now = System.currentTimeMillis()
+                            if (m.start < now && m.status != MatchStatus.SCHEDULED) {
+                                entry.archiveSource(settings)?.let { src ->
+                                    if (Catchup.isAvailable(src.catchupDays, m.start, now)) {
+                                        ActionButton(
+                                            // Meci terminat: reluare, marcată ca atare (playerul arată „RELUARE”, nu „LIVE”).
+                                            text = if (m.status == MatchStatus.FINISHED) "⏮ Reluarea" else "⏮ De la început",
+                                            onClick = { returnFocus.clicked("archive"); onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
+                                            modifier = returnFocus.on("archive"),
+                                        )
+                                    }
                                 }
                             }
-                        }
-                        ActionButton(text = "+ Adaugă un canal", onClick = { addQuery = "" })
-                        ActionButton(
-                            text = if (entry.summary.sure == 0) "? De ce nu are sursă" else "? De unde vin sursele",
-                            onClick = { showWhy = true },
-                        )
-                        val store = container.sportsSettings
-                        // La o cursă sau o gală „echipa” e numele evenimentului: nu se poate marca drept echipă favorită.
-                        if (!m.isSingleEvent) {
+                            ActionButton(text = "+ Canal", onClick = { addQuery = "" })
                             ActionButton(
-                                text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
-                                onClick = { store.toggleFavoriteTeam(m.home) },
+                                text = if (entry.summary.sure == 0) "? De ce nu are sursă" else "? De unde vin",
+                                onClick = { showWhy = true },
                             )
+                            val store = container.sportsSettings
+                            // La o cursă sau o gală „echipa” e numele evenimentului: nu se poate marca drept echipă favorită.
+                            if (!m.isSingleEvent) {
+                                ActionButton(
+                                    text = (if (settings.favorites.isTeam(m.home)) "★ " else "☆ ") + m.home,
+                                    onClick = { store.toggleFavoriteTeam(m.home) },
+                                )
+                            }
+                            if (m.away.isNotBlank()) {
+                                ActionButton(
+                                    text = (if (settings.favorites.isTeam(m.away)) "★ " else "☆ ") + m.away,
+                                    onClick = { store.toggleFavoriteTeam(m.away) },
+                                )
+                            }
+                            m.competition?.let { c ->
+                                ActionButton(
+                                    text = (if (settings.favorites.isCompetition(c)) "★ " else "☆ ") + c,
+                                    onClick = { store.toggleFavoriteCompetition(c) },
+                                )
+                            }
                         }
-                        if (m.away.isNotBlank()) {
-                            ActionButton(
-                                text = (if (settings.favorites.isTeam(m.away)) "★ " else "☆ ") + m.away,
-                                onClick = { store.toggleFavoriteTeam(m.away) },
-                            )
-                        }
-                        m.competition?.let { c ->
-                            ActionButton(
-                                text = (if (settings.favorites.isCompetition(c)) "★ " else "☆ ") + c,
-                                onClick = { store.toggleFavoriteCompetition(c) },
-                            )
-                        }
-                    }
-                }
-                if (families.isEmpty()) {
-                    item {
-                        Text(
-                            text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
-                                "când un canal EVENT / PPV are meciul în nume, când un post anunțat are același nume cu un canal al tău " +
-                                "(sau e în dicționarul de posturi) ori după regulile de drepturi TV. „? De ce nu are sursă” arată posturile " +
-                                "anunțate care lipsesc; poți adăuga și un canal de mână cu „+ Adaugă un canal”.",
-                            fontSize = 14.sp,
-                            color = AkColors.TextDim,
-                            modifier = Modifier.padding(14.dp),
-                        )
-                    }
-                }
-                var guessesShown = false
-                var rejectedShown = false
-                families.forEach { family ->
-                    val head = family.members.first()
-                    if (head.rejected && !rejectedShown) {
-                        rejectedShown = true
-                        item(key = "t:rejected") { SectionLabel("Respinse de tine (nu e meciul)", modifier = Modifier.padding(top = 14.dp)) }
-                    } else if (!head.rejected && head.confidence.guess && !guessesShown) {
-                        guessesShown = true
-                        item(key = "t:guess") {
-                            SectionLabel(
-                                "Presupuse (competiții învățate, canale dedicate, drepturi TV)",
-                                modifier = Modifier.padding(top = 14.dp),
-                            )
-                        }
-                    }
-                    item(key = "h:" + family.key) {
-                        SectionLabel(head.channel.name, modifier = Modifier.padding(top = 6.dp))
-                    }
-                    items(family.members, key = { "s:" + it.channel.id }) { s ->
-                        val c = s.channel
-                        val preferred = variantState.preferred[c.groupKey]?.let { it.playlistId == c.playlistId && it.name == c.name } == true
-                        ListRow(
-                            title = c.name,
-                            subtitle = listOfNotNull(
-                                c.playlistName,
-                                if (s.rejected) "respinsă de tine" else s.confidence.label + (s.station?.let { ": $it" } ?: ""),
-                                if (preferred) "varianta preferată" else null,
-                            ).joinToString(" · "),
-                            modifier = returnFocus.on("s:" + c.id),
-                            onClick = { returnFocus.clicked("s:" + c.id); onPlay(c.id) },
-                            onLongClick = { menuFor = s },
-                            trailing = {
-                                c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                                VariantQualityBadge(c.playlistId, c.name, c.quality)
-                            },
-                        )
-                    }
-                }
-                item {
-                    Text(
-                        text = "Calitatea și limba sunt cele declarate de playlist. Ordinea urmează preferințele din Setări → Sports Hub" +
-                            (if (favorite) " (meci favorit: limbile preferate întâi)." else " (rezoluția întâi).") +
-                            " OK ținut apăsat pe o sursă: „e meciul” / „nu e meciul”; aplicația ține minte postul sau competiția.",
-                        fontSize = 13.sp,
-                        color = AkColors.TextDim,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
+                    },
+                    onPlay = { c -> returnFocus.clicked("s:" + c.id); previewOf = null; onPlay(c.id) },
+                    onPreview = { src -> previewOf = if (previewOf?.channel?.id == src.channel.id) null else src },
+                    modifier = Modifier.weight(1f),
+                )
+                SourcePreviewPane(
+                    match = m,
+                    source = previewOf?.let { p -> entry.sources.firstOrNull { it.channel.id == p.channel.id } ?: p },
+                    onFull = { c -> previewOf = null; onPlay(c.id) },
+                    onStop = { previewOf = null },
+                    modifier = Modifier.width(400.dp),
+                )
             }
             1 -> PreMatchTab(
                 match = m,
@@ -299,7 +267,8 @@ fun MatchScreen(
                 onReveal = { details.reveal(m.id) },
                 modifier = Modifier.weight(1f),
             )
-            else -> LiveTab(
+            2 -> LineupsTab(match = m, state = detailsState, modifier = Modifier.weight(1f))
+            3 -> LiveTab(
                 match = m,
                 state = detailsState,
                 hideSpoilers = hideSpoilers,
@@ -310,37 +279,15 @@ fun MatchScreen(
                 noSpoilersOn = settings.noSpoilers,
                 modifier = Modifier.weight(1f),
             )
+            else -> StatsTab(
+                match = m,
+                state = detailsState,
+                hideSpoilers = hideSpoilers,
+                onRefresh = { scope.launch { details.refreshLive(m, force = true) } },
+                onReveal = { details.reveal(m.id) },
+                modifier = Modifier.weight(1f),
+            )
         }
-    }
-
-    menuFor?.let { src ->
-        val verdict = when {
-            src.rejected -> Verdict.REJECTED
-            src.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
-            else -> null
-        }
-        val options = buildList<Pair<String, Verdict?>> {
-            add("Da, e meciul" to Verdict.CONFIRMED)
-            add("Nu e meciul" to Verdict.REJECTED)
-            if (verdict != null) add("Anulează alegerea" to null)
-        }
-        ChoiceDialog(
-            title = src.channel.name,
-            hint = when (src.origin) {
-                Confidence.STATION -> "Postul anunțat „${src.station}” se leagă (sau nu) de canalul ăsta și la meciurile viitoare."
-                Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->
-                    "Se ține minte pentru meciurile din ${m.competition ?: "aceeași competiție"}."
-                Confidence.EPG -> "Doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
-                Confidence.EVENT -> "Doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
-            },
-            options = options.map { it.first },
-            selectedIndex = options.indexOfFirst { verdict != null && it.second == verdict },
-            onDismiss = { menuFor = null },
-            onSelect = { i ->
-                container.sports.decide(m, src.groupKey, options[i].second, src)
-                menuFor = null
-            },
-        )
     }
 
     linkStation?.let { (station, query) ->
@@ -518,6 +465,184 @@ private fun WhyNoSource(
                 fontSize = 14.sp,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             )
+        }
+    }
+}
+
+
+/**
+ * Lista surselor, pe grupuri de limbi (limbile tale, apoi spaniolă / italiană / germană / franceză, apoi restul), în
+ * fiecare grup în ordinea preferințelor (găsite, presupuse, „EPG-ul arată altceva”); cele respinse la final.
+ * OK pornește sursa pe tot ecranul; OK ținut apăsat o previzualizează în dreapta.
+ */
+@Composable
+private fun SourcesList(
+    entry: ro.ak.sportshub.data.MatchEntry,
+    families: List<ChannelFamily<MatchSource<ChannelWithPlaylist>>>,
+    favorite: Boolean,
+    preferred: List<String>,
+    previewId: Long?,
+    returnFocus: ReturnFocus,
+    header: @Composable () -> Unit,
+    onPlay: (ChannelWithPlaylist) -> Unit,
+    onPreview: (MatchSource<ChannelWithPlaylist>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val container = appContainer()
+    val variantState by container.variantStore.state.collectAsStateWithLifecycle()
+    val (groups, rejected) = remember(families, preferred) { LanguageGroups.split(families, preferred) }
+    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        item(key = "header") { header() }
+        if (families.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
+                        "când un canal EVENT / PPV are meciul în nume, când un post anunțat are același nume cu un canal al tău " +
+                        "(sau e în dicționarul de posturi) ori după regulile de drepturi TV. „? De ce nu are sursă” arată posturile " +
+                        "anunțate care lipsesc; poți adăuga și un canal de mână cu „+ Canal”.",
+                    fontSize = 14.sp,
+                    color = AkColors.TextDim,
+                    modifier = Modifier.padding(14.dp),
+                )
+            }
+        }
+        fun family(f: ChannelFamily<MatchSource<ChannelWithPlaylist>>) {
+            if (f.members.size > 1) {
+                item(key = "h:" + f.key) {
+                    Text(
+                        text = f.members.first().channel.name,
+                        fontSize = 13.sp,
+                        color = AkColors.TextDim,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 14.dp, top = 6.dp),
+                    )
+                }
+            }
+            items(f.members, key = { "s:" + it.channel.id }) { s ->
+                val c = s.channel
+                val pref = variantState.preferred[c.groupKey]?.let { it.playlistId == c.playlistId && it.name == c.name } == true
+                ListRow(
+                    title = c.name,
+                    titleSize = 16.sp,
+                    subtitle = listOfNotNull(c.playlistName, sourceReason(s), if (pref) "varianta preferată" else null).joinToString(" · "),
+                    selected = c.id == previewId,
+                    modifier = returnFocus.on("s:" + c.id),
+                    onClick = { onPlay(c) },
+                    onLongClick = { onPreview(s) },
+                    trailing = {
+                        if (c.id == previewId) Badge(text = "▶ PREVIZUALIZARE", color = AkColors.Accent)
+                        c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
+                        VariantQualityBadge(c.playlistId, c.name, c.quality)
+                    },
+                )
+            }
+        }
+        groups.forEach { (g, list) ->
+            item(key = "g:" + g.name) {
+                SectionLabel(
+                    LanguageGroups.label(g, preferred) + " · " + list.size + (if (list.size == 1) " canal" else " canale"),
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+            list.forEach { family(it) }
+        }
+        if (rejected.isNotEmpty()) {
+            item(key = "g:rejected") { SectionLabel("Respinse de tine (nu e meciul)", modifier = Modifier.padding(top = 10.dp)) }
+            rejected.forEach { family(it) }
+        }
+        item(key = "foot") {
+            Text(
+                text = "Calitatea și limba vin din playlist (✓ = rezoluția văzută la redare). În fiecare grup: întâi sursele găsite, apoi cele " +
+                    "presupuse, apoi cele al căror EPG arată altceva" + (if (favorite) " (meci favorit: limbile preferate întâi)." else ".") +
+                    " OK ținut apăsat pe o sursă: previzualizare în dreapta.",
+                fontSize = 12.sp,
+                color = AkColors.TextDim,
+                modifier = Modifier.padding(14.dp),
+            )
+        }
+    }
+}
+
+/** De ce e sursa aici: „Sigur (EPG)”, „Probabil (post anunțat): Sky Sports Main Event”, „EPG-ul arată altceva: Snooker”. */
+private fun sourceReason(s: MatchSource<*>): String = when {
+    s.rejected -> "respinsă de tine"
+    s.confidence == Confidence.ELSEWHERE -> "EPG-ul arată altceva" + (s.airing?.let { ": $it" } ?: "") + (s.station?.let { " (anunțat: $it)" } ?: "")
+    else -> s.confidence.label + (s.station?.let { ": $it" } ?: "")
+}
+
+/**
+ * Previzualizarea unei surse, în dreapta listei: același player (un singur stream, permisul playlistului), mic.
+ * Rezoluția văzută se notează singură pe etichetă; de aici spui dacă e meciul și dacă pe canal e alt post.
+ */
+@Composable
+private fun SourcePreviewPane(
+    match: ro.ak.sportshub.core.sports.Match,
+    source: MatchSource<ChannelWithPlaylist>?,
+    onFull: (ChannelWithPlaylist) -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val container = appContainer()
+    val suspect by container.suspectChannels.keys.collectAsStateWithLifecycle()
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (source == null) {
+            SectionLabel("Previzualizare")
+            Text(
+                text = "OK ținut apăsat pe o sursă o pornește aici, mică, fără să intri pe tot ecranul: vezi dacă merge, ce e pe ea " +
+                    "și ce rezoluție are (se notează singură pe etichetă). Un singur stream odată, ca la player (o conexiune pe playlist).",
+                fontSize = 14.sp,
+                color = AkColors.TextDim,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            return@Column
+        }
+        val c = source.channel
+        ro.ak.sportshub.player.VideoPreview(channelId = c.id)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = c.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+            VariantQualityBadge(c.playlistId, c.name, c.quality)
+        }
+        Text(text = listOfNotNull(c.playlistName, sourceReason(source)).joinToString(" · "), fontSize = 13.sp, color = AkColors.TextDim, maxLines = 2)
+        val verdict = when {
+            source.rejected -> Verdict.REJECTED
+            source.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
+            else -> null
+        }
+        val isSuspect = ro.ak.sportshub.data.CorrectionKey(c.playlistId, c.name) in suspect
+        val decide = { v: Verdict? -> container.sports.decide(match, source.groupKey, v, source) }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.fillMaxWidth()) {
+            item(key = "full") { ListRow(title = "▶ Pe tot ecranul", titleSize = 16.sp, onClick = { onFull(c) }) }
+            item(key = "yes") {
+                ListRow(title = (if (verdict == Verdict.CONFIRMED) "✓ " else "") + "E meciul", titleSize = 16.sp, selected = verdict == Verdict.CONFIRMED, onClick = { decide(Verdict.CONFIRMED) })
+            }
+            item(key = "no") {
+                ListRow(title = (if (verdict == Verdict.REJECTED) "✓ " else "") + "Nu e meciul", titleSize = 16.sp, selected = verdict == Verdict.REJECTED, onClick = { decide(Verdict.REJECTED) })
+            }
+            if (verdict != null) item(key = "undo") { ListRow(title = "Anulează alegerea", titleSize = 16.sp, onClick = { decide(null) }) }
+            item(key = "suspect") {
+                ListRow(
+                    title = if (isSuspect) "✓ Alt canal în stream (scoate semnul)" else "Alt canal în stream",
+                    subtitle = "Canal posibil greșit: rămâne sursă, după celelalte variante",
+                    titleSize = 16.sp,
+                    selected = isSuspect,
+                    onClick = { container.suspectChannels.toggle(c.playlistId, c.name) },
+                )
+            }
+            item(key = "stop") { ListRow(title = "■ Oprește previzualizarea", titleSize = 16.sp, onClick = onStop) }
+            item(key = "hint") {
+                Text(
+                    text = when (source.origin) {
+                        Confidence.STATION, Confidence.ELSEWHERE -> "„E meciul” / „Nu e” leagă (sau nu) postul anunțat de canalul ăsta și la meciurile viitoare."
+                        Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->
+                            "Alegerea se ține minte pentru meciurile din ${match.competition ?: "aceeași competiție"}."
+                        Confidence.EPG -> "Alegerea e doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
+                        Confidence.EVENT -> "Alegerea e doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
+                    },
+                    fontSize = 12.sp,
+                    color = AkColors.TextDim,
+                    modifier = Modifier.padding(8.dp),
+                )
+            }
         }
     }
 }

@@ -146,6 +146,7 @@ class SportsSnapshotFile(private val file: File) {
                     str(src.station)
                     out.writeBoolean(src.rejected)
                     out.writeByte(src.origin.ordinal)
+                    str(src.airing)
                 }
             }
             out.writeInt(s.events.size)
@@ -250,6 +251,7 @@ class SportsSnapshotFile(private val file: File) {
                         station = str(),
                         rejected = input.readBoolean(),
                         origin = CONFIDENCES[input.readUnsignedByte()],
+                        airing = str(),
                     )
                 }
                 MatchEntry(m, sources, MatchSources.summary(sources))
@@ -287,7 +289,7 @@ class SportsSnapshotFile(private val file: File) {
 
     companion object {
         /** Se mărește la orice schimbare de format: fișierul vechi se ignoră și lista se calculează din nou. */
-        private const val VERSION = 1
+        private const val VERSION = 2
         private const val MAX_UTF = 20_000
         private const val DESCRIPTION_CHARS = 300
         private val QUALITIES = Quality.entries

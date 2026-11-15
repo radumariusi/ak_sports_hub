@@ -37,11 +37,11 @@ private val AwayShirt = Color(0xFFEEF1F4)
  * Primește focus, ca lista să se deruleze până la el cu telecomanda.
  */
 @Composable
-fun PitchView(home: Formation, away: Formation, modifier: Modifier = Modifier) {
+fun PitchView(home: Formation, away: Formation, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 380.dp) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(380.dp)
+            .height(height)
             .background(Grass, RoundedCornerShape(10.dp))
             .focusable(),
     ) {

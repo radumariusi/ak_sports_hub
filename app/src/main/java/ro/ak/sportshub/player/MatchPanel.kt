@@ -17,6 +17,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.sports.Formation
+import ro.ak.sportshub.core.sports.MatchDetails
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import ro.ak.sportshub.ui.components.TabStrip
+import ro.ak.sportshub.ui.screens.PitchView
+import ro.ak.sportshub.ui.screens.formSection
+import ro.ak.sportshub.ui.screens.headToHeadSection
+import ro.ak.sportshub.ui.screens.lineupList
+import ro.ak.sportshub.ui.screens.tableSection
 import ro.ak.sportshub.core.sports.LineupPlayer
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchStatus
@@ -81,119 +91,182 @@ fun MatchPanelContent(
     offsetSeconds: Int?,
     actions: MatchPanelActions,
     modifier: Modifier = Modifier,
+    /** Datele de pre-meci (formă, meciuri directe, clasament, statisticile sezonului). */
+    details: MatchDetails = MatchDetails(),
+    /** Meniul obișnuit al playerului (sunet, subtitrări, variante…): săgeata dreapta deschide întâi meciul. */
+    onMenu: (() -> Unit)? = null,
 ) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val firstTab = remember { FocusRequester() }
+    var tab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
     SidePanel(modifier.padding(0.dp)) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            item(key = "title") {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "MECIUL",
-                            fontSize = 28.sp,
-                            fontFamily = AkFonts.Condensed,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = when {
-                                replay -> "reluare din arhivă"
-                                delaySeconds > 0 -> "afișat cu $delaySeconds s întârziere"
-                                else -> "fără întârziere"
-                            },
-                            fontSize = 14.sp,
-                            color = AkColors.TextDim,
-                        )
-                    }
+        Column {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = listOfNotNull(match.title, match.competition).joinToString(" · "),
-                        fontSize = 14.sp,
+                        text = "MECIUL",
+                        fontSize = 26.sp,
+                        fontFamily = AkFonts.Condensed,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = when {
+                            replay -> "reluare din arhivă"
+                            delaySeconds > 0 -> "afișat cu $delaySeconds s întârziere"
+                            else -> "fără întârziere"
+                        },
+                        fontSize = 13.sp,
                         color = AkColors.TextDim,
-                        maxLines = 1,
                     )
                 }
-            }
-            item(key = "score") {
-                val score = when {
-                    hidden -> "Scor ascuns (fără spoilere)"
-                    view == null -> if (loading) "Se încarcă…" else "Fără scor încă"
-                    view.homeScore != null && view.awayScore != null -> "${match.home}  ${view.homeScore} – ${view.awayScore}  ${match.away}"
-                    else -> match.title
-                }
-                ListRow(
-                    title = score,
-                    titleSize = 20.sp,
-                    subtitle = when {
-                        hidden -> "OK arată scorul și evenimentele acestui meci"
-                        view == null -> status ?: "Datele vin de la TheSportsDB, cerute cât e deschis panoul."
-                        else -> listOfNotNull(
-                            view.label.ifEmpty { null },
-                            if (view.pending > 0) "${view.pending} evenimente noi vin în stream" else null,
-                        ).joinToString(" · ").ifEmpty { null }
-                    },
-                    onClick = if (hidden) actions.onReveal else actions.onRefresh,
-                    modifier = Modifier.focusRequester(focus),
-                    trailing = {
-                        when {
-                            replay -> Badge(text = "RELUARE", color = AkColors.Focus)
-                            view?.status == MatchStatus.LIVE || match.isLive -> Badge(text = "LIVE", color = AkColors.Live)
-                        }
-                    },
-                )
-            }
-            actions.onLive?.let { item(key = "live") { ListRow(title = "● Înapoi la live", onClick = it) } }
-            actions.onFromStart?.let {
-                item(key = "start") {
-                    ListRow(title = "⏮ De la început", subtitle = "Arhiva canalului, de la fluierul de start", onClick = it)
-                }
-            }
-            actions.onDelay?.let {
-                item(key = "delay") {
-                    ListRow(
-                        title = "Întârzierea stream-ului: ${if (delaySeconds == 0) "fără" else "$delaySeconds s"}",
-                        subtitle = "Golurile apar în panou abia după atât, ca să le vezi întâi pe ecran",
-                        onClick = it,
-                    )
-                }
-            }
-            if (actions.onOffset != null && offsetSeconds != null) {
-                item(key = "offset") {
-                    ListRow(
-                        title = "Corecția saltului: ${if (offsetSeconds > 0) "+" else ""}$offsetSeconds s",
-                        subtitle = "Pentru playlistul canalului: mărește dacă saltul ajunge prea devreme, micșorează dacă ajunge târziu",
-                        onClick = actions.onOffset,
-                    )
-                }
-            }
-            if (!hidden && view != null) {
-                events(match, view.timeline, actions.onJump)
-                // Ca în tabela TV: posesia și șuturile pe poartă, sub evenimente.
-                Scoreboard.possession(view.stats)?.let { (h, a) ->
-                    item(key = "possession") {
-                        PossessionBlock(home = h, away = a, shots = Scoreboard.stat(view.stats, "Șuturi pe poartă"))
-                    }
-                }
-                if (view.stats.isNotEmpty()) {
-                    groupedStats(view.stats, "st", match.home, match.away, title = "Statistici")
-                } else if (view.statsHidden) {
-                    item(key = "st-hidden") {
-                        ListRow(title = "Statisticile apar la final", subtitle = "Sunt cele de la sfârșitul meciului (spoiler la reluare)", onClick = {})
-                    }
-                }
-            }
-            if (lineup.isNotEmpty()) lineups(match, lineup)
-            item(key = "foot") {
                 Text(
-                    text = "TheSportsDB, cerut la un minut doar cât e deschis panoul; nu folosește conexiunea playlistului." +
-                        if (actions.onJump != null) " OK pe un eveniment: arhiva, cu un minut înainte." else "",
-                    fontSize = 12.sp,
+                    text = listOfNotNull(match.title, match.competition).joinToString(" · "),
+                    fontSize = 13.sp,
                     color = AkColors.TextDim,
-                    modifier = Modifier.padding(14.dp),
+                    maxLines = 1,
                 )
+            }
+            TabStrip(
+                tabs = PanelTabs,
+                selectedIndex = tab,
+                onSelect = { tab = it },
+                firstTabModifier = Modifier.focusRequester(firstTab),
+                fontSize = 17.sp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                when (tab) {
+                    0 -> liveTab(match, view, hidden, replay, loading, status, delaySeconds, offsetSeconds, actions, onMenu)
+                    1 -> statsTab(match, view, hidden, details)
+                    2 -> lineupTab(match, lineup)
+                    else -> preTab(match, details, hidden, actions.onReveal)
+                }
             }
         }
+    }
+}
+
+private val PanelTabs = listOf("Live", "Statistici", "Formații", "Pre")
+
+private fun LazyListScope.liveTab(
+    match: Match,
+    view: PanelView?,
+    hidden: Boolean,
+    replay: Boolean,
+    loading: Boolean,
+    status: String?,
+    delaySeconds: Int,
+    offsetSeconds: Int?,
+    actions: MatchPanelActions,
+    onMenu: (() -> Unit)?,
+) {
+    item(key = "score") {
+        val score = when {
+            hidden -> "Scor ascuns (fără spoilere)"
+            view == null -> if (loading) "Se încarcă…" else "Fără scor încă"
+            view.homeScore != null && view.awayScore != null -> "${match.home}  ${view.homeScore} – ${view.awayScore}  ${match.away}"
+            else -> match.title
+        }
+        ListRow(
+            title = score,
+            titleSize = 19.sp,
+            subtitle = when {
+                hidden -> "OK arată scorul și evenimentele acestui meci"
+                view == null -> status ?: "Datele vin de la ESPN, cerute cât e deschis panoul."
+                else -> listOfNotNull(
+                    view.label.ifEmpty { null },
+                    if (view.pending > 0) "${view.pending} evenimente noi vin în stream" else null,
+                ).joinToString(" · ").ifEmpty { null }
+            },
+            onClick = if (hidden) actions.onReveal else actions.onRefresh,
+            trailing = {
+                when {
+                    replay -> Badge(text = "RELUARE", color = AkColors.Focus)
+                    view?.status == MatchStatus.LIVE || match.isLive -> Badge(text = "LIVE", color = AkColors.Live)
+                }
+            },
+        )
+    }
+    if (!hidden && view != null) {
+        // Ca în tabela TV: posesia și șuturile pe poartă, sus.
+        Scoreboard.possession(view.stats)?.let { (h, a) ->
+            item(key = "possession") {
+                PossessionBlock(home = h, away = a, shots = Scoreboard.stat(view.stats, "Șuturi pe poartă"))
+            }
+        }
+        events(match, view.timeline, actions.onJump)
+    }
+    actions.onLive?.let { item(key = "live") { ListRow(title = "● Înapoi la live", onClick = it) } }
+    actions.onFromStart?.let {
+        item(key = "start") {
+            ListRow(title = "⏮ De la început", subtitle = "Arhiva canalului, de la fluierul de start", onClick = it)
+        }
+    }
+    actions.onDelay?.let {
+        item(key = "delay") {
+            ListRow(
+                title = "Întârzierea stream-ului: ${if (delaySeconds == 0) "fără" else "$delaySeconds s"}",
+                subtitle = "Golurile apar în panou abia după atât, ca să le vezi întâi pe ecran",
+                onClick = it,
+            )
+        }
+    }
+    if (actions.onOffset != null && offsetSeconds != null) {
+        item(key = "offset") {
+            ListRow(
+                title = "Corecția saltului: ${if (offsetSeconds > 0) "+" else ""}$offsetSeconds s",
+                subtitle = "Pentru playlistul canalului: mărește dacă saltul ajunge prea devreme, micșorează dacă ajunge târziu",
+                onClick = actions.onOffset,
+            )
+        }
+    }
+    onMenu?.let { item(key = "menu") { ListRow(title = "☰ Meniul playerului", subtitle = "Sunet, subtitrări, variante, program…", onClick = it) } }
+    item(key = "foot") {
+        Text(
+            text = "ESPN, cerut la un minut doar cât e deschis panoul; nu folosește conexiunea playlistului." +
+                if (actions.onJump != null) " OK pe un eveniment: arhiva, cu un minut înainte." else "",
+            fontSize = 12.sp,
+            color = AkColors.TextDim,
+            modifier = Modifier.padding(14.dp),
+        )
+    }
+}
+
+private fun LazyListScope.statsTab(match: Match, view: PanelView?, hidden: Boolean, details: MatchDetails) {
+    when {
+        hidden -> item(key = "st-hidden") { ListRow(title = "Statistici ascunse (fără spoilere)", subtitle = "Tabul Live: OK pe scor le arată", onClick = {}) }
+        view != null && view.stats.isNotEmpty() -> groupedStats(view.stats, "st", match.home, match.away, title = "Statisticile meciului")
+        view != null && view.statsHidden -> item(key = "st-end") {
+            ListRow(title = "Statisticile apar la final", subtitle = "Sunt cele de la sfârșitul meciului (spoiler la reluare)", onClick = {})
+        }
+        details.seasonStats.isNotEmpty() -> groupedStats(details.seasonStats, "ss", match.home, match.away, title = "Sezonul")
+        else -> item(key = "st-none") { ListRow(title = "Fără statistici încă", subtitle = "Apar în timpul meciului, dacă ESPN le are", onClick = {}) }
+    }
+}
+
+private fun LazyListScope.lineupTab(match: Match, lineup: List<LineupPlayer>) {
+    if (lineup.isEmpty()) {
+        item(key = "lu-none") { ListRow(title = "Fără echipe de start", subtitle = "Apar de obicei cu o oră înainte de meci", onClick = {}) }
+        return
+    }
+    val homeF = Formation.of(lineup.filter { it.home })
+    val awayF = Formation.of(lineup.filter { !it.home })
+    if (homeF != null && awayF != null) {
+        item(key = "pitch") { PitchView(homeF, awayF, Modifier.padding(horizontal = 4.dp, vertical = 4.dp), height = 230.dp) }
+    }
+    lineupList(match.home, lineup.filter { it.home }, "h")
+    lineupList(match.away, lineup.filter { !it.home }, "a")
+}
+
+private fun LazyListScope.preTab(match: Match, details: MatchDetails, hidden: Boolean, onReveal: () -> Unit) {
+    val zone = java.time.ZoneId.systemDefault()
+    formSection(match, details, hidden, zone)
+    headToHeadSection(match, details, zone, max = 5)
+    tableSection(match, details, hidden, onReveal, around = 3)
+    if (match.away.isBlank() || (details.homeRecent.isEmpty() && details.headToHead.isEmpty() && details.table.isEmpty())) {
+        item(key = "pre-none") { ListRow(title = "Puține date de pre-meci", subtitle = "Restul e în fereastra meciului, tabul Pre", onClick = {}) }
     }
 }
 
@@ -328,19 +401,5 @@ private fun TeamCell(team: String, look: ro.ak.sportshub.core.sports.TeamLook?, 
 private fun ScoreCell(text: String, bg: Color, fg: Color) {
     Box(modifier = Modifier.background(bg).fillMaxHeight().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
         Text(text = text, color = fg, fontSize = 28.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-    }
-}
-
-private fun LazyListScope.lineups(match: Match, lineup: List<LineupPlayer>) {
-    listOf(true to match.home, false to match.away).forEach { (home, team) ->
-        val players = lineup.filter { it.home == home && !it.substitute }
-        if (players.isEmpty()) return@forEach
-        val formation = Formation.of(lineup.filter { it.home == home })?.label
-        item(key = "lu-h:$home") {
-            SectionLabel("Titulari $team" + (formation?.let { " · $it" } ?: ""), modifier = Modifier.padding(top = 6.dp))
-        }
-        items(players.withIndex().toList(), key = { "lu:$home:" + it.index }) { (_, p) ->
-            ListRow(title = listOfNotNull(p.number, p.name).joinToString("  "), subtitle = p.position, onClick = {})
-        }
     }
 }

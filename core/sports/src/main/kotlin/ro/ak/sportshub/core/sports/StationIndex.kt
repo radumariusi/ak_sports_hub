@@ -95,16 +95,54 @@ object Countries {
         "gb" to setOf("uk", "gb", "en"), "us" to setOf("us", "usa"),
         "spain" to setOf("es"), "espana" to setOf("es"),
         "mexico" to setOf("mx"), "argentina" to setOf("ar"), "india" to setOf("in"),
+        // Țările din listele pe țări ale LiveSoccerTV / Sofascore (pagina meciului are 100+ țări).
+        "andorra" to setOf("ad", "es"), "luxembourg" to setOf("lu"), "malta" to setOf("mt"), "cyprus" to setOf("cy"),
+        "iceland" to setOf("is"), "estonia" to setOf("ee"), "latvia" to setOf("lv"), "lithuania" to setOf("lt"),
+        "armenia" to setOf("am"), "georgia" to setOf("ge"), "azerbaijan" to setOf("az"), "kazakhstan" to setOf("kz"),
+        "belarus" to setOf("by"), "montenegro" to setOf("me"), "kosovo" to setOf("xk"), "israel" to setOf("il"),
+        "bosnia" to setOf("ba"), "bosnia herzegovina" to setOf("ba"), "macedonia" to setOf("mk"),
+        "new zealand" to setOf("nz"), "south africa" to setOf("za"), "nigeria" to setOf("ng"), "kenya" to setOf("ke"),
+        "ghana" to setOf("gh"), "egypt" to setOf("eg"), "morocco" to setOf("ma"), "algeria" to setOf("dz"),
+        "tunisia" to setOf("tn"), "saudi arabia" to setOf("sa"), "united arab emirates" to setOf("ae"), "uae" to setOf("ae"),
+        "qatar" to setOf("qa"), "bahrain" to setOf("bh"), "kuwait" to setOf("kw"), "oman" to setOf("om"),
+        "jordan" to setOf("jo"), "lebanon" to setOf("lb"), "iraq" to setOf("iq"), "iran" to setOf("ir"),
+        "pakistan" to setOf("pk"), "bangladesh" to setOf("bd"), "sri lanka" to setOf("lk"), "nepal" to setOf("np"),
+        "china" to setOf("cn"), "hong kong" to setOf("hk"), "taiwan" to setOf("tw"), "japan" to setOf("jp"),
+        "south korea" to setOf("kr"), "korea" to setOf("kr"), "thailand" to setOf("th"), "vietnam" to setOf("vn"),
+        "malaysia" to setOf("my"), "singapore" to setOf("sg"), "indonesia" to setOf("id"), "philippines" to setOf("ph"),
+        "chile" to setOf("cl"), "colombia" to setOf("co"), "peru" to setOf("pe"), "uruguay" to setOf("uy"),
+        "paraguay" to setOf("py"), "ecuador" to setOf("ec"), "venezuela" to setOf("ve"), "bolivia" to setOf("bo"),
+        "costa rica" to setOf("cr"), "jamaica" to setOf("jm"), "caribbean" to setOf("jm"),
+        "latin america" to setOf("latam"), "middle east" to setOf("mena"), "mena" to setOf("mena"),
+        "angola" to setOf("ao"), "cameroon" to setOf("cm"), "senegal" to setOf("sn"), "ivory coast" to setOf("ci"),
+        "uganda" to setOf("ug"), "tanzania" to setOf("tz"), "zambia" to setOf("zm"), "zimbabwe" to setOf("zw"),
+        "netherlands antilles" to setOf("an"), "holland" to setOf("nl"), "the netherlands" to setOf("nl"),
+        "korea republic" to setOf("kr"), "republic of ireland" to setOf("ie", "uk", "en"), "northern ireland" to setOf("uk", "gb", "en"),
+        "czech" to setOf("cz"), "türkiye" to setOf("tr"), "turkiye" to setOf("tr"),
     )
 
     /** Numele [folded] (fără diacritice, litere mici) e o țară cunoscută? */
     fun isCountry(folded: String): Boolean = folded in map
 
-    /** Prefixele de țară pentru numele [country] (gol dacă nu-l știm: atunci nu se filtrează). */
+    /**
+     * Prefixele de țară pentru numele [country]: gol doar dacă țara lipsește (atunci nu se filtrează). O țară
+     * pe care n-o știm („Bangladesh” fără prefix în tabel) dă un prefix care nu e al niciunui canal: postul se
+     * potrivește doar cu canalele fără țară în nume, nu cu „beIN Sports 2” din toate țările.
+     */
     fun codes(country: String?): Set<String> {
         if (country.isNullOrBlank()) return emptySet()
-        val f = Sport.fold(country)
+        val f = Sport.fold(country).replace('-', ' ').trim()
         map[f]?.let { return it }
-        return if (f.length in 2..3) setOf(f) else emptySet()
+        return if (f.length in 2..3 && ' ' !in f) setOf(f) else setOf("?$f")
+    }
+
+    /** Țara scrisă la finalul unei adrese de post („/channels/digi-sport-4-romania/” → „romania”), dacă e cunoscută. */
+    fun fromSlug(slug: String): String? {
+        val words = slug.trim('/').substringAfterLast('/').split('-').filter { it.isNotEmpty() }
+        for (n in minOf(3, words.size - 1) downTo 1) {
+            val tail = words.takeLast(n).joinToString(" ")
+            if (isCountry(tail)) return tail
+        }
+        return null
     }
 }

@@ -349,8 +349,9 @@ fun PlayerScreen(
             AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN, AndroidKeyEvent.KEYCODE_PAGE_DOWN ->
                 controller.zap(-1)
             AndroidKeyEvent.KEYCODE_DPAD_LEFT -> panel = Panel.Channels
-            AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_SETTINGS ->
-                panel = Panel.Menu
+            // Pe un meci, săgeata dreapta deschide direct panoul meciului (live, statistici, formații, pre); meniul e în el.
+            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> panel = if (linkedMatch != null) Panel.Match else Panel.Menu
+            AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_SETTINGS -> panel = Panel.Menu
             AndroidKeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> panel = Panel.Audio
             AndroidKeyEvent.KEYCODE_CAPTIONS -> panel = Panel.Subtitles
             AndroidKeyEvent.KEYCODE_PROG_RED -> panel = Panel.Quick
@@ -637,6 +638,8 @@ fun PlayerScreen(
                     status = detailsState.status,
                     delaySeconds = sportsSettings.streamDelaySeconds,
                     offsetSeconds = offset,
+                    details = detailsState.details,
+                    onMenu = { panel = Panel.Menu },
                     actions = MatchPanelActions(
                         onJump = if (hasArchive && MatchClock.supports(m.sport)) {
                             { t ->
