@@ -50,6 +50,11 @@ data class SportsSettings(
     val eventChannels: Boolean = true,
     /** Doar competițiile importante (`CompetitionFilter`): restul meciurilor nu intră în listă. */
     val topCompetitionsOnly: Boolean = true,
+    /**
+     * Meciuri și din EPG sau din canalele EVENT, fără niciun furnizor de program (cererea lui Radu: lista vine doar din
+     * furnizori, EPG-ul și canalele doar găsesc sursele). Oprit implicit.
+     */
+    val channelOnlyMatches: Boolean = false,
     /** Fusul orelor scrise fără fus în numele canalelor EVENT („20:00”); gol = fusul televizorului. */
     val eventZone: String = "",
     /** Câte zile (de azi încolo) se cer de la TheSportsDB. */
@@ -156,6 +161,7 @@ class SportsSettingsStore(context: Context) {
                 euroLeagueEnabled = o.optBoolean("euroLeague", d.euroLeagueEnabled),
                 eventChannels = o.optBoolean("eventChannels", d.eventChannels),
                 topCompetitionsOnly = o.optBoolean("topCompetitionsOnly", d.topCompetitionsOnly),
+                channelOnlyMatches = o.optBoolean("channelOnlyMatches", d.channelOnlyMatches),
                 eventZone = o.optString("eventZone", d.eventZone),
                 sports = if (!o.has("sports")) d.sports else o.optJSONArray("sports").strings().mapNotNull(Sport::fromName).let { saved ->
                     // Versiunea 4 (ESPN extins): sporturile noi acoperite de ESPN se adaugă o dată la setările vechi.
@@ -204,6 +210,7 @@ class SportsSettingsStore(context: Context) {
         put("euroLeague", s.euroLeagueEnabled)
         put("eventChannels", s.eventChannels)
         put("topCompetitionsOnly", s.topCompetitionsOnly)
+        put("channelOnlyMatches", s.channelOnlyMatches)
         put("eventZone", s.eventZone)
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)

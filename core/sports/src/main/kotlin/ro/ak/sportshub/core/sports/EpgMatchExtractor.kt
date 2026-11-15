@@ -21,6 +21,9 @@ object EpgMatchExtractor {
         "powtorka", "powtórka", "retransmisja", "skrot", "skrót", "(rpt)", "(replay)", "(rep)",
         // Studio înainte și după meci (C4).
         "pre match", "prematch", "post match", "postmatch", "build up", "countdown", "reaction", "debrief", "kick off show",
+        // Meciul comprimat („UEFA Nations League in 60”, „Premier League in 90”), rezumatele lungi, revederile.
+        "in 15", "in 20", "in 30", "in 45", "in 60", "in 90", "condensed", "mini match", "extended highlights", "recap",
+        "rewind", "full match", "match of the day", "motd", "flashback", "gameday", "game day",
     )
     private val strongSeparators = listOf(
         Regex("""\s+(?i:vs\.?|v\.?)\s+"""),
