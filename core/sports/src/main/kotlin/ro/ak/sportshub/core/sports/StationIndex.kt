@@ -26,7 +26,12 @@ class StationIndex(groupKeys: Collection<String>) {
      * de posturi ([StationNames]: „BT Sport 1” = „TNT Sports 1”), iar țara scrisă la final
      * („Digi Sport 1 Romania”, „Sky Sports Main Event (UK)”) se folosește ca țară.
      */
-    fun find(station: TvStation): List<String> {
+    // Același post apare la sute de meciuri; rezultatul se ține minte (indexul se reface când se schimbă canalele).
+    private val memo = java.util.concurrent.ConcurrentHashMap<Pair<String, String?>, List<String>>()
+
+    fun find(station: TvStation): List<String> = memo.getOrPut(station.name to station.country) { lookup(station) }
+
+    private fun lookup(station: TvStation): List<String> {
         val (name, suffixCountry) = StationNames.splitCountry(station.name)
         val out = LinkedHashSet<String>()
         for (variant in StationNames.variants(name)) {
@@ -53,6 +58,15 @@ class StationIndex(groupKeys: Collection<String>) {
     companion object {
         private val numbers = mapOf("one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5", "unu" to "1", "doi" to "2", "trei" to "3")
         private val dropped = setOf("tv", "channel", "the", "network")
+
+        private val keys = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        /** Cheia unui post anunțat: numele fără țara de la final, compactat; ținută minte (se cere la fiecare meci). */
+        fun stationKey(name: String): String {
+            keys[name]?.let { return it }
+            if (keys.size > 20_000) keys.clear()
+            return compact(StationNames.splitCountry(name).first).also { keys[name] = it }
+        }
 
         fun compact(name: String): String =
             Sport.fold(name).split(' ')

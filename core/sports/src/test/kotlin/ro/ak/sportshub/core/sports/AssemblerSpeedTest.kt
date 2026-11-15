@@ -31,4 +31,29 @@ class AssemblerSpeedTest {
         // Fiecare meci al furnizorului își păstrează emisiunile.
         assertTrue(matches.count { it.broadcasts.isNotEmpty() && "test" in it.providers } > 300)
     }
+
+    @Test(timeout = 30_000)
+    fun `noua mii de canale EVENT se leaga repede de meciuri`() {
+        val rnd = Random(5)
+        val zone = java.time.ZoneOffset.UTC
+        val now = 1_763_200_000_000L
+        val h = 3_600_000L
+        val teams = (0 until 1500).map { "Club ${'A' + it % 26}${it}" }
+        val events = (0 until 2300).map { i ->
+            SportEvent("test", "$i", "Soccer", "Liga", teams[(2 * i) % 1500], teams[(2 * i + 1) % 1500], now + (i % 60) * h / 2)
+        }
+        val slots = (0 until 9000).map { i ->
+            val e = events[rnd.nextInt(events.size)]
+            val hhmm = java.time.Instant.ofEpochMilli(e.start).atZone(zone).toLocalTime()
+            val name = if (i % 3 == 0) "PPV ${i}: ${e.home} vs ${e.away}" else "EVENT ${i}: ${e.home} vs ${e.away} %02d:%02d".format(hhmm.hour, hhmm.minute)
+            EventChannels.parse(i.toLong(), name, "Events", now, zone)
+        }.filter { it.home != null }
+        // Și canale cu evenimente fără meci (devin meciuri „doar din playlist”).
+        val loose = (0 until 2000).map { i -> EventChannels.parse(100_000L + i, "EVENT $i: Alpha$i vs Beta$i 18:00", "Events", now, zone) }
+        val started = System.nanoTime()
+        val matches = MatchAssembler.assemble(events, emptyList(), now, emptyList(), slots + loose)
+        val ms = (System.nanoTime() - started) / 1_000_000
+        assertTrue("$ms ms", ms < 10_000)
+        assertTrue(matches.count { it.eventChannels.isNotEmpty() && "test" in it.providers } > 1000)
+    }
 }
