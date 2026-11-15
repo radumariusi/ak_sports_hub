@@ -138,10 +138,24 @@ fun PlayerScreen(
     val container = appContainer()
     val context = LocalContext.current
     val controller = remember { PlayerController(context.applicationContext, container) }
-    DisposableEffect(controller) { onDispose { controller.release() } }
+    // Cât e playerul pe ecran, calculele grele din fundal (Sports Hub, actualizări EPG / playlist) așteaptă:
+    // toată puterea televizorului merge la redare (altfel 4K-ul sacadează).
+    DisposableEffect(controller) {
+        container.playing.value = true
+        onDispose {
+            container.playing.value = false
+            controller.release()
+        }
+    }
     LaunchedEffect(channelId, archive) { controller.play(channelId, zapGroup, archive) }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.onBackground() }
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.onForeground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        container.playing.value = false
+        controller.onBackground()
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        container.playing.value = true
+        controller.onForeground()
+    }
 
     val state by controller.state.collectAsStateWithLifecycle()
     // Frecvența ecranului după cadrele stream-ului (setare, oprită implicit).
@@ -495,6 +509,15 @@ fun PlayerScreen(
                     panel = Panel.None
                     controller.preferCurrent()?.let { toast = it }
                 },
+                suspect = state.channel?.let { c -> container.suspectChannels.contains(c.playlistId, c.name) } == true,
+                onSuspect = {
+                    panel = Panel.None
+                    state.channel?.let { c ->
+                        val marked = container.suspectChannels.toggle(c.playlistId, c.name)
+                        toast = if (marked) "${c.name}: semnalat „canal posibil greșit”. Rămâne în surse, cu eticheta asta."
+                        else "${c.name}: semnalarea a fost scoasă."
+                    }
+                },
                 onExit = onExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
@@ -830,6 +853,8 @@ private fun MenuPanel(
     onSchedule: () -> Unit,
     onVariants: () -> Unit,
     onPrefer: () -> Unit,
+    suspect: Boolean,
+    onSuspect: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier,
 ) {
@@ -865,6 +890,11 @@ private fun MenuPanel(
                 )
                 ListRow(title = "Setează ca variantă preferată", subtitle = "pornește prima la acest canal", onClick = onPrefer)
             }
+            ListRow(
+                title = if (suspect) "Scoate semnalarea „canal posibil greșit”" else "Semnalează: canal posibil greșit",
+                subtitle = if (suspect) "eticheta dispare din surse și variante" else "nu se ascunde: rămâne sursă, cu eticheta asta și după celelalte variante",
+                onClick = onSuspect,
+            )
             ListRow(title = "Canalul anterior", subtitle = previousName ?: "niciunul încă", onClick = onPrevious)
             ListRow(title = "Programul canalului", subtitle = "EPG: ce rulează acum și mai târziu", onClick = onSchedule)
             ListRow(title = "Lista canalelor din grup", onClick = onChannels)

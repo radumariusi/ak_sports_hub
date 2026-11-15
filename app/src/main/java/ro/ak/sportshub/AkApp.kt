@@ -15,9 +15,11 @@ import ro.ak.sportshub.core.database.EpgDatabase
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import ro.ak.sportshub.data.AppUpdater
 import ro.ak.sportshub.data.CatchupStore
 import ro.ak.sportshub.data.ChannelFavoritesStore
+import ro.ak.sportshub.data.SuspectChannelsStore
 import ro.ak.sportshub.data.EpgRepository
 import ro.ak.sportshub.data.SettingsBackup
 import ro.ak.sportshub.home.HomeChannel
@@ -43,6 +45,9 @@ class AppContainer(app: Application) {
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Playerul e pe ecran: lucrul greu din fundal (calcule, importuri) așteaptă până se oprește redarea. */
+    val playing = MutableStateFlow(false)
+
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
@@ -67,11 +72,15 @@ class AppContainer(app: Application) {
     /** Rezoluția și cadrele văzute la redare, pe variantă. */
     val observedVideo = ObservedVideoStore(app)
 
+    /** Variantele semnalate din player ca „canal posibil greșit”. */
+    val suspectChannels = SuspectChannelsStore(app)
+
     val variants = VariantRepository(
         database.channels(),
         variantStore,
         preferences = { sportsSettings.current.sourcePreferences },
         observed = { observedVideo.current },
+        suspect = { suspectChannels.keys.value },
     )
 
     /** Fusul orar al serverelor Xtream (pentru catch-up). */
@@ -123,6 +132,7 @@ class AppContainer(app: Application) {
         http = http,
         scope = scope,
         log = diagnosticLog,
+        playing = playing,
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */

@@ -47,44 +47,88 @@ object MatchAssembler {
 
         val attached = HashMap<Int, MutableList<MatchBroadcast>>()
         val loose = ArrayList<MatchBroadcast>()
-        // [merged] e în ordinea orei: pentru fiecare emisiune se verifică doar meciurile din fereastra ei de timp
-        // (căutare binară), nu toate meciurile; cu zeci de mii de emisiuni comparația completă dura minute.
+        // [merged] e în ordinea orei. O emisiune cu echipe se compară doar cu meciurile care au un cuvânt comun cu
+        // echipa ei (index pe cuvinte) și sunt în fereastra ei de timp; evenimentele fără echipe, doar cu evenimentele
+        // din fereastră. Înainte, fiecare emisiune se compara cu toate meciurile din 3 ore: pe un EPG de zeci de mii
+        // de emisiuni asta dura minute pe TV.
         val starts = LongArray(merged.size) { merged[it].start }
+        val homeParts = Array(merged.size) { TeamNames.parts(merged[it].home) }
+        val awayParts = Array(merged.size) { if (merged[it].away.isBlank()) null else TeamNames.parts(merged[it].away) }
+        val byToken = TokenIndex()
+        val singles = ArrayList<Int>()
+        merged.forEachIndexed { i, e ->
+            if (e.away.isBlank()) singles += i
+            else {
+                byToken.add(homeParts[i], i)
+                byToken.add(awayParts[i]!!, i)
+            }
+        }
+        val singleStarts = LongArray(singles.size) { starts[singles[it]] }
         for (mb in broadcasts) {
             val b = mb.broadcast
             val x = mb.extracted
-            val first = lowerBound(starts, b.start - BROADCAST_LATE_MS)
-            var last = first
-            while (last < starts.size && starts[last] <= b.start + BROADCAST_LEAD_MS) last++
-            val best = (first until last)
-                .filter { i ->
+            var best = -1
+            var bestDiff = Long.MAX_VALUE
+            fun consider(i: Int, ok: () -> Boolean) {
+                val e = merged[i]
+                if (b.start < e.start - BROADCAST_LEAD_MS || b.start > e.start + BROADCAST_LATE_MS || b.stop <= e.start) return
+                val diff = abs(e.start - b.start)
+                if (diff > bestDiff || (diff == bestDiff && i > best)) return
+                if (ok()) { best = i; bestDiff = diff }
+            }
+            var xh: TeamNames.Parts? = null
+            var xa: TeamNames.Parts? = null
+            if (x.away.isBlank()) {
+                val from = lowerBound(singleStarts, b.start - BROADCAST_LATE_MS)
+                var k = from
+                while (k < singles.size && singleStarts[k] <= b.start + BROADCAST_LEAD_MS) {
+                    val i = singles[k]
                     val e = merged[i]
-                    b.start >= e.start - BROADCAST_LEAD_MS && b.start <= e.start + BROADCAST_LATE_MS && b.stop > e.start &&
-                        if (x.away.isBlank()) {
-                            e.away.isBlank() && sameEvent(e.home, sportOf(e), e.start, x.home, x.sport, b.start, BROADCAST_LEAD_MS) &&
-                                EventNames.same(e.home, x.home) != false
-                        } else {
-                            e.away.isNotBlank() && TeamNames.samePair(e.home, e.away, x.home, x.away)
-                        }
+                    consider(i) {
+                        sameEvent(e.home, sportOf(e), e.start, x.home, x.sport, b.start, BROADCAST_LEAD_MS) &&
+                            EventNames.same(e.home, x.home) != false
+                    }
+                    k++
                 }
-                .minByOrNull { abs(merged[it].start - b.start) }
-            if (best != null) {
+            } else {
+                xh = TeamNames.parts(x.home)
+                xa = TeamNames.parts(x.away)
+                for (i in byToken.pairCandidates(xh, xa, { starts[it] }, b.start - BROADCAST_LATE_MS, b.start + BROADCAST_LEAD_MS)) {
+                    val ap = awayParts[i] ?: continue
+                    consider(i) { TeamNames.samePair(homeParts[i], ap, xh, xa) }
+                }
+            }
+            if (best >= 0) {
                 attached.getOrPut(best) { ArrayList() } += mb
                 continue
             }
             // Reluarea unui meci jucat deja (aceleași echipe, început cu 30 de minute până la 36 de ore înainte):
             // emisiunea devine o sursă a meciului, nu un meci nou „LIVE”.
-            val earlier = if (x.away.isBlank()) null else {
-                val from = lowerBound(starts, b.start - REPLAY_LOOKBACK_MS)
-                val to = lowerBound(starts, b.start - BROADCAST_LATE_MS)
-                (from until to).lastOrNull { i -> merged[i].away.isNotBlank() && TeamNames.samePair(merged[i].home, merged[i].away, x.home, x.away) }
+            var earlier = -1
+            if (xh != null && xa != null) {
+                for (i in byToken.pairCandidates(xh, xa, { starts[it] }, b.start - REPLAY_LOOKBACK_MS, b.start - BROADCAST_LATE_MS - 1)) {
+                    val ap = awayParts[i] ?: continue
+                    if (i > earlier && TeamNames.samePair(homeParts[i], ap, xh, xa)) earlier = i
+                }
             }
-            if (earlier != null) attached.getOrPut(earlier) { ArrayList() } += mb else loose += mb
+            if (earlier >= 0) attached.getOrPut(earlier) { ArrayList() } += mb else loose += mb
         }
 
         val fromEvents = merged.mapIndexed { i, e -> fromEvent(e, attached[i].orEmpty(), now) }
         val fromEpg = joinReruns(cluster(loose)).map { fromBroadcasts(it, now) }
-        return attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
+        return uniqueIds(attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title }))
+    }
+
+    /**
+     * Fiecare meci cu id-ul lui: două grupuri doar din EPG sau din playlist cu aceleași echipe în aceeași zi aveau
+     * același id, iar lista arăta în tabul LIVE un meci care nu era live (al doilea cu același id).
+     */
+    private fun uniqueIds(matches: List<Match>): List<Match> {
+        val seen = HashMap<String, Int>()
+        return matches.map { m ->
+            val n = seen.merge(m.id, 1, Int::plus)!!
+            if (n == 1) m else m.copy(id = "${m.id}#$n")
+        }
     }
 
     private fun sportOf(e: SportEvent): Sport? = Sport.fromSportsDb(e.sport) ?: Sport.detect(e.competition, e.home)
@@ -144,7 +188,7 @@ object MatchAssembler {
     /** Cheia unui meci sau eveniment: echipele (în orice ordine) sau numele evenimentului. */
     private fun slotKey(home: String, away: String): String =
         if (away.isBlank()) "e:" + EventNames.key(home)
-        else listOf(TeamNames.key(home), TeamNames.key(away)).sorted().joinToString("|")
+        else listOf(TeamNames.cachedKey(home), TeamNames.cachedKey(away)).sorted().joinToString("|")
 
     private fun sameAs(m: Match, home: String, away: String, sport: Sport?, start: Long): Boolean =
         if (away.isBlank()) {
@@ -189,7 +233,7 @@ object MatchAssembler {
         }
         val home = first.home.orEmpty()
         val away = first.away.orEmpty()
-        val key = if (away.isBlank()) EventNames.key(home) else listOf(TeamNames.key(home), TeamNames.key(away)).sorted().joinToString("|")
+        val key = if (away.isBlank()) EventNames.key(home) else listOf(TeamNames.cachedKey(home), TeamNames.cachedKey(away)).sorted().joinToString("|")
         val day = Instant.ofEpochMilli(start).atOffset(ZoneOffset.UTC).toLocalDate()
         return Match(
             id = "$EVENT_PROVIDER:$key:$day",
@@ -288,29 +332,137 @@ object MatchAssembler {
 
     private fun cluster(loose: List<MatchBroadcast>): List<List<MatchBroadcast>> {
         val groups = ArrayList<MutableList<MatchBroadcast>>()
-        // Grupurile se creează în ordinea orei primei emisiuni: se caută doar printre cele din ultimele 3 ore.
+        // Grupurile se creează în ordinea orei primei emisiuni. Un grup cu echipe se caută după cuvintele echipelor
+        // (index), unul fără echipe printre evenimentele din ultimele 3 ore; se ia primul grup potrivit, ca înainte.
         val groupStarts = ArrayList<Long>()
+        val groupHome = ArrayList<TeamNames.Parts?>()
+        val groupAway = ArrayList<TeamNames.Parts?>()
+        val byToken = TokenIndex()
+        val singleGroups = ArrayList<Int>()
+        val singleStarts = ArrayList<Long>()
         for (mb in loose.sortedBy { it.broadcast.start }) {
-            val from = lowerBound(groupStarts, mb.broadcast.start - EPG_CLUSTER_MS)
-            val g = (from until groups.size).asSequence().map { groups[it] }.firstOrNull { g ->
-                val first = g.first()
-                val a = first.extracted
-                val b = mb.extracted
-                abs(first.broadcast.start - mb.broadcast.start) <= EPG_CLUSTER_MS && when {
-                    a.away.isBlank() != b.away.isBlank() -> false
-                    a.away.isBlank() ->
-                        sameEvent(a.home, a.sport, first.broadcast.start, b.home, b.sport, mb.broadcast.start, DEDUP_WINDOW_MS)
-                    else -> TeamNames.samePair(a.home, a.away, b.home, b.away)
+            val b = mb.extracted
+            val t = mb.broadcast.start
+            var found = -1
+            if (b.away.isBlank()) {
+                var k = lowerBound(singleStarts, t - EPG_CLUSTER_MS)
+                while (k < singleGroups.size) {
+                    val gi = singleGroups[k]
+                    val first = groups[gi].first()
+                    val a = first.extracted
+                    if (abs(first.broadcast.start - t) <= EPG_CLUSTER_MS &&
+                        sameEvent(a.home, a.sport, first.broadcast.start, b.home, b.sport, t, DEDUP_WINDOW_MS)
+                    ) { found = gi; break }
+                    k++
+                }
+            } else {
+                val bh = TeamNames.parts(b.home)
+                val ba = TeamNames.parts(b.away)
+                for (gi in byToken.pairCandidates(bh, ba, { groupStarts[it] }, t - EPG_CLUSTER_MS, t + EPG_CLUSTER_MS)) {
+                    if (found >= 0 && gi > found) continue
+                    val gh = groupHome[gi] ?: continue
+                    if (TeamNames.samePair(gh, groupAway[gi]!!, bh, ba)) found = gi
                 }
             }
-            if (g == null) {
+            if (found < 0) {
+                val gi = groups.size
                 groups += mutableListOf(mb)
-                groupStarts += mb.broadcast.start
+                groupStarts += t
+                if (b.away.isBlank()) {
+                    groupHome += null; groupAway += null
+                    singleGroups += gi; singleStarts += t
+                } else {
+                    val h = TeamNames.parts(b.home)
+                    val a = TeamNames.parts(b.away)
+                    groupHome += h; groupAway += a
+                    byToken.add(h, gi); byToken.add(a, gi)
+                }
             } else {
-                g += mb
+                groups[found] += mb
             }
         }
         return groups
+    }
+
+    /**
+     * Index pe echipe → pozițiile (crescătoare, în ordinea orei) ale meciurilor sau grupurilor. Două echipe sunt aceeași
+     * ([TeamNames.same]) dacă una are toate cuvintele celeilalte sau au aceleași litere lipite, deci echipele care pot
+     * fi aceeași cu una dată sunt: cele care conțin cel mai rar cuvânt al ei (≥ 3 litere), cele care sunt o
+     * submulțime a cuvintelor ei și cele cu aceleași litere lipite. Exact, fără să parcurgă cuvintele comune
+     * („united”, „real”) din mii de nume.
+     */
+    private class TokenIndex {
+        private val byToken = HashMap<String, MutableList<Int>>()
+        private val bySet = HashMap<String, MutableList<Int>>()
+        private val byJoined = HashMap<String, MutableList<Int>>()
+
+        private fun put(map: HashMap<String, MutableList<Int>>, key: String, pos: Int) {
+            val l = map.getOrPut(key) { ArrayList() }
+            if (l.isEmpty() || l[l.size - 1] != pos) l += pos
+        }
+
+        fun add(p: TeamNames.Parts, pos: Int) {
+            for (t in p.longTokens) put(byToken, t, pos)
+            put(bySet, p.setKey, pos)
+            if (p.joined.isNotEmpty()) put(byJoined, p.joined, pos)
+        }
+
+        /** Listele în care pot fi echipele egale cu [p] (null: [p] are prea multe cuvinte, se caută pe toate cuvintele). */
+        private fun listsFor(p: TeamNames.Parts): List<List<Int>> {
+            val out = ArrayList<List<Int>>(4)
+            val subsets = p.subsetKeys
+            if (subsets == null) {
+                for (t in p.longTokens) byToken[t]?.let(out::add)
+            } else {
+                p.longTokens.mapNotNull { byToken[it] }.minByOrNull { it.size }?.let(out::add)
+                for (k in subsets) bySet[k]?.let(out::add)
+            }
+            byJoined[p.joined]?.let(out::add)
+            return out
+        }
+
+        /**
+         * Pozițiile care pot avea perechea ([a], [b]) în orice ordine, cu ora în [from, to]: se caută după echipa cu
+         * mai puține poziții (o potrivire are o echipă egală cu fiecare din cele două). Fiecare poziție o dată.
+         */
+        fun pairCandidates(a: TeamNames.Parts, b: TeamNames.Parts, starts: (Int) -> Long, from: Long, to: Long): IntArray {
+            val la = listsFor(a)
+            val lb = listsFor(b)
+            val lists = if (la.sumOf { it.size } <= lb.sumOf { it.size }) la else lb
+            val stamp = ++round
+            var out = IntArray(8)
+            var n = 0
+            for (l in lists) {
+                var lo = 0
+                var hi = l.size
+                while (lo < hi) {
+                    val mid = (lo + hi) ushr 1
+                    if (starts(l[mid]) >= from) hi = mid else lo = mid + 1
+                }
+                var k = lo
+                while (k < l.size) {
+                    val i = l[k]
+                    if (starts(i) > to) break
+                    if (seen(i, stamp)) {
+                        if (n == out.size) out = out.copyOf(n * 2)
+                        out[n++] = i
+                    }
+                    k++
+                }
+            }
+            return out.copyOf(n)
+        }
+
+        private var round = 0
+        private var marks = IntArray(1024)
+
+        /** Prima dată când poziția [i] apare în căutarea [stamp]? */
+        private fun seen(i: Int, stamp: Int): Boolean {
+            if (i >= marks.size) marks = marks.copyOf(maxOf(i + 1, marks.size * 2))
+            if (marks[i] == stamp) return false
+            marks[i] = stamp
+            return true
+        }
     }
 
     /** Primul index cu valoarea ≥ [value] dintr-un șir crescător. */
@@ -348,7 +500,7 @@ object MatchAssembler {
                 out += g.toMutableList()
                 continue
             }
-            val key = listOf(TeamNames.key(x.home), TeamNames.key(x.away)).sorted().joinToString("|")
+            val key = listOf(TeamNames.cachedKey(x.home), TeamNames.cachedKey(x.away)).sorted().joinToString("|")
             val first = byKey[key]
             if (first != null && g.minOf { it.broadcast.start } - first.minOf { it.broadcast.start } <= REPLAY_LOOKBACK_MS) {
                 first += g
@@ -381,7 +533,7 @@ object MatchAssembler {
         val key = if (first.away.isBlank()) {
             EventNames.key(first.home)
         } else {
-            listOf(TeamNames.key(first.home), TeamNames.key(first.away)).sorted().joinToString("|")
+            listOf(TeamNames.cachedKey(first.home), TeamNames.cachedKey(first.away)).sorted().joinToString("|")
         }
         val day = Instant.ofEpochMilli(start).atOffset(ZoneOffset.UTC).toLocalDate()
         return Match(

@@ -58,6 +58,7 @@ import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
+import ro.ak.sportshub.ui.components.rememberReturnFocus
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
@@ -98,7 +99,9 @@ fun MatchScreen(
     var linkStation by remember { mutableStateOf<Pair<String, String?>?>(null) }
     val firstTab = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { runCatching { firstTab.requestFocus() } }
+    // La Back din player, focusul revine pe sursa pornită; altfel pe primul tab.
+    val returnFocus = rememberReturnFocus()
+    LaunchedEffect(Unit) { if (!returnFocus.returning) runCatching { firstTab.requestFocus() } }
 
     val entry = remember(snapshot, matchId) { snapshot.matches.firstOrNull { it.match.id == matchId } }
     if (entry == null) {
@@ -170,7 +173,11 @@ fun MatchScreen(
                         modifier = Modifier.padding(bottom = 6.dp).horizontalScroll(rememberScrollState()),
                     ) {
                         families.firstOrNull { !it.members.first().rejected }?.members?.firstOrNull()?.let { best ->
-                            ActionButton(text = "▶ Pornește sursa recomandată", onClick = { onPlay(best.channel.id) })
+                            ActionButton(
+                                text = "▶ Pornește sursa recomandată",
+                                onClick = { returnFocus.clicked("best"); onPlay(best.channel.id) },
+                                modifier = returnFocus.on("best"),
+                            )
                         }
                         // Meci început, pe un canal cu arhivă (Xtream): de la fluierul de start.
                         val now = System.currentTimeMillis()
@@ -180,7 +187,8 @@ fun MatchScreen(
                                     ActionButton(
                                         // Meci terminat: reluare, marcată ca atare (playerul arată „RELUARE”, nu „LIVE”).
                                         text = if (m.status == MatchStatus.FINISHED) "⏮ Vezi reluarea" else "⏮ De la început",
-                                        onClick = { onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
+                                        onClick = { returnFocus.clicked("archive"); onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
+                                        modifier = returnFocus.on("archive"),
                                     )
                                 }
                             }
@@ -254,7 +262,8 @@ fun MatchScreen(
                                 if (s.rejected) "respinsă de tine" else s.confidence.label + (s.station?.let { ": $it" } ?: ""),
                                 if (preferred) "varianta preferată" else null,
                             ).joinToString(" · "),
-                            onClick = { onPlay(c.id) },
+                            modifier = returnFocus.on("s:" + c.id),
+                            onClick = { returnFocus.clicked("s:" + c.id); onPlay(c.id) },
                             onLongClick = { menuFor = s },
                             trailing = {
                                 c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }

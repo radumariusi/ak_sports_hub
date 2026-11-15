@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.common.AppVersions
 import ro.ak.sportshub.data.UpdateState
+import ro.ak.sportshub.ui.components.rememberReturnFocus
 import ro.ak.sportshub.ui.components.TextInputDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
@@ -42,6 +43,8 @@ fun SettingsScreen(
     val update by updater.state.collectAsStateWithLifecycle()
     var editingToken by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // La Back de pe un ecran de setări, focusul revine pe rândul care l-a deschis.
+    val returnFocus = rememberReturnFocus()
 
     @Composable
     fun row(title: String, subtitle: String, value: String) {
@@ -64,7 +67,8 @@ fun SettingsScreen(
             ListRow(
                 title = "Playlisturi",
                 subtitle = "M3U și Xtream Codes, o singură conexiune pe playlist. OK pentru adăugare și actualizare",
-                onClick = onOpenPlaylists,
+                onClick = { returnFocus.clicked("playlists"); onOpenPlaylists() },
+                modifier = returnFocus.on("playlists"),
                 trailing = { Text(text = playlists.size.toString(), fontSize = 14.sp) },
             )
         }
@@ -72,14 +76,16 @@ fun SettingsScreen(
             ListRow(
                 title = "Adaugă un playlist din telefon (cod QR)",
                 subtitle = "Scanezi codul cu telefonul și scrii adresa și parola Xtream (sau linkul M3U) acolo, nu cu telecomanda",
-                onClick = onOpenQrSetup,
+                onClick = { returnFocus.clicked("qr"); onOpenQrSetup() },
+                modifier = returnFocus.on("qr"),
             )
         }
         item {
             ListRow(
                 title = "EPG (programul TV)",
                 subtitle = "Din playlisturi și externe, actualizare automată, decalaj orar",
-                onClick = onOpenEpg,
+                onClick = { returnFocus.clicked("epg"); onOpenEpg() },
+                modifier = returnFocus.on("epg"),
                 trailing = { Text(text = formatCount(mapped) + " canale", fontSize = 14.sp) },
             )
         }
@@ -132,7 +138,8 @@ fun SettingsScreen(
             ListRow(
                 title = "Sports Hub",
                 subtitle = "Limbi preferate, prag de calitate, TheSportsDB, sporturi, echipe și competiții favorite",
-                onClick = onOpenSportsSettings,
+                onClick = { returnFocus.clicked("sports"); onOpenSportsSettings() },
+                modifier = returnFocus.on("sports"),
                 trailing = { Text(text = languages + " · " + sports.sourcePreferences.goodQuality.label + "+", fontSize = 14.sp) },
             )
         }
@@ -174,7 +181,8 @@ fun SettingsScreen(
             ListRow(
                 title = "Backup și restaurare",
                 subtitle = "Setări, favorite, alias-uri, reguli și corecții într-un fișier; playlisturile doar dacă vrei",
-                onClick = onOpenBackup,
+                onClick = { returnFocus.clicked("backup"); onOpenBackup() },
+                modifier = returnFocus.on("backup"),
             )
         }
 

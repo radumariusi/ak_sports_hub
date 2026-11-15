@@ -36,9 +36,34 @@ object EpgMatchExtractor {
      * @param channelIsSport canalul (din playlist) e de sport: atunci se acceptă și separatorul „-”.
      * @return meciul citit din emisiune, sau null dacă nu arată a meci.
      */
-    fun extract(b: EpgBroadcast, channelIsSport: Boolean): ExtractedMatch? =
-        extract(b.title, b.category, channelIsSport, context = null)
-            ?: b.subtitle?.let { extract(it, b.category, channelIsSport, context = b.title) }
+    fun extract(b: EpgBroadcast, channelIsSport: Boolean): ExtractedMatch? {
+        if (datedEarlier(b.title, b.start) || b.subtitle?.let { datedEarlier(it, b.start) } == true) return null
+        val title = withoutDate(b.title)
+        return extract(title, b.category, channelIsSport, context = null)
+            ?: b.subtitle?.let { extract(withoutDate(it), b.category, channelIsSport, context = title) }
+    }
+
+    /** O dată în titlu („Norway - Wales 14/11/26”, „15.11.2026”). */
+    private val titleDate = Regex("""(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)""")
+
+    /**
+     * Titlul are o dată dinaintea zilei emisiunii: e înregistrarea unui meci jucat deja (o reluare), nu un meci LIVE.
+     */
+    fun datedEarlier(title: String, start: Long): Boolean {
+        val m = titleDate.find(title) ?: return false
+        val (d, mo, y) = m.destructured
+        val year = y.toInt().let { if (it < 100) 2000 + it else it }
+        val date = runCatching { java.time.LocalDate.of(year, mo.toInt(), d.toInt()) }.getOrNull() ?: return false
+        // Ziua de după dată, de la 10:00 UTC: un meci de seară din America (după miezul nopții UTC) e încă live.
+        val replayFrom = date.plusDays(1).atTime(10, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        return start >= replayFrom
+    }
+
+    private val spaces = Regex("""\s+""")
+
+    /** Titlul fără dată (ca data să nu intre în numele echipei). */
+    private fun withoutDate(title: String): String =
+        if (titleDate.containsMatchIn(title)) title.replace(titleDate, " ").replace(spaces, " ").trim() else title
 
     fun extract(title: String, category: String?, channelIsSport: Boolean, context: String? = null): ExtractedMatch? {
         val raw = title.trim()
@@ -106,7 +131,8 @@ object EpgMatchExtractor {
         val categoryIsSport = b.category != null && Sport.fold(b.category).let { c -> SPORT_CATEGORY.any { c.contains(it) } }
         val categorySport = Sport.detect(b.category)
         if (!channelIsSport && !categoryIsSport && categorySport == null) return null
-        val raw = b.title.trim()
+        if (datedEarlier(b.title, b.start)) return null
+        val raw = withoutDate(b.title).trim()
         if (raw.isEmpty()) return null
         val folded = Sport.fold(raw)
         val lowerRaw = raw.lowercase()

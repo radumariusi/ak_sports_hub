@@ -20,6 +20,8 @@ class PlaylistUpdateWorker(context: Context, params: WorkerParameters) : Corouti
 
     override suspend fun doWork(): Result {
         val app = applicationContext as AkApp
+        // Cât rulează playerul, importurile (parsare M3U, XMLTV, calcul) ar lua putere de la redare: se încearcă din nou mai târziu.
+        if (app.container.playing.value) return Result.retry()
         app.container.playlists.refreshDue()
         app.container.epg.refreshDue()
         app.container.sports.refreshDue()
