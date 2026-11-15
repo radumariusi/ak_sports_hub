@@ -29,6 +29,7 @@ import ro.ak.sportshub.ui.components.TeamLogo
 import ro.ak.sportshub.ui.components.rememberTeamLooks
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.components.groupedStats
 import ro.ak.sportshub.ui.theme.AkColors
 
 private val DateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -78,12 +79,7 @@ fun PreMatchTab(
             item(key = "form-away") { FormRow(match.away, d.awayRecent, zone, lookForm = !hideSpoilers) }
         }
 
-        if (d.seasonStats.isNotEmpty() && match.away.isNotBlank()) {
-            item { SectionLabel("Sezonul  (${match.home} – ${match.away})") }
-            items(d.seasonStats, key = { "ss:" + it.name }) { s ->
-                ListRow(title = s.name, onClick = {}, trailing = { Text(text = "${s.home}  –  ${s.away}", fontSize = 16.sp) })
-            }
-        }
+        if (match.away.isNotBlank()) groupedStats(d.seasonStats, "ss", match.home, match.away, title = "Sezonul")
 
         if (d.headToHead.isNotEmpty()) {
             val (w, dr, l) = MatchInsights.headToHeadSummary(d.headToHead, match.home)
@@ -244,12 +240,7 @@ fun LiveTab(
                 )
             }
         }
-        if (d.stats.isNotEmpty()) {
-            item { SectionLabel("Statistici  (${match.home} – ${match.away})") }
-            items(d.stats, key = { "st:" + it.name }) { s ->
-                ListRow(title = s.name, onClick = {}, trailing = { Text(text = "${s.home}  –  ${s.away}", fontSize = 16.sp) })
-            }
-        }
+        groupedStats(d.stats, "st", match.home, match.away, title = "Statistici")
         if (d.timeline.isEmpty() && d.stats.isEmpty() && !state.loading) {
             item(key = "no-live") {
                 ListRow(

@@ -249,3 +249,25 @@ class EspnPreMatchTest {
         assertTrue(Espn.leaguesFor(Sport.FOOTBALL, null).isEmpty())
     }
 }
+
+class StatGroupsTest {
+    @Test
+    fun `statisticile pe grupuri, cu partea fiecarei echipe`() {
+        val g = StatGroups.group(
+            listOf(
+                StatLine("Faulturi", "12", "9"),
+                StatLine("Posesie (%)", "58.2", "41.8"),
+                StatLine("Șuturi pe poartă", "5", "1"),
+                StatLine("Pase de gol", "3", "2"),
+                StatLine("Pase reușite", "420", "300"),
+                StatLine("Golgheter", "Enric Gallego (9)", "Andrés Martín (7)"),
+                StatLine("Ceva nou", "x", "y"),
+            ),
+        )
+        assertEquals(listOf("Posesie", "Atac", "Pase", "Disciplină", "Jucători", "Altele"), g.map { it.title })
+        assertEquals(0.582f, g[0].rows[0].homeShare!!, 0.001f)
+        assertEquals(listOf("Șuturi pe poartă", "Pase de gol"), g[1].rows.map { it.line.name })
+        assertNull(g.last().rows[0].homeShare)
+        assertEquals(0.5f, StatGroups.Row(StatLine("Cartonașe roșii", "0", "0"), 0.0, 0.0).homeShare!!, 0f)
+    }
+}

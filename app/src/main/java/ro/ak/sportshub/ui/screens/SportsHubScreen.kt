@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -214,8 +215,9 @@ fun SportsHubScreen(
             return@Column
         }
 
+        // Din meniul de sus spre listă: focusul intră pe ultimul filtru folosit, nu pe cel mai apropiat.
         LazyRow(
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = 8.dp).focusRestorer(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             item { ActionButton(text = "Sport: " + (filter.sport?.label ?: "toate"), onClick = { dialog = FilterDialog.SPORT }) }

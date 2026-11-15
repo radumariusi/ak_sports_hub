@@ -26,6 +26,7 @@ import ro.ak.sportshub.core.sports.TimelineKind
 import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.components.groupedStats
 import ro.ak.sportshub.core.sports.Scoreboard
 import ro.ak.sportshub.core.sports.StatLine
 import ro.ak.sportshub.core.sports.TeamCodes
@@ -175,10 +176,7 @@ fun MatchPanelContent(
                     }
                 }
                 if (view.stats.isNotEmpty()) {
-                    item(key = "st-h") { SectionLabel("Statistici", modifier = Modifier.padding(top = 6.dp)) }
-                    items(view.stats, key = { "st:" + it.name }) { s ->
-                        ListRow(title = s.name, onClick = {}, trailing = { Text(text = "${s.home}  –  ${s.away}", fontSize = 15.sp) })
-                    }
+                    groupedStats(view.stats, "st", match.home, match.away, title = "Statistici")
                 } else if (view.statsHidden) {
                     item(key = "st-hidden") {
                         ListRow(title = "Statisticile apar la final", subtitle = "Sunt cele de la sfârșitul meciului (spoiler la reluare)", onClick = {})
