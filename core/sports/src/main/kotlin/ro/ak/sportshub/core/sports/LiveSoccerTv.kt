@@ -26,9 +26,14 @@ object LiveSoccerTv {
     /** Pagina pare un program adevărat (nu o pagină de verificare sau de eroare)? */
     fun looksValid(html: String): Boolean = html.contains("/match/") && html.contains("/channels/")
 
+    // Două forme de adresă: veche „/match/5001/arsenal-vs-chelsea/” și cea reală din 2026
+    // „/match/faroe-islands-vs-moldova/nxd#5662323” (id-ul după „#”, codul scurt înainte).
     private val matchId = Regex("""/match/(\d+)""")
+    private val matchHashId = Regex("""/match/[^#\s"]*#(\d+)""")
+    private val matchCode = Regex("""/match/([a-z0-9-]+-vs-[a-z0-9-]+)/([a-z0-9]+)""")
+    private val liveStream = Regex("""\s*\((?:live stream available|stream)\)\s*$""", RegexOption.IGNORE_CASE)
     private val timeText = Regex("""\b([01]?\d|2[0-3]):([0-5]\d)(?:\s*([ap])\.?m\b\.?)?""", RegexOption.IGNORE_CASE)
-    private val matchSlug = Regex("""/match/\d+/([^/?#]+)""")
+    private val matchSlug = Regex("""/match/(?:\d+/)?([^/?#]+-vs-[^/?#]+)""")
     private val minute = Regex("""\b\d{1,3}'""")
     private val scoreInTitle = Regex("""^(.+?)\s+(\d{1,2})\s*[-–:]\s*(\d{1,2})\s+(.+)$""")
     private val teamsSplit = Regex("""\s+(?:vs\.?|v|-|–)\s+""", RegexOption.IGNORE_CASE)
@@ -54,7 +59,10 @@ object LiveSoccerTv {
                 }
                 continue
             }
-            val id = matchId.find(href)?.groupValues?.get(1) ?: continue
+            val id = matchId.find(href)?.groupValues?.get(1)
+                ?: matchHashId.find(href)?.groupValues?.get(1)
+                ?: matchCode.find(href)?.let { it.groupValues[1] + "/" + it.groupValues[2] }
+                ?: continue
             val row = a.closest("tr") ?: a.closest("li") ?: a.parent() ?: continue
             if (!seenRows.add(row) || !seenIds.add(id)) continue
             parseRow(row, a, id, competition, day, zone, lastStart)?.let {
@@ -89,10 +97,10 @@ object LiveSoccerTv {
         }
 
         val rowText = spaced(row)
-        val classes = (row.className() + " " + row.select("[class]").joinToString(" ") { it.className() }).lowercase()
         val status = when {
             Regex("""\b(FT|AET|Pen\.?)\b""").containsMatchIn(rowText) -> MatchStatus.FINISHED
-            classes.contains("live") || minute.containsMatchIn(rowText) || Regex("""\bHT\b""").containsMatchIn(rowText) -> MatchStatus.LIVE
+            // „livecell live” e pe toate rândurile (transmisie în direct), nu înseamnă că meciul a început.
+            minute.containsMatchIn(rowText) || Regex("""\bHT\b""").containsMatchIn(rowText) -> MatchStatus.LIVE
             else -> null
         }
         if (Regex("""\b(Postponed|Cancelled|Canceled)\b""", RegexOption.IGNORE_CASE).containsMatchIn(rowText)) return null
@@ -100,7 +108,7 @@ object LiveSoccerTv {
         val start = startOf(row, day, zone) ?: previousStart?.takeIf { status == MatchStatus.LIVE } ?: return null
 
         val stations = row.select("a[href*=/channels/]")
-            .map { it.attr("title").trim().ifEmpty { it.text().trim() } }
+            .map { it.text().trim().ifEmpty { it.attr("title").trim() }.replace(liveStream, "") }
             .filter { it.length >= 2 && !it.startsWith("+") && !it.equals("more", ignoreCase = true) }
             .distinctBy { StationIndex.compact(it) }
             .map { TvStation(it) }

@@ -205,6 +205,8 @@ class SportsRepository(
                 if (reason != "knowledge" && reason != "settings" && reason != "observed") {
                     scanCache = null
                     stationIndexCache = null
+                    nearWindow = null
+                    farWindow = null
                 }
                 recompute()
             }
@@ -299,9 +301,8 @@ class SportsRepository(
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
-        val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.rank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
-        if (ok > 0 && guarded.isNotEmpty()) recompute()
-        val (gOk, gFailed) = runJobs(guarded, "Se descarcă programul meciurilor (furnizori protejați)", force)
+        val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
+        val (gOk, gFailed) = runJobs(guarded.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor (furnizori protejați)", force)
         changed = ok + gOk > 0
         errors += failed + gFailed
         // Apoi posturile TV de la Sofascore, pentru câteva meciuri (programul e deja la zi).
@@ -318,6 +319,7 @@ class SportsRepository(
     private suspend fun runJobs(jobs: List<Job>, label: String, force: Boolean): Pair<Int, Int> {
         var ok = 0
         var failed = 0
+        var sinceRecompute = 0
         jobs.forEachIndexed { i, job ->
             val provider = providerOf(job.url)
             // După un 429 repetat, furnizorul nu mai e întrebat în runda asta: rămân datele salvate.
@@ -340,7 +342,19 @@ class SportsRepository(
             }
             record(provider, result)
             noteBlock(provider, result)
-            if (result == Download.Ok) ok++ else failed++
+            if (result == Download.Ok) {
+                ok++
+                sinceRecompute++
+            } else {
+                failed++
+            }
+            // Lista se reface pe parcurs (după fiecare furnizor și la fiecare 8 cereri reușite), nu abia la final:
+            // meciurile de la primii furnizori apar în câteva secunde, nu după toată runda.
+            val next = jobs.getOrNull(i + 1)?.let { providerOf(it.url) }
+            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= RECOMPUTE_EVERY)) {
+                recompute()
+                sinceRecompute = 0
+            }
             if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
         return ok to failed
@@ -614,6 +628,8 @@ class SportsRepository(
         val request = Request.Builder().url(job.url)
             .header("Accept", if (job.html != null) "text/html,application/xhtml+xml" else "application/json")
             .apply { if (job.html != null || job.url.contains("sofascore")) header("User-Agent", BROWSER_UA) }
+            // Paginile în engleză (FotMob dădea numele în italiană: „Norvegia – Galles” nu se unea cu „Norway – Wales”).
+            .apply { if (job.html != null) header("Accept-Language", "en-GB,en;q=0.9") }
             .apply {
                 // API-ul Sofascore refuză des cererile care nu par venite de pe site-ul lui.
                 if (job.url.contains("sofascore")) {
@@ -783,6 +799,7 @@ class SportsRepository(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                log.log("calcul", "EȘUAT: ${e.javaClass.simpleName}: ${e.message?.take(200)}")
                 null
             }
             if (next != null) {
@@ -791,26 +808,71 @@ class SportsRepository(
                 _snapshot.value = SportsSnapshot(loading = false)
             }
         }
+        // Prima listă s-a făcut doar cu programul EPG de azi și mâine; restul săptămânii se citește acum, separat.
+        if (farWindow == null && !farLoading) {
+            farLoading = true
+            scope.launch {
+                try {
+                    recompute()
+                } finally {
+                    farLoading = false
+                }
+            }
+        }
     }
+
+    /** Emisiunile EPG citite pentru o fereastră de timp, ținute în memorie (nu se recitesc la fiecare minut). */
+    private class BroadcastWindow(val from: Long, val until: Long, val loadedAt: Long, val list: List<MatchBroadcast>)
+
+    /** Azi și mâine (cu 30 de ore în urmă, pentru reluări): recitit la o oră sau când se schimbă EPG-ul. */
+    @Volatile private var nearWindow: BroadcastWindow? = null
+
+    /** Restul săptămânii: citit după prima listă, recitit la 6 ore. */
+    @Volatile private var farWindow: BroadcastWindow? = null
+
+    @Volatile private var farLoading = false
 
     private suspend fun compute(now: Long): SportsSnapshot {
         val s = settings.current
         val from = now - WINDOW_BACK_MS
         val until = now + WINDOW_AHEAD_MS
 
+        val timing = StringBuilder()
+        var mark = System.currentTimeMillis()
+        val began = mark
+        fun lap(label: String) {
+            val t = System.currentTimeMillis()
+            timing.append(label).append(' ').append(t - mark).append("ms, ")
+            mark = t
+        }
         val (events, tv) = cachedEvents(s)
         val counts = events.groupingBy { it.provider }.eachCount()
         _health.update { all ->
             (all.keys + counts.keys).associateWith { p -> (all[p] ?: ProviderHealth()).copy(events = counts[p] ?: 0) }
         }
-        val scan = scanCache ?: scanChannels().also { scanCache = it }
-        val broadcasts = loadBroadcasts(scan.sportEpg, from, until)
+        lap("fișiere")
+        val scan = scanCache ?: scanChannels().also { scanCache = it; lap("canale") }
+        // Emisiunile de până la 30 de ore în urmă: transmisia de aseară face din emisiunea de dimineață o reluare.
+        // Întâi azi și mâine (lista apare repede), apoi restul săptămânii; amândouă rămân în memorie.
+        val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS }
+            ?: (now + NEAR_AHEAD_MS).let { end ->
+                BroadcastWindow(now - BROADCAST_BACK_MS, end, now, loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, end))
+            }.also { nearWindow = it; lap("EPG azi-mâine (${it.list.size} emisiuni)") }
+        val far = farWindow?.takeIf { now - it.loadedAt < FAR_RELOAD_MS }
+            ?: if (_snapshot.value.loading && farWindow == null) {
+                null
+            } else {
+                BroadcastWindow(near.until, until, now, loadBroadcasts(scan.sportEpg, near.until, until))
+                    .also { farWindow = it; lap("EPG restul săptămânii (${it.list.size} emisiuni)") }
+            }
+        val broadcasts = if (far == null) near.list else (near.list + far.list).distinctBy { it.broadcast.programmeId }
         val zone = s.eventZoneId()
         val slots = if (!s.eventChannels) emptyList() else scan.events.map { EventChannels.parse(it.id, it.name, it.groupName, now, zone) }
         val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
         val matches = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
         val slotChannels = activeSlots.map { it.channelId }.distinct().chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.associateBy { it.id }
+        lap("asamblare (${matches.size} meciuri)")
 
         // Sursele sigure: canalele pe care EPG-ul arată meciul, cu toate variantele lor (alte calități ale aceluiași canal).
         val epgIds = matches.flatMap { m -> m.broadcasts.map { it.epgChannelId } }.toSet()
@@ -840,7 +902,9 @@ class SportsRepository(
                 }
             }
         }
+        lap("surse")
         val variants = allKeys.toList().chunked(IN_CHUNK).flatMap { db.channels().variants(it) }.groupBy { it.groupKey }
+        lap("variante")
 
         val seen = observed.current
         val variantState = variantStore.current
@@ -861,6 +925,8 @@ class SportsRepository(
         val eventEntries = activeSlots.mapNotNull { slot ->
             slotChannels[slot.channelId]?.let { EventEntry(it, slot, matchOfChannel[slot.channelId]) }
         }.sortedWith(compareBy<EventEntry> { it.slot.start ?: Long.MAX_VALUE }.thenBy { it.slot.title })
+        val total = System.currentTimeMillis() - began
+        if (total > SLOW_COMPUTE_MS || _snapshot.value.loading) log.log("calcul", "${total}ms: $timing")
         return SportsSnapshot(
             entries, now, loading = false, unmatchedStations = stations,
             events = eventEntries,
@@ -1002,32 +1068,28 @@ class SportsRepository(
     private suspend fun loadBroadcasts(sportEpg: Set<Long>, from: Long, until: Long): List<MatchBroadcast> {
         val rows = (epg.programmesOn(sportEpg, from, until) + epg.sportCategoryProgrammes(from, until, MAX_CATEGORY_ROWS))
             .distinctBy { it.id }
-        // Lista se recalculează la fiecare minut, dar emisiunile se schimbă rar: titlurile deja citite nu se mai analizează.
-        val previous = extractCache
-        val next = HashMap<ExtractKey, ExtractedMatch?>(rows.size * 2)
-        val out = rows.mapNotNull { r ->
+        // Titlurile se repetă (zile, canale): fiecare se analizează o singură dată; cache-ul se golește doar când e foarte mare.
+        val cache = extractCache
+        if (cache.size > MAX_EXTRACT_CACHE) cache.clear()
+        return rows.mapNotNull { r ->
             val b = EpgBroadcast(r.id, r.epgChannelId, r.start, r.stop, r.title, r.subtitle, null, r.category)
             val sport = r.epgChannelId in sportEpg
             val key = ExtractKey(r.title, r.subtitle, r.category, sport)
-            val x = if (key in next) {
-                next[key]
-            } else if (previous.containsKey(key)) {
-                previous[key].also { next[key] = it }
+            val x = if (cache.containsKey(key)) {
+                cache[key]
             } else {
                 (EpgMatchExtractor.extract(b, channelIsSport = sport) ?: EpgMatchExtractor.extractEvent(b, channelIsSport = sport))
-                    .also { next[key] = it }
+                    .also { cache[key] = it }
             }
             x?.let { MatchBroadcast(b, it) }
         }
-        extractCache = next
-        return out
     }
 
     /** Ce contează pentru recunoașterea unui meci într-o emisiune (titlul se repetă pe multe canale și zile). */
     private data class ExtractKey(val title: String, val subtitle: String?, val category: String?, val sport: Boolean)
 
-    @Volatile
-    private var extractCache: Map<ExtractKey, ExtractedMatch?> = emptyMap()
+    /** Folosit doar sub computeMutex (calculul listei), deci fără sincronizare. */
+    private val extractCache = HashMap<ExtractKey, ExtractedMatch?>()
 
     /**
      * O trecere prin numele canalelor active, pe pagini: canalele de sport (și canalele lor EPG, plus cele fără EPG),
@@ -1085,6 +1147,13 @@ class SportsRepository(
         const val SPORTSDB_GAP_MS = 4_000L
         val ROUND_MS = TimeUnit.MINUTES.toMillis(10)
         val WINDOW_BACK_MS = TimeUnit.HOURS.toMillis(12)
+        val BROADCAST_BACK_MS = TimeUnit.HOURS.toMillis(30)
+        const val RECOMPUTE_EVERY = 8
+        val NEAR_AHEAD_MS = TimeUnit.HOURS.toMillis(36)
+        val NEAR_RELOAD_MS = TimeUnit.HOURS.toMillis(1)
+        val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
+        const val SLOW_COMPUTE_MS = 3_000L
+        const val MAX_EXTRACT_CACHE = 300_000
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
         const val IN_CHUNK = 500
         const val MAX_CATEGORY_ROWS = 20_000

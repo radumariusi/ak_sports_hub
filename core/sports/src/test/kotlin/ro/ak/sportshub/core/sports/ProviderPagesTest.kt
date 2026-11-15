@@ -26,6 +26,30 @@ class ProviderPagesTest {
     }
 
     @Test
+    fun liveSoccerTvAdresaNoua2026() {
+        // Structura reală din jurnalul de pe TV (15.11.2026): id-ul după „#”, „livecell live” pe toate rândurile.
+        val html = """
+            <table class="schedules">
+            <tr class="sortable_comp"><td colspan="3"><a href="/competitions/international/uefa-nations-league/"><span>Europe - UEFA Nations League</span></a></td></tr>
+            <tr id="5662323" class="matchrow"><td class='timecol'><div class='meta'><span class='livecell live' title='Live Broadcast'></span>
+            <span class="timecell"><span class='ts' dv='1794841200000' df='H:MM'>10:00</span></span><span class="inprogress"></span></div></td>
+            <td class="matchcol"><a href="/match/faroe-islands-vs-moldova/nxd#5662323" title="Faroe Islands vs Moldova">Faroe Islands vs Moldova</a>
+            <div class="mchannels"><a href="/channels/look-tv-romania/" title="Prima Sport 2 (live stream available)" class="homech">Prima Sport 2</a>,
+            <a href="/channels/digi-sport-4-romania/" title="Digi Sport 4 Romania (live stream available)">Digi Sport 4 Romania</a></div></td></tr>
+            </table>
+        """.trimIndent()
+        val e = LiveSoccerTv.parse(html, LocalDate.of(2026, 11, 16), ZoneOffset.UTC).single()
+        assertEquals("5662323", e.providerId)
+        assertEquals("Faroe Islands", e.home)
+        assertEquals("Moldova", e.away)
+        assertEquals(1794841200000L, e.start)
+        assertNull(e.status)
+        assertEquals("Europe - UEFA Nations League", e.competition)
+        assertEquals(listOf("Prima Sport 2", "Digi Sport 4 Romania"), e.stations.map { it.name })
+        assertEquals(listOf("Faroe Islands", "Moldova"), LiveSoccerTv.teamsFromSlug("/match/faroe-islands-vs-moldova/nxd#5662323"))
+    }
+
+    @Test
     fun teamsFromSlug() {
         assertEquals(listOf("Bk Hacken", "Pitea"), LiveSoccerTv.teamsFromSlug("/match/9/bk-hacken-vs-pitea/"))
         assertNull(LiveSoccerTv.teamsFromSlug("/match/9/"))

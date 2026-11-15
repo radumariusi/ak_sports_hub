@@ -152,9 +152,10 @@ class MatchAssemblerTest {
             now = kickoff - 5 * h,
         )
         val arsenal = matches.first { it.id == "thesportsdb:1" }
-        assertEquals(listOf(10L, 11L), arsenal.broadcasts.map { it.programmeId })
+        // Reluarea de a doua zi devine o sursă a meciului, nu un meci nou.
+        assertEquals(listOf(10L, 11L, 12L), arsenal.broadcasts.map { it.programmeId })
         val epgOnly = matches.filter { it.providers == setOf(MatchAssembler.EPG_PROVIDER) }
-        assertEquals(2, epgOnly.size) // reluarea Arsenal (altă zi) și FCSB – Rapid (din două canale)
+        assertEquals(1, epgOnly.size) // FCSB – Rapid (din două canale)
         assertEquals(2, epgOnly.first { it.home == "FCSB" }.broadcasts.size)
     }
 
