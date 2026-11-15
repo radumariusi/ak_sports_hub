@@ -30,7 +30,7 @@ object MatchAssembler {
     val REPLAY_LOOKBACK_MS: Long = TimeUnit.HOURS.toMillis(36)
 
     /** Cât mai rămâne „LIVE” un meci după durata obișnuită a sportului (prelungiri, pauze). */
-    private val LIVE_GRACE_MS = TimeUnit.HOURS.toMillis(1)
+    private val LIVE_GRACE_MS = TimeUnit.MINUTES.toMillis(90)
 
     fun assemble(
         events: List<SportEvent>,
@@ -240,7 +240,7 @@ object MatchAssembler {
         }
         val status = when (e.status) {
             MatchStatus.FINISHED -> MatchStatus.FINISHED
-            // „LIVE” din fișierul salvat e starea de la descărcare: după durata obișnuită plus o oră, s-a terminat.
+            // „LIVE” din fișierul salvat e starea de la descărcare: după durata obișnuită plus 90 de minute, s-a terminat.
             MatchStatus.LIVE -> if (now < e.start + minOf(STALE_LIVE_MS, duration + LIVE_GRACE_MS)) MatchStatus.LIVE else MatchStatus.FINISHED
             else -> byTime
         }
@@ -345,7 +345,7 @@ object MatchAssembler {
         val lead = airing.filter { it.extracted.explicitLive }.ifEmpty { airing }
         val start = lead.minOf { it.broadcast.start }
         val sport = mbs.firstNotNullOfOrNull { it.extracted.sport }
-        // Sfârșitul: emisiunea transmisiei, dar nu mai mult decât durata obișnuită a sportului plus o oră
+        // Sfârșitul: emisiunea transmisiei, dar nu mai mult decât durata obișnuită a sportului plus 90 de minute
         // (un bloc EPG lung „Sky Sport Calcio” nu ține meciul „LIVE” toată ziua).
         val end = minOf(airing.maxOf { it.broadcast.stop }, start + (sport?.typicalDurationMs ?: Sport.DEFAULT_DURATION_MS) + LIVE_GRACE_MS)
         val first = lead.first().extracted
