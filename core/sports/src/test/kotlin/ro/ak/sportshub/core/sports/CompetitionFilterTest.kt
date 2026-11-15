@@ -60,7 +60,7 @@ class CompetitionFilterTest {
 
     @Test
     fun `catalogul ESPN si EuroLeague trec filtrul (catalogul e el insusi filtrul)`() {
-        Espn.leagues.filter { "friendly" !in it.competition.lowercase() }.forEach {
+        Espn.leagues.filter { "friendly" !in it.competition.lowercase() && !it.forFavorites }.forEach {
             assertEquals(it.competition, Verdict.KEEP, CompetitionFilter.verdict(it.sport, it.competition))
         }
         EuroLeague.Competition.entries.forEach {

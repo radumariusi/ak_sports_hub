@@ -50,9 +50,21 @@ object Espn {
      * O ligă: [key] (în numele fișierelor), [path] (în adresă), sportul și numele competiției (cel folosit de
      * filtrul de competiții, regulile de drepturi și unirea cu ceilalți furnizori).
      */
-    data class League(val key: String, val path: String, val sport: Sport, val competition: String, val kind: Kind = Kind.TEAM)
+    data class League(
+        val key: String,
+        val path: String,
+        val sport: Sport,
+        val competition: String,
+        val kind: Kind = Kind.TEAM,
+        /**
+         * Liga se cere doar dacă ai echipe favorite, iar meciurile ei rămân doar pentru ele (filtrul de competiții
+         * o scoate altfel): fotbalul feminin din afara Angliei, pentru echipele feminine ale favoritelor.
+         */
+        val forFavorites: Boolean = false,
+    )
 
-    private fun soccer(key: String, slug: String, name: String) = League(key, "soccer/$slug", Sport.FOOTBALL, name)
+    private fun soccer(key: String, slug: String, name: String, forFavorites: Boolean = false) =
+        League(key, "soccer/$slug", Sport.FOOTBALL, name, forFavorites = forFavorites)
     private fun rugby(key: String, id: String, name: String) = League(key, "rugby/$id", Sport.RUGBY, name)
 
     val leagues: List<League> = listOf(
@@ -66,6 +78,16 @@ object Espn {
         soccer("EFLCUP", "eng.league_cup", "English Carabao Cup"),
         soccer("EFLTROPHY", "eng.trophy", "English EFL Trophy"),
         soccer("WSL", "eng.w.1", "English Women's Super League"),
+        soccer("WCHAMP", "eng.w.2", "English Women's Championship"),
+        // Fotbal feminin în afara Angliei: doar pentru echipele favorite („Barcelona” cuprinde și echipa feminină).
+        soccer("LIGAF", "esp.w.1", "Spanish Liga F Women", forFavorites = true),
+        soccer("FRAUENBL", "ger.w.1", "German Frauen-Bundesliga", forFavorites = true),
+        soccer("D1F", "fra.w.1", "French Premiere Ligue Feminine", forFavorites = true),
+        soccer("SERIEAW", "ita.w.1", "Italian Serie A Femminile", forFavorites = true),
+        soccer("UWCL", "uefa.wchampions", "UEFA Women's Champions League", forFavorites = true),
+        soccer("NWSL", "usa.nwsl", "American NWSL Women", forFavorites = true),
+        soccer("WEURO", "uefa.weuro", "UEFA Women's European Championship"),
+        soccer("WWC", "fifa.wwc", "FIFA Women's World Cup"),
         // Spania, Italia, Germania, Franța (două niveluri și cupele)
         soccer("LALIGA", "esp.1", "Spanish LaLiga"),
         soccer("LALIGA2", "esp.2", "Spanish LaLiga 2"),
@@ -231,7 +253,8 @@ object Espn {
     }
 
     /** Ligile de cerut, după sporturile alese în setări. */
-    fun leaguesFor(sports: Collection<Sport>): List<League> = leagues.filter { it.sport in sports }
+    fun leaguesFor(sports: Collection<Sport>, withFavoriteLeagues: Boolean = false): List<League> =
+        leagues.filter { it.sport in sports && (withFavoriteLeagues || !it.forFavorites) }
 
     private const val SITE = "https://site.api.espn.com/apis/site/v2/sports"
 

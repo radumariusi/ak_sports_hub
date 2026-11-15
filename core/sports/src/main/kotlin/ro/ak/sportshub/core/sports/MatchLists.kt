@@ -25,13 +25,16 @@ data class SportsFavorites(
 ) {
     fun isFavorite(m: Match): Boolean =
         (m.sport != null && m.sport in sports) ||
-            teams.any { t -> TeamNames.same(t, m.home) || (m.away.isNotBlank() && TeamNames.same(t, m.away)) } ||
+            teams.any { t -> TeamNames.covers(t, m.home) || TeamNames.covers(t, m.away) } ||
             competitions.any { c -> m.competition != null && NameSeeds.sameCompetition(c, m.competition) } ||
             (names.isNotEmpty() && FollowedNames.mentionsAny(names, m.home, m.away, m.competition))
 
     fun isName(name: String): Boolean = names.any { Sport.fold(it) == Sport.fold(name) }
 
-    fun isTeam(name: String): Boolean = teams.any { TeamNames.same(it, name) }
+    fun isTeam(name: String): Boolean = teams.any { TeamNames.covers(it, name) }
+
+    /** Echipa [name] e favorită (sau cuprinsă de o favorită, ca echipa U21 de „Manchester United”)? */
+    fun coversEither(home: String, away: String): Boolean = isTeam(home) || isTeam(away)
 
     fun isCompetition(name: String?): Boolean = name != null && competitions.any { NameSeeds.sameCompetition(it, name) }
 }

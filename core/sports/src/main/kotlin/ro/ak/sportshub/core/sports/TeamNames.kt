@@ -15,7 +15,8 @@ object TeamNames {
 
     /** Ce deosebește echipa mare de echipa de tineret sau de cea feminină: trebuie să coincidă. */
     private val markers = mapOf(
-        "women" to "w", "woman" to "w", "w" to "w", "feminin" to "w", "fem" to "w", "ladies" to "w", "frauen" to "w",
+        "women" to "w", "womens" to "w", "woman" to "w", "w" to "w", "feminin" to "w", "fem" to "w", "ladies" to "w", "frauen" to "w",
+        "femenino" to "w", "femenina" to "w", "femminile" to "w", "feminino" to "w", "wfc" to "w",
         "u17" to "u17", "u18" to "u18", "u19" to "u19", "u20" to "u20", "u21" to "u21", "u23" to "u23",
         "ii" to "ii", "b" to "ii", "reserves" to "ii", "youth" to "u19",
     )
@@ -77,6 +78,7 @@ object TeamNames {
         learnedAliases = next
         partsCache.clear()
         partsOrder.clear()
+        favoriteCache.clear()
     }
 
     /** Pune alias-urile tale (alias → numele complet, așa cum le-ai scris). */
@@ -88,6 +90,7 @@ object TeamNames {
         }.toMap()
         partsCache.clear()
         partsOrder.clear()
+        favoriteCache.clear()
     }
 
     /**
@@ -167,10 +170,35 @@ object TeamNames {
 
     private fun computeParts(name: String): Parts {
         val k = key(name)
-        val tokens = k.split(' ').filter { it.isNotEmpty() }
+        val tokens = youth(k.split(' ').filter { it.isNotEmpty() })
         val marks = tokens.mapNotNull { markers[it] }.toSet()
-        val core = tokens.filter { it !in markers }.toSet()
+        var core = tokens.filter { it !in markers }.toSet()
+        // „Man Utd U21”: alias-ul se aplică numelui fără semn („Man Utd” → „Manchester United”).
+        if (marks.isNotEmpty() && core.isNotEmpty()) {
+            val stripped = youth(Sport.fold(name).split(' ').filter { it.isNotEmpty() }).filter { it !in markers }.joinToString(" ")
+            val ck = key(stripped).split(' ').filter { it.isNotEmpty() && it !in markers }.toSet()
+            if (ck.isNotEmpty()) core = ck
+        }
         return Parts(k, core, marks)
+    }
+
+    /** „U-21”, „U 21”, „Under 21” → „u21”. */
+    private fun youth(tokens: List<String>): List<String> {
+        if (tokens.none { it == "u" || it == "under" || it == "sub" }) return tokens
+        val out = ArrayList<String>(tokens.size)
+        var i = 0
+        while (i < tokens.size) {
+            val t = tokens[i]
+            val next = tokens.getOrNull(i + 1)
+            if ((t == "u" || t == "under" || t == "sub") && next != null && next.length == 2 && next.all { it.isDigit() } && "u$next" in markers) {
+                out += "u$next"
+                i += 2
+            } else {
+                out += t
+                i++
+            }
+        }
+        return out
     }
 
     /**
@@ -182,6 +210,12 @@ object TeamNames {
     fun same(a: Parts, b: Parts): Boolean {
         if (a === b) return a.core.isNotEmpty()
         if (a.marks != b.marks) return false
+        return sameCore(a, b)
+    }
+
+    /** Aceeași echipă, fără să conteze semnul de tineret, rezerve sau feminin. */
+    private fun sameCore(a: Parts, b: Parts): Boolean {
+        if (a === b) return a.core.isNotEmpty()
         val ca = a.core
         val cb = b.core
         if (ca.isEmpty() || cb.isEmpty()) return false
@@ -191,6 +225,43 @@ object TeamNames {
         if (big.core.containsAll(small.core)) return true
         // „Paris Saint-Germain” / „ParisSaintGermain”: aceleași litere, alt despărțit.
         return small.joined == big.joined
+    }
+
+    /** Cuvintele care, puse după o echipă favorită, o țin doar la echipa mare („Manchester United seniori”). */
+    private val seniorWords = setOf("senior", "seniori", "seniors", "seniorii", "seniorilor")
+
+    private class Favorite(val parts: Parts, val strict: Boolean)
+
+    private val favoriteCache = java.util.concurrent.ConcurrentHashMap<String, Favorite>()
+
+    private fun favorite(name: String): Favorite = favoriteCache[name] ?: run {
+        if (favoriteCache.size > 2_000) favoriteCache.clear()
+        val tokens = Sport.fold(name).split(' ').filter { it.isNotEmpty() }
+        val senior = tokens.any { it in seniorWords }
+        val p = if (senior) parts(tokens.filter { it !in seniorWords }.joinToString(" ")) else parts(name)
+        Favorite(p, strict = senior || p.marks.isNotEmpty()).also { favoriteCache[name] = it }
+    }
+
+    /** Numele are semn de tineret, rezerve sau feminin („Chelsea U21”, „Arsenal Women”)? */
+    fun hasMarker(name: String): Boolean = parts(name).marks.isNotEmpty()
+
+    /** Favorita e scrisă cu „seniori” (doar echipa mare)? */
+    fun isSeniorOnly(favorite: String): Boolean = Sport.fold(favorite).split(' ').any { it in seniorWords }
+
+    /** Numele favoritei fără „seniori”: „Manchester United seniori” → „Manchester United”. */
+    fun withoutSenior(favorite: String): String =
+        favorite.split(' ').filter { it.isNotEmpty() && Sport.fold(it) !in seniorWords }.joinToString(" ")
+
+    /**
+     * Echipa favorită [favorite] cuprinde echipa [name]? Cererea lui Radu: „Manchester United” cuprinde și
+     * echipele U18, U21, a doua echipă și echipa feminină. Favorita scrisă cu semn („Arsenal Women”, „Chelsea U21”)
+     * ține doar echipa aceea, iar cea scrisă cu „seniori” („Manchester United seniori”) doar echipa mare.
+     */
+    fun covers(favorite: String, name: String): Boolean {
+        if (name.isBlank()) return false
+        val f = favorite(favorite)
+        val other = parts(name)
+        return if (f.strict) same(f.parts, other) else sameCore(f.parts, other)
     }
 
     /** Aceeași pereche de echipe (cuvintele deja calculate), în orice ordine. */

@@ -617,7 +617,7 @@ class SportsRepository(
         val k = knowledge.current
         val picked = Sofascore.pickForTv(
             events, now, SOFA_TV_PER_ROUND,
-            favorite = { e -> s.favorites.teams.any { t -> TeamNames.same(t, e.home) || TeamNames.same(t, e.away) } || s.favorites.isCompetition(e.competition) },
+            favorite = { e -> s.favorites.coversEither(e.home, e.away) || s.favorites.isCompetition(e.competition) },
             covered = { e -> pairKey(e.home, e.away) in covered },
             important = { e -> k.allRules.any { it.appliesTo(e.competition) } || e.competition?.let { Sport.fold(it) } in k.learnedRights },
         )
@@ -679,7 +679,7 @@ class SportsRepository(
             .filter { it.url != null && it.status != MatchStatus.FINISHED && it.start in (now - LSTV_MATCH_BACK_MS)..(now + LSTV_MATCH_AHEAD_MS) }
             .distinctBy { it.providerId }
         fun rank(e: SportEvent): Int = when {
-            s.favorites.teams.any { t -> TeamNames.same(t, e.home) || TeamNames.same(t, e.away) } || s.favorites.isCompetition(e.competition) -> 0
+            s.favorites.coversEither(e.home, e.away) || s.favorites.isCompetition(e.competition) -> 0
             pairKey(e.home, e.away) !in covered -> 1
             k.allRules.any { it.appliesTo(e.competition) } || e.competition?.let { Sport.fold(it) } in k.learnedRights -> 2
             else -> 3
@@ -799,7 +799,7 @@ class SportsRepository(
     private fun addEspnJobs(s: SportsSettings, force: Boolean, jobs: MutableList<Job>) {
         val today = Espn.today()
         val now = System.currentTimeMillis()
-        for (league in Espn.leaguesFor(s.sports)) {
+        for (league in Espn.leaguesFor(s.sports, withFavoriteLeagues = s.favorites.teams.isNotEmpty())) {
             for (offset in 0 until ESPN_DAYS) {
                 val day = today.plusDays(offset.toLong())
                 if (!espnWanted(league, day, offset, now)) continue
@@ -1547,7 +1547,7 @@ class SportsRepository(
             val countries = runCatching { playlistCountries() }.getOrDefault(emptySet())
             appendLine("- Țările canalelor (prefixe): ${countries.sorted().joinToString(", ").ifEmpty { "—" }}; America de Nord: ${countries.any { it in NORTH_AMERICA }}")
             appendLine("- FotMob cere țările: ${FotMob.countriesFor(countries).joinToString(", ").ifEmpty { "—" }}; FutbolEnLaTV: es${FutbolEnLaTv.sitesFor(countries).joinToString("") { ", " + it.code }}")
-            val cals = Espn.leaguesFor(s.sports).map { l -> l to runCatching { File(dir, "espncal-${l.key}.txt").readText() }.getOrNull() }
+            val cals = Espn.leaguesFor(s.sports, withFavoriteLeagues = s.favorites.teams.isNotEmpty()).map { l -> l to runCatching { File(dir, "espncal-${l.key}.txt").readText() }.getOrNull() }
             val today = Espn.today()
             appendLine(
                 "- ESPN: ${cals.size} ligi; fără calendar ${cals.count { it.second == null }}, inexistente ${cals.count { it.second == CAL_MISSING }}; " +
