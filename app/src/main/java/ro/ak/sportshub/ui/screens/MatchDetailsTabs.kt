@@ -16,6 +16,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import ro.ak.sportshub.core.sports.FormResult
+import ro.ak.sportshub.core.sports.Formation
 import ro.ak.sportshub.core.sports.LineupPlayer
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchInsights
@@ -116,6 +117,17 @@ fun PreMatchTab(
             }
         }
 
+        val homeF = Formation.of(d.lineup.filter { it.home })
+        val awayF = Formation.of(d.lineup.filter { !it.home })
+        if (homeF != null && awayF != null) {
+            item(key = "pitch-h") {
+                SectionLabel(
+                    "Formații: ${match.home} ${homeF.label} · ${match.away} ${awayF.label}" +
+                        ((e?.venue ?: match.venue)?.let { " · $it" + (e?.city?.let { c -> ", $c" } ?: "") } ?: ""),
+                )
+            }
+            item(key = "pitch") { PitchView(homeF, awayF, Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) }
+        }
         if (d.lineup.isNotEmpty()) {
             lineupSection("Titulari ${match.home}", d.lineup.filter { it.home && !it.substitute }, "lh")
             lineupSection("Titulari ${match.away}", d.lineup.filter { !it.home && !it.substitute }, "la")
@@ -211,14 +223,7 @@ fun LiveTab(
             item { SectionLabel("Evenimente") }
             items(d.timeline.withIndex().toList(), key = { "tl:" + it.index }) { (_, t) ->
                 val team = if (t.home) match.home else match.away
-                val icon = when (t.kind) {
-                    TimelineKind.GOAL, TimelineKind.PENALTY -> "⚽"
-                    TimelineKind.OWN_GOAL -> "⚽ (autogol)"
-                    TimelineKind.YELLOW -> "🟨"
-                    TimelineKind.RED -> "🟥"
-                    TimelineKind.SUBSTITUTION -> "⇄"
-                    else -> "•"
-                }
+                val icon = timelineIcon(t.kind)
                 ListRow(
                     title = listOfNotNull(t.minute?.let { "$it'" }, icon, t.player).joinToString("  "),
                     subtitle = listOfNotNull(
@@ -246,6 +251,16 @@ fun LiveTab(
             }
         }
     }
+}
+
+/** Simbolul unui eveniment din meci (și în panoul din player). */
+fun timelineIcon(kind: TimelineKind): String = when (kind) {
+    TimelineKind.GOAL, TimelineKind.PENALTY -> "⚽"
+    TimelineKind.OWN_GOAL -> "⚽ (autogol)"
+    TimelineKind.YELLOW -> "🟨"
+    TimelineKind.RED -> "🟥"
+    TimelineKind.SUBSTITUTION -> "⇄"
+    else -> "•"
 }
 
 private fun LazyListScope.statusItem(state: MatchDetailsState, sportsDbEnabled: Boolean) {

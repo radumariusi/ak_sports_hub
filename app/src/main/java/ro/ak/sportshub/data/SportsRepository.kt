@@ -830,3 +830,25 @@ fun providerLabel(provider: String): String = when (provider) {
     FutbolEnLaTv.PROVIDER -> "FutbolEnLaTV"
     else -> provider
 }
+
+/**
+ * Meciul care rulează pe canalul cu cheia [groupKey] la ora [at] (live sau, la reluare, ora din arhivă):
+ * dintre meciurile care au canalul ca sursă (nerespinsă), cel cu sursa cea mai sigură.
+ */
+fun SportsSnapshot.matchOn(groupKey: String, at: Long): MatchEntry? =
+    matches.asSequence()
+        .filter { at >= it.match.start - MATCH_LEAD_MS && at <= it.match.end }
+        .mapNotNull { e -> e.sources.filter { it.groupKey == groupKey && !it.rejected }.minOfOrNull { it.confidence.ordinal }?.let { e to it } }
+        .minByOrNull { it.second }
+        ?.first
+
+/** Meciul are canalul cu cheia [groupKey] printre sursele lui (nerespinse). */
+fun MatchEntry.hasSource(groupKey: String): Boolean = sources.any { it.groupKey == groupKey && !it.rejected }
+
+/** Meciul a început și o sursă (nerespinsă) are încă arhiva lui: se poate vedea ca reluare. */
+fun MatchEntry.hasReplay(now: Long): Boolean =
+    match.start < now && match.status != MatchStatus.SCHEDULED &&
+        sources.any { !it.rejected && ro.ak.sportshub.core.playlist.Catchup.isAvailable(it.channel.catchupDays, match.start, now) }
+
+/** Un canal e „pe meci” cu câteva minute înainte de start (studioul dinainte). */
+private val MATCH_LEAD_MS = TimeUnit.MINUTES.toMillis(10)

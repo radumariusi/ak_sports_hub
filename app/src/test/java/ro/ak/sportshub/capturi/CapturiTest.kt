@@ -18,7 +18,28 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import ro.ak.sportshub.core.sports.Formation
+import ro.ak.sportshub.core.sports.LineupPlayer
+import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.core.sports.PanelView
+import ro.ak.sportshub.core.sports.StatLine
+import ro.ak.sportshub.core.sports.TimelineEntry
+import ro.ak.sportshub.core.sports.TimelineKind
+import ro.ak.sportshub.player.MatchPanelActions
+import ro.ak.sportshub.player.MatchPanelContent
+import ro.ak.sportshub.player.QuickMenuContent
+import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.screens.HomeScreen
+import ro.ak.sportshub.ui.screens.PitchView
 import ro.ak.sportshub.ui.screens.MatchScreen
 import ro.ak.sportshub.ui.theme.AkTheme
 
@@ -98,5 +119,79 @@ class CapturiTest {
         click("UK | Sports")
         waitFor("Sky Sports Premier League")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/3-live-tv.png")
+    }
+
+    private fun arsenalLive() = app.container.sports.snapshot.value.matches.first { it.match.home == "Arsenal" && it.match.isLive }
+
+    /** O echipă inventată, 4-3-3 sau 4-2-3-1, cu nume inventate. */
+    private fun team(home: Boolean, lines: List<Pair<String, Int>>): List<LineupPlayer> {
+        var n = 1
+        val prefix = if (home) "A." else "C."
+        return lines.flatMap { (pos, count) ->
+            List(count) { LineupPlayer("$prefix Jucător${n}", pos, (n++).toString(), home = home, substitute = false) }
+        }
+    }
+
+    private val homeTeam = team(true, listOf("Goalkeeper" to 1, "Defender" to 4, "Midfielder" to 3, "Forward" to 3))
+    private val awayTeam = team(false, listOf("Goalkeeper" to 1, "Defender" to 4, "Defensive Midfield" to 2, "Attacking Midfield" to 3, "Forward" to 1))
+
+    @Test
+    fun terenFormatii() {
+        compose.setContent {
+            AkTheme {
+                Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0E1116)).padding(40.dp)) {
+                    SectionLabel("Formații: Arsenal 4-3-3 · Chelsea 4-2-3-1 · Emirates Stadium, London")
+                    PitchView(Formation.of(homeTeam)!!, Formation.of(awayTeam)!!)
+                }
+            }
+        }
+        waitFor("Jucător1")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/4-teren-formatii.png")
+    }
+
+    @Test
+    fun panouMeciInPlayer() {
+        val m = arsenalLive().match
+        val view = PanelView(
+            homeScore = 1, awayScore = 0, label = "Repriza 1 · 35'", status = MatchStatus.LIVE,
+            timeline = listOf(
+                TimelineEntry(23, TimelineKind.GOAL, true, "A. Jucător10", "A. Jucător8"),
+                TimelineEntry(31, TimelineKind.YELLOW, false, "C. Jucător6", null),
+            ),
+            stats = listOf(StatLine("Posesie (%)", "58", "42"), StatLine("Șuturi pe poartă", "4", "1"), StatLine("Cornere", "5", "2")),
+            pending = 1,
+        )
+        compose.setContent {
+            AkTheme {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF203040))) {
+                    MatchPanelContent(
+                        match = m, view = view, hidden = false, replay = false, lineup = homeTeam + awayTeam,
+                        loading = false, status = null, delaySeconds = 30, offsetSeconds = 10,
+                        actions = MatchPanelActions(onJump = {}, onFromStart = {}, onDelay = {}, onOffset = {}),
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    )
+                }
+            }
+        }
+        waitFor("A. Jucător10")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/5-player-panou-meci.png")
+    }
+
+    @Test
+    fun meniuRapid() {
+        val e = arsenalLive()
+        compose.setContent {
+            AkTheme {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF203040))) {
+                    QuickMenuContent(
+                        previousName = "Sky Sports Premier League FHD", current = null, announced = e,
+                        favorites = listOf(e), others = emptyList(), onPrevious = {}, onMatchPanel = null, onPlayMatch = {},
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    )
+                }
+            }
+        }
+        waitFor("A început")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/6-player-meniu-rapid.png")
     }
 }

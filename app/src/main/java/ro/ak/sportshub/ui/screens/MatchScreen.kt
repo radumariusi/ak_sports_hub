@@ -177,7 +177,8 @@ fun MatchScreen(
                             entry.archiveSource(settings)?.let { src ->
                                 if (Catchup.isAvailable(src.catchupDays, m.start, now)) {
                                     ActionButton(
-                                        text = "⏮ De la început",
+                                        // Meci terminat: reluare, marcată ca atare (playerul arată „RELUARE”, nu „LIVE”).
+                                        text = if (m.status == MatchStatus.FINISHED) "⏮ Vezi reluarea" else "⏮ De la început",
                                         onClick = { onPlayArchive(src.id, m.start - ARCHIVE_LEAD_MS, m.end) },
                                     )
                                 }
