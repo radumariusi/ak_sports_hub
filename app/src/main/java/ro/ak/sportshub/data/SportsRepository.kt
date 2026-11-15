@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -147,8 +148,19 @@ class SportsRepository(
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
+    /** Playerul rulează un stream: calculele și cererile se amână, ca toată puterea să meargă la redare. */
+    private val playing: StateFlow<Boolean> = MutableStateFlow(false),
 ) {
     private val dir = File(context.noBackupFilesDir, "sports")
+
+    /** Lista salvată după fiecare calcul (apare imediat la intrarea în aplicație). */
+    private val stored = SportsSnapshotFile(File(context.noBackupFilesDir, "sports-lista.bin"))
+
+    /** Canalele de sport și EVENT citite din nume, salvate (se refac doar când se schimbă playlisturile). */
+    private val namesFile = File(context.noBackupFilesDir, "sports-canale.bin")
+
+    /** Amprenta intrărilor din care s-a calculat lista curentă (null: încă niciun calcul). */
+    @Volatile private var computedKey: String? = null
     /** Pauzele furnizorilor care ne-au refuzat ([ProviderPolicy.Block]); nu intră în backup. */
     private val blocks = context.getSharedPreferences("sports_backoff", Context.MODE_PRIVATE)
     /** Furnizorii în pauză deja notați în jurnal în runda curentă. */
@@ -162,9 +174,13 @@ class SportsRepository(
     private val started = AtomicBoolean(false)
     private val _snapshot = MutableStateFlow(SportsSnapshot())
 
-    /** Ce s-a aflat din numele canalelor (se reface doar când se schimbă playlisturile sau EPG-ul). */
+    /** Ce s-a aflat din numele canalelor și din potrivirile EPG (se reface când se schimbă playlisturile sau EPG-ul). */
     @Volatile
     private var scanCache: ChannelScan? = null
+
+    /** Doar ce se află din numele canalelor (se reface doar când se schimbă playlisturile). */
+    @Volatile
+    private var nameScanCache: NameScan? = null
 
     /** Numele canalelor active, pentru potrivirea pe nume de post (se reface ca [scanCache]). */
     @Volatile
@@ -190,6 +206,14 @@ class SportsRepository(
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch {
+            // Lista de data trecută apare imediat (și după ce Android a închis aplicația); se recalculează doar dacă
+            // s-a schimbat ceva de atunci.
+            withContext(Dispatchers.IO) { stored.read() }?.let { st ->
+                if (_snapshot.value.loading) {
+                    _snapshot.value = SportsSnapshotFile.retime(st.snapshot, System.currentTimeMillis())
+                    computedKey = st.key
+                }
+            }
             merge(
                 epg.observeStates().map { "epg" },
                 // Potrivirea canal → program se reface după ce se salvează starea sursei EPG:
@@ -203,19 +227,23 @@ class SportsRepository(
                 observed.state.map { "observed" },
             ).debounce(1_000).collect { reason ->
                 // Canalele sau potrivirile EPG s-au putut schimba: lista canalelor de sport se reface.
+                if (reason == "playlists") nameScanCache = null
                 if (reason != "knowledge" && reason != "settings" && reason != "observed") {
                     scanCache = null
                     stationIndexCache = null
                     nearWindow = null
                     farWindow = null
                 }
-                recompute()
+                recomputeIfChanged()
             }
         }
         scope.launch {
             while (true) {
                 delay(TimeUnit.MINUTES.toMillis(1))
-                recompute()
+                // La fiecare minut doar starea meciurilor (LIVE / terminat), fără calcul; calculul doar dacă s-a
+                // schimbat ceva sau a trecut o oră.
+                _snapshot.update { if (it.loading) it else SportsSnapshotFile.retime(it, System.currentTimeMillis()) }
+                recomputeIfChanged()
             }
         }
     }
@@ -242,6 +270,8 @@ class SportsRepository(
 
     /** Cere de la furnizori ce e vechi (sau tot, cu [force]), apoi recalculează lista. */
     suspend fun refreshDue(force: Boolean = false) {
+        // Cererile și citirea paginilor așteaptă oprirea playerului (doar „Actualizează acum” nu așteaptă).
+        if (!force && playing.value) playing.first { !it }
         val s = settings.current
         if (!s.sportsDbEnabled && !s.liveSoccerTvEnabled && !s.sofascoreEnabled && !s.futbolEnLaTvEnabled &&
             !s.liveOnSatEnabled && !s.fotMobEnabled && !s.usLeaguesEnabled
@@ -794,10 +824,41 @@ class SportsRepository(
 
     // ---------- lista de meciuri ----------
 
+    /**
+     * Amprenta a tot ce intră în calcul: setările, dicționarul, corecțiile, rezoluțiile văzute, playlisturile,
+     * EPG-ul, fișierele furnizorilor și ora (lista se reface cel puțin o dată pe oră, pentru fereastra de timp).
+     */
+    private suspend fun inputsKey(now: Long): String = withContext(Dispatchers.IO) {
+        val sb = StringBuilder()
+        sb.append(INPUTS_VERSION).append('|').append(now / HOUR_MS).append('|')
+        sb.append(fetchKey(settings.current)).append('|')
+        sb.append(knowledge.current.hashCode()).append('|')
+        sb.append(variantStore.current.corrections.hashCode()).append('|')
+        sb.append(observed.current.hashCode()).append('|')
+        db.playlists().all().forEach { p -> sb.append(p.id).append(':').append(p.enabled).append(':').append(p.lastUpdated).append(':').append(p.channelCount).append(',') }
+        sb.append('|').append(epg.observeStates().first().hashCode())
+        sb.append('|').append(epg.observeMappedCount().first())
+        sb.append('|')
+        dir.listFiles().orEmpty().filterNot { it.name.endsWith(".tmp") }.sortedBy { it.name }
+            .forEach { f -> sb.append(f.name).append(':').append(f.lastModified()).append(':').append(f.length()).append(',') }
+        sb.toString()
+    }
+
+    /** Recalculează doar dacă s-a schimbat ceva de la ultimul calcul (sau de la lista salvată). */
+    suspend fun recomputeIfChanged() {
+        val key = runCatching { inputsKey(System.currentTimeMillis()) }.getOrNull()
+        if (key != null && key == computedKey && !_snapshot.value.loading) return
+        recompute()
+    }
+
     suspend fun recompute() {
+        // Cât rulează playerul, nimic greu în fundal: calculul așteaptă oprirea redării.
+        if (playing.value) playing.first { !it }
         computeMutex.withLock {
+            val now = System.currentTimeMillis()
+            val key = runCatching { inputsKey(now) }.getOrNull()
             val next: SportsSnapshot? = try {
-                withContext(Dispatchers.IO) { compute(System.currentTimeMillis()) }
+                withContext(Dispatchers.IO) { compute(now) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -806,6 +867,8 @@ class SportsRepository(
             }
             if (next != null) {
                 _snapshot.value = next
+                computedKey = key
+                if (key != null) withContext(Dispatchers.IO) { stored.write(next, key) }
             } else if (_snapshot.value.loading) {
                 _snapshot.value = SportsSnapshot(loading = false)
             }
@@ -1139,17 +1202,35 @@ class SportsRepository(
      * O trecere prin numele canalelor active, pe pagini: canalele de sport (și canalele lor EPG, plus cele fără EPG),
      * canalele EVENT / PPV și canalele dedicate unei competiții.
      */
-    private suspend fun scanChannels(): ChannelScan {
+    /** Doar din numele canalelor: canalele de sport, cele EVENT / PPV și cele dedicate unei serii (id-uri). */
+    private class NameScan(val key: String, val sportIds: List<Long>, val events: List<ChannelNameRow>, val dedicated: Map<String, List<Long>>)
+
+    /** Amprenta playlisturilor (lista de canale se schimbă doar la un import). */
+    private suspend fun playlistsKey(): String =
+        NAMES_VERSION.toString() + "|" + db.playlists().all().joinToString(",") { "${it.id}:${it.enabled}:${it.lastUpdated}:${it.channelCount}" }
+
+    /**
+     * Numele tuturor canalelor citite și clasificate (zeci de mii de canale: zeci de secunde pe TV), doar când se
+     * schimbă playlisturile; rezultatul se păstrează și pe disc, pentru pornirile următoare.
+     */
+    private suspend fun nameScan(): NameScan {
+        val key = playlistsKey()
+        nameScanCache?.takeIf { it.key == key }?.let { return it }
+        readNameScan()?.takeIf { it.key == key }?.let { nameScanCache = it; return it }
         val sportIds = ArrayList<Long>()
         val events = ArrayList<ChannelNameRow>()
         val dedicatedIds = HashMap<String, MutableList<Long>>()
+        // Același grup apare la mii de canale: ce spune grupul singur se află o singură dată.
+        val sportGroup = HashMap<String, Boolean>()
         var after = 0L
         while (true) {
             val page = db.channels().channelNames(after, PAGE)
             page.forEach { row ->
                 val isEvent = EventChannels.isEventChannel(row.name, row.groupName)
                 if (isEvent) events += row
-                if (SportChannels.isSport(row.name, row.groupName)) {
+                val sport = sportGroup.getOrPut(row.groupName) { SportChannels.isSport("", row.groupName) } ||
+                    SportChannels.isSport(row.name, row.groupName)
+                if (sport) {
                     sportIds += row.id
                     if (!isEvent) DedicatedChannels.seriesOfChannel(row.name)?.let { dedicatedIds.getOrPut(it) { ArrayList() } += row.id }
                 }
@@ -1157,21 +1238,55 @@ class SportsRepository(
             if (page.size < PAGE) break
             after = page.last().id
         }
-        val dedicated = dedicatedIds.mapValues { (_, ids) ->
+        return NameScan(key, sportIds, events, dedicatedIds).also { nameScanCache = it; writeNameScan(it) }
+    }
+
+    private fun writeNameScan(n: NameScan) {
+        val tmp = File(namesFile.parentFile, namesFile.name + ".tmp")
+        runCatching {
+            java.io.DataOutputStream(java.io.BufferedOutputStream(tmp.outputStream(), 64 * 1024)).use { out ->
+                out.writeUTF(n.key.take(20_000))
+                out.writeInt(n.sportIds.size)
+                n.sportIds.forEach { out.writeLong(it) }
+                out.writeInt(n.events.size)
+                n.events.forEach { out.writeLong(it.id); out.writeUTF(it.name.take(2_000)); out.writeUTF(it.groupName.take(2_000)) }
+                out.writeInt(n.dedicated.size)
+                n.dedicated.forEach { (k, ids) -> out.writeUTF(k); out.writeInt(ids.size); ids.forEach { out.writeLong(it) } }
+            }
+            if (!tmp.renameTo(namesFile)) { namesFile.delete(); tmp.renameTo(namesFile) }
+        }.onFailure { tmp.delete() }
+    }
+
+    private fun readNameScan(): NameScan? = if (!namesFile.exists()) null else runCatching {
+        java.io.DataInputStream(java.io.BufferedInputStream(namesFile.inputStream(), 64 * 1024)).use { input ->
+            val key = input.readUTF()
+            val sportIds = List(input.readInt()) { input.readLong() }
+            val events = List(input.readInt()) { ChannelNameRow(input.readLong(), input.readUTF(), input.readUTF()) }
+            val dedicated = (0 until input.readInt()).associate { input.readUTF() to List(input.readInt()) { input.readLong() } }
+            NameScan(key, sportIds, events, dedicated)
+        }
+    }.getOrNull()
+
+    private suspend fun scanChannels(): ChannelScan {
+        val names = nameScan()
+        val sportIds = names.sportIds
+        val events = names.events
+        val dedicated = names.dedicated.mapValues { (_, ids) ->
             ids.chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.map { it.groupKey }.toSet()
         }
+        // Canalele de sport și canalele lor EPG, dintr-o singură trecere prin potrivirile EPG.
+        val map = sportIds.chunked(IN_CHUNK).flatMap { epg.mapForChannels(it) }
+        val mapped = map.mapTo(HashSet()) { it.first }
         // Canalele de sport fără EPG (în afară de cele EVENT / PPV, care oricum n-au program).
         val eventIds = events.map { it.id }.toHashSet()
-        val candidates = sportIds.filter { it !in eventIds }
-        val mapped = epg.mappedChannels(candidates)
-        val withoutIds = candidates.filter { it !in mapped }
+        val withoutIds = sportIds.filter { it !in eventIds && it !in mapped }
         val noEpg = withoutIds.take(MAX_NO_EPG_SCAN).chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }
             .groupBy { it.groupKey }
             .map { (_, list) -> NoEpgChannel(list.first().name, list.first().groupName, list.first().playlistName, list.size) }
             .sortedWith(compareByDescending<NoEpgChannel> { it.variants }.thenBy { it.name })
             .take(MAX_NO_EPG)
         return ChannelScan(
-            sportEpg = epg.epgChannelsOf(sportIds),
+            sportEpg = map.mapTo(HashSet()) { it.second },
             sportChannelCount = sportIds.size,
             events = events,
             dedicated = dedicated,
@@ -1198,6 +1313,12 @@ class SportsRepository(
         val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
         const val SLOW_COMPUTE_MS = 3_000L
         const val HOUR_MS = 3_600_000L
+
+        /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
+        const val INPUTS_VERSION = 1
+
+        /** Se mărește când se schimbă clasificarea canalelor după nume. */
+        const val NAMES_VERSION = 1
         const val MAX_EXTRACT_CACHE = 300_000
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
         const val IN_CHUNK = 500

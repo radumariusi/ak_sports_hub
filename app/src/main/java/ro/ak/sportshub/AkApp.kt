@@ -15,6 +15,7 @@ import ro.ak.sportshub.core.database.EpgDatabase
 import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import ro.ak.sportshub.data.AppUpdater
 import ro.ak.sportshub.data.CatchupStore
 import ro.ak.sportshub.data.ChannelFavoritesStore
@@ -42,6 +43,9 @@ class AppContainer(app: Application) {
     val gate = ConnectionGate()
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Playerul e pe ecran: lucrul greu din fundal (calcule, importuri) așteaptă până se oprește redarea. */
+    val playing = MutableStateFlow(false)
 
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -123,6 +127,7 @@ class AppContainer(app: Application) {
         http = http,
         scope = scope,
         log = diagnosticLog,
+        playing = playing,
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */

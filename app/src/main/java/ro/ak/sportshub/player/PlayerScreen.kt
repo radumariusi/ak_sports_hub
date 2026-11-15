@@ -138,10 +138,24 @@ fun PlayerScreen(
     val container = appContainer()
     val context = LocalContext.current
     val controller = remember { PlayerController(context.applicationContext, container) }
-    DisposableEffect(controller) { onDispose { controller.release() } }
+    // Cât e playerul pe ecran, calculele grele din fundal (Sports Hub, actualizări EPG / playlist) așteaptă:
+    // toată puterea televizorului merge la redare (altfel 4K-ul sacadează).
+    DisposableEffect(controller) {
+        container.playing.value = true
+        onDispose {
+            container.playing.value = false
+            controller.release()
+        }
+    }
     LaunchedEffect(channelId, archive) { controller.play(channelId, zapGroup, archive) }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.onBackground() }
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.onForeground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        container.playing.value = false
+        controller.onBackground()
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        container.playing.value = true
+        controller.onForeground()
+    }
 
     val state by controller.state.collectAsStateWithLifecycle()
     // Frecvența ecranului după cadrele stream-ului (setare, oprită implicit).
