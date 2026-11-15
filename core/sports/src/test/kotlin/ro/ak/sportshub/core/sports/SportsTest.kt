@@ -39,6 +39,8 @@ class EpgMatchExtractorTest {
         x("Liga 1 | FCSB vs. Rapid")!!.let { assertEquals("FCSB", it.home); assertEquals("Rapid", it.away); assertEquals("Liga 1", it.competition) }
         x("Fotbal - Liga 1 - Dinamo - Farul")!!.let { assertEquals("Dinamo", it.home); assertEquals("Farul", it.away) }
         x("LIVE Serie A: Inter v Milan, etapa 12")!!.let { assertEquals("Milan", it.away); assertEquals("Serie A", it.competition) }
+        x("Liga Portugal 2 - Leixoes x Chaves")!!.let { assertEquals("Leixoes", it.home); assertEquals("Chaves", it.away) }
+        x("UEFA Nations League - Portugal x Armenia")!!.let { assertEquals("Portugal", it.home); assertEquals("Armenia", it.away) }
     }
 
     @Test

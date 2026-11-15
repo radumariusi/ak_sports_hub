@@ -75,5 +75,8 @@ class ObservedVideoTest {
         assertNull(RefreshRateMatch.pick(modes, current, null))
         assertNull(RefreshRateMatch.pick(modes, current, 24f)) // niciun mod potrivit
         assertFalse(RefreshRateMatch.fits(60f, 59.94f))
+        // Doar 4K are 50 Hz: se trece pe el.
+        val only4k = listOf(DisplayModeInfo(1, 1920, 1080, 60f), DisplayModeInfo(5, 3840, 2160, 60f), DisplayModeInfo(6, 3840, 2160, 50f))
+        assertEquals(6, RefreshRateMatch.pick(only4k, only4k[0], 25f)?.id)
     }
 }

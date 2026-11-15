@@ -1102,6 +1102,70 @@ class SportsRepository(
         return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
     }
 
+    @Volatile private var liveScoresAt = 0L
+
+    /**
+     * Scorul și starea meciurilor live (și a celor care ar fi trebuit să înceapă), din programul ESPN al ligii lor:
+     * o cerere pe ligă, cel mult o dată pe minut, doar cât e Sports Hub pe ecran, nimic cât rulează playerul și nimic
+     * dacă runda furnizorilor e în curs. Lista nu se recalculează: se schimbă doar scorul și starea meciurilor găsite
+     * (un meci terminat iese din LIVE imediat).
+     */
+    suspend fun refreshLiveScores() {
+        if (playing.value) return
+        val now = System.currentTimeMillis()
+        if (now - liveScoresAt < LIVE_SCORES_MS) return
+        val snap = _snapshot.value
+        if (snap.loading) return
+        val candidates = snap.matches.filter { e ->
+            val m = e.match
+            m.status == MatchStatus.LIVE || (m.status == MatchStatus.SCHEDULED && m.start <= now && now - m.start < LIVE_CHECK_MS)
+        }
+        if (candidates.isEmpty()) return
+        // (liga, ziua ESPN) → id-urile ESPN ale meciurilor căutate.
+        val wanted = LinkedHashMap<Pair<Espn.League, java.time.LocalDate>, MutableSet<String>>()
+        for (e in candidates) {
+            val pid = espnEventFor(e.match) ?: continue
+            val league = Espn.splitId(pid)?.first ?: continue
+            wanted.getOrPut(league to Espn.today(e.match.start)) { HashSet() } += pid
+        }
+        if (wanted.isEmpty()) return
+        if (!fetchMutex.tryLock()) return
+        liveScoresAt = now
+        val fresh = HashMap<String, SportEvent>()
+        try {
+            withContext(Dispatchers.IO) {
+                for ((key, ids) in wanted.entries.take(LIVE_SCORES_MAX_LEAGUES)) {
+                    if (playing.value) break
+                    val (league, day) = key
+                    val f = File(dir, "espn-${league.key}-$day.json")
+                    if (download(Job(Espn.scoreboardUrl(league, day), f)) !is Download.Ok) continue
+                    parsed(f) { Espn.parse(it, league, day) }.filter { it.providerId in ids }.forEach { fresh[it.providerId] = it }
+                }
+            }
+        } finally {
+            fetchMutex.unlock()
+        }
+        if (fresh.isEmpty()) return
+        _snapshot.update { cur ->
+            var changed = false
+            val matches = cur.matches.map { e ->
+                val m = e.match
+                val ev = espnEventFor(m)?.let { fresh[it] } ?: return@map e
+                val status = ev.status ?: m.status
+                val home = ev.homeScore ?: m.homeScore
+                val away = ev.awayScore ?: m.awayScore
+                if (status == m.status && home == m.homeScore && away == m.awayScore) e
+                else {
+                    changed = true
+                    val end = if (status == MatchStatus.FINISHED && m.end > now) now else m.end
+                    e.copy(match = m.copy(status = status, homeScore = home, awayScore = away, end = end))
+                }
+            }
+            if (changed) cur.copy(matches = matches) else cur
+        }
+        log.log("scoruri", "live: ${candidates.size} meciuri, ${wanted.size} ligi, ${fresh.size} actualizate")
+    }
+
     /** Recalculează doar dacă s-a schimbat ceva de la ultimul calcul (sau de la lista salvată). */
     suspend fun recomputeIfChanged() {
         val key = runCatching { inputsKey(System.currentTimeMillis()) }.getOrNull()
@@ -1693,6 +1757,9 @@ class SportsRepository(
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
         const val INPUTS_VERSION = 7
+        private const val LIVE_SCORES_MS = 60_000L
+        private const val LIVE_CHECK_MS = 4 * 60 * 60_000L
+        private const val LIVE_SCORES_MAX_LEAGUES = 8
 
         /** Furnizorii care doar găsesc surse (posturi, canale), fără să adauge meciuri în listă. */
         val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER)

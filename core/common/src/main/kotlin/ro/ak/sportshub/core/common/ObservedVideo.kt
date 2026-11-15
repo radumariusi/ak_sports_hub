@@ -90,9 +90,11 @@ object RefreshRateMatch {
     fun pick(modes: List<DisplayModeInfo>, current: DisplayModeInfo, fps: Float?): DisplayModeInfo? {
         val f = ObservedQuality.cleanFps(fps) ?: return null
         if (fits(current.refreshRate, f)) return null
-        return modes.asSequence()
-            .filter { it.width == current.width && it.height == current.height && fits(it.refreshRate, f) }
+        val fitting = modes.filter { fits(it.refreshRate, f) }
+        // Întâi aceeași rezoluție; unele televizoare dau frecvența potrivită doar la altă rezoluție (cea mai mare).
+        return fitting.filter { it.width == current.width && it.height == current.height }
             .minByOrNull { abs(it.refreshRate - current.refreshRate) }
+            ?: fitting.maxWithOrNull(compareBy<DisplayModeInfo> { it.width.toLong() * it.height }.thenBy { -abs(it.refreshRate - current.refreshRate) })
     }
 
     /** Frecvența [refresh] e un multiplu întreg al cadrelor [fps] (cu o toleranță de 0,05%: 59,94 ≠ 60). */

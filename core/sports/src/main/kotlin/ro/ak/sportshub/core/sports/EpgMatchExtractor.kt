@@ -28,6 +28,8 @@ object EpgMatchExtractor {
     private val strongSeparators = listOf(
         Regex("""\s+(?i:vs\.?|v\.?)\s+"""),
         Regex("""\s+@\s+"""),
+        // Portugheză și braziliană: „Liga Portugal 2 - Leixoes x Chaves”.
+        Regex("""(?<=\p{L}|\.)\s+[xX]\s+(?=\p{L})"""),
     )
     private val dashSeparator = Regex("""\s+[-–—]\s+""")
     private val contextSplit = Regex("""\s*[:|]\s+|\s*[:|]\s*(?=\p{Lu})""")

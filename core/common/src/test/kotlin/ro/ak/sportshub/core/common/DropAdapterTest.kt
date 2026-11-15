@@ -39,4 +39,27 @@ class DropAdapterTest {
         repeat(5) { now += 5_000; a.sample(dropped, all) }
         assertEquals(setOf(Step.SURFACE_VIEW), a.active)
     }
+
+    @Test
+    fun cadre_nepotrivite_cu_ecranul_incearca_potrivirea_fara_pierderi() {
+        val a = DropAdapter { now }
+        a.sample(0, all, judder = true)
+        repeat(6) { now += 5_000; a.sample(0, all, judder = true) }
+        assertEquals(setOf(Step.MATCH_RATE), a.active)
+        repeat(5) { now += 5_000; a.sample(0, all, judder = true) }
+        assertEquals(setOf(Step.MATCH_RATE), a.kept)
+    }
+
+    @Test
+    fun cu_setarile_pornite_incearca_tunelarea_apoi_le_opreste() {
+        val a = DropAdapter { now }
+        val avail = setOf(Step.TUNNELING, Step.NO_RATE_MATCH, Step.TEXTURE_VIEW)
+        var dropped = 0
+        a.sample(0, avail)
+        repeat(4) { now += 5_000; dropped += 50; a.sample(dropped, avail) }
+        assertEquals(setOf(Step.TUNNELING), a.active)
+        var guard = 0
+        while (Step.NO_RATE_MATCH !in a.active && guard++ < 20) { now += 5_000; dropped += 50; a.sample(dropped, avail) }
+        assertEquals(setOf(Step.NO_RATE_MATCH), a.active)
+    }
 }

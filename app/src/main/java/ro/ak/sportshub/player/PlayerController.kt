@@ -70,6 +70,11 @@ data class PlayerUiState(
     val decoder: String? = null,
     /** Cadrele aruncate de decodor de la pornirea stream-ului (sacadările se văd aici). */
     val droppedFrames: Int = 0,
+    /** De câte ori s-a oprit imaginea ca să încarce (după ce pornise), de la pornirea stream-ului. */
+    val rebuffers: Int = 0,
+    /** Formatul video („video/hevc 1920×1080 interlaced?”) și decodorul audio, pentru jurnalul playerului. */
+    val videoCodec: String? = null,
+    val audioDecoder: String? = null,
     val audioTracks: Int = 0,
     val textTracks: Int = 0,
     /** Câte variante are canalul (aceeași cheie de grupare, din toate playlisturile active). */
@@ -197,6 +202,25 @@ class PlayerController(context: Context, private val container: AppContainer) {
             override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
                 _state.update { it.copy(droppedFrames = it.droppedFrames + droppedFrames) }
             }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                _state.update { it.copy(audioDecoder = decoderName) }
+            }
+
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: androidx.media3.common.Format,
+                decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
+            ) {
+                val codec = listOfNotNull(format.sampleMimeType, format.codecs, format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kb/s" })
+                    .joinToString(" ")
+                _state.update { it.copy(videoCodec = codec.ifEmpty { null }) }
+            }
         })
     }
 
@@ -225,6 +249,16 @@ class PlayerController(context: Context, private val container: AppContainer) {
     fun goLive() {
         val c = _state.value.channel ?: return
         play(c.id, archive = null)
+    }
+
+    /**
+     * Redarea tunelată (decodorul televizorului ține imaginea în pas cu sunetul, fără să treacă prin aplicație):
+     * pe unele televizoare scoate sacadarea. Merge doar cu SurfaceView („Imagine fluidă”).
+     */
+    fun setTunneling(on: Boolean) {
+        val p = player.trackSelectionParameters as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters ?: return
+        if (p.tunnelingEnabled == on) return
+        player.trackSelectionParameters = p.buildUpon().setTunnelingEnabled(on).build()
     }
 
     /** Arhiva care rulează acum (null = live). */
@@ -456,6 +490,9 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 frameRate = null,
                 decoder = null,
                 droppedFrames = 0,
+                rebuffers = 0,
+                videoCodec = null,
+                audioDecoder = null,
                 audioTracks = 0,
                 textTracks = 0,
                 variantCount = variantOrder.size,
@@ -532,7 +569,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
         when (state) {
             Player.STATE_BUFFERING -> {
                 if (_state.value.status == PlaybackStatus.Playing) {
-                    _state.update { it.copy(status = PlaybackStatus.Buffering) }
+                    _state.update { it.copy(status = PlaybackStatus.Buffering, rebuffers = it.rebuffers + 1) }
                 }
                 stallJob = scope.launch {
                     delay(STALL_TIMEOUT_MS)

@@ -156,6 +156,7 @@ fun ListRow(
     progress: Float? = null,
     /** Coloana din stânga (ora, minutul), cu litere înguste. */
     leading: @Composable (() -> Unit)? = null,
+    leadingWidth: Dp = 76.dp,
     titleSize: TextUnit = 17.sp,
     trailing: @Composable (() -> Unit)? = null,
     /** Între coloana din stânga și text: sigle, banda culorilor echipelor. */
@@ -182,7 +183,7 @@ fun ListRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (leading != null) {
-                    Box(modifier = Modifier.width(76.dp)) { leading() }
+                    Box(modifier = Modifier.width(leadingWidth)) { leading() }
                 }
                 if (icon != null) {
                     Box(modifier = Modifier.padding(end = 12.dp)) { icon() }
