@@ -32,10 +32,13 @@ object FotMob {
     fun countriesFor(prefixes: Set<String>): List<String> {
         val map = mapOf("uk" to "gb", "en" to "gb", "gb" to "gb", "usa" to "us", "ger" to "de")
         val codes = prefixes.map { map[it] ?: it }.filter { it.length == 2 && it.all(Char::isLetter) }.distinct()
-        // Întâi România și Marea Britanie (cele mai folosite), apoi restul în ordine alfabetică.
-        val ordered = codes.sortedWith(compareBy<String> { listOf("ro", "gb").indexOf(it).let { i -> if (i < 0) 9 else i } }.thenBy { it })
+        // Întâi țările mari cu ghid TV (prefixele scurte din playlist, ca „af” sau „al”, sunt adesea altceva:
+        // „/tv-guide/af” dă 404), apoi restul în ordine alfabetică.
+        val ordered = codes.sortedWith(compareBy<String> { preferred.indexOf(it).let { i -> if (i < 0) preferred.size else i } }.thenBy { it })
         return ordered.ifEmpty { listOf("gb") }.take(MAX_COUNTRIES)
     }
+
+    private val preferred = listOf("ro", "gb", "us", "it", "es", "de", "fr", "pt", "nl", "ie", "ca", "au", "pl", "gr", "be", "ch", "at")
 
     fun looksValid(html: String): Boolean = html.contains("__NEXT_DATA__") || html.contains("tv-guide")
 
