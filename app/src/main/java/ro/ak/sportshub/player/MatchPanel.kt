@@ -43,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import ro.ak.sportshub.ui.theme.AkColors
+import ro.ak.sportshub.ui.components.bandColor
+import androidx.compose.foundation.layout.width
 
 /** Ce se poate face din panoul meciului, după unde ești (live, reluare) și ce are canalul (arhivă). */
 data class MatchPanelActions(
@@ -290,11 +292,37 @@ fun MatchScoreboard(match: Match, view: PanelView?, hidden: Boolean, replay: Boo
         modifier = modifier.height(48.dp).clip(RoundedCornerShape(8.dp)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScoreCell(TeamCodes.of(match.home), AkColors.Focus, AkColors.OnFocus)
+        val looks = ro.ak.sportshub.ui.components.rememberTeamLooks()
+        TeamCell(match.home, looks.team(match.home), stripeFirst = true)
         ScoreCell(score, AkColors.Background, AkColors.Text)
-        if (match.away.isNotBlank()) ScoreCell(TeamCodes.of(match.away), AkColors.Focus, AkColors.OnFocus)
+        if (match.away.isNotBlank()) TeamCell(match.away, looks.team(match.away), stripeFirst = false)
         clock?.let { ScoreCell(it, AkColors.Accent, AkColors.OnFocus) }
         if (replay) ScoreCell("RELUARE", AkColors.Panel, AkColors.Text)
+    }
+}
+
+/**
+ * Echipa pe tabela de scor: banda culorii ei spre margine, sigla (doar dacă e deja pe disc: cât rulează playerul nu se
+ * descarcă nimic) și codul (ESPN, altfel [TeamCodes]).
+ */
+@Composable
+private fun TeamCell(team: String, look: ro.ak.sportshub.core.sports.TeamLook?, stripeFirst: Boolean) {
+    val band = look.bandColor()
+    Row(modifier = Modifier.background(AkColors.Focus).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+        if (stripeFirst && band != null) Box(Modifier.width(6.dp).fillMaxHeight().background(band))
+        Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (stripeFirst) ro.ak.sportshub.ui.components.TeamLogo(team, 30.dp, look = look, modifier = Modifier.padding(end = 8.dp))
+            Text(
+                text = look?.code?.take(4)?.uppercase() ?: TeamCodes.of(team),
+                color = AkColors.OnFocus,
+                fontSize = 28.sp,
+                fontFamily = AkFonts.Condensed,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
+            )
+            if (!stripeFirst) ro.ak.sportshub.ui.components.TeamLogo(team, 30.dp, look = look, modifier = Modifier.padding(start = 8.dp))
+        }
+        if (!stripeFirst && band != null) Box(Modifier.width(6.dp).fillMaxHeight().background(band))
     }
 }
 

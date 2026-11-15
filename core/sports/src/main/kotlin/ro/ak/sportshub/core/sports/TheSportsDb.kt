@@ -69,6 +69,9 @@ object TheSportsDb {
             homeScore = o.str("intHomeScore")?.toIntOrNull(),
             awayScore = o.str("intAwayScore")?.toIntOrNull(),
             venue = o.str("strVenue"),
+            homeLook = o.str("strHomeTeamBadge")?.let { TeamLook(logo = it) },
+            awayLook = o.str("strAwayTeamBadge")?.let { TeamLook(logo = it) },
+            competitionLogo = o.str("strLeagueBadge"),
         )
     }
 

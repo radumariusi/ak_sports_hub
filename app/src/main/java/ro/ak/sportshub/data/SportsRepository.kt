@@ -154,6 +154,8 @@ class SportsRepository(
     private val log: DiagnosticLog,
     /** Playerul rulează un stream: calculele și cererile se amână, ca toată puterea să meargă la redare. */
     private val playing: StateFlow<Boolean> = MutableStateFlow(false),
+    /** Siglele și culorile echipelor, învățate din programul furnizorilor. */
+    private val looks: TeamLookStore? = null,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports")
 
@@ -1059,6 +1061,8 @@ class SportsRepository(
             mark = t
         }
         val (allEvents, tv) = cachedEvents(s)
+        // Siglele și culorile echipelor vin din același program (fără cereri în plus).
+        looks?.learn(allEvents)
         val counts = allEvents.groupingBy { it.provider }.eachCount()
         _health.update { all ->
             (all.keys + counts.keys).associateWith { p -> (all[p] ?: ProviderHealth()).copy(events = counts[p] ?: 0) }

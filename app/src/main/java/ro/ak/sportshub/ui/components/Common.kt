@@ -66,7 +66,7 @@ fun dimText(): Color = if (LocalOnFocus.current) AkColors.TextDimOnFocus else Ak
 fun accentText(): Color = if (LocalOnFocus.current) AkColors.AccentOnFocus else AkColors.Accent
 
 /** Rama chihlimbar a elementului focusat. */
-private val FocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(10.dp))
+internal val FocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(10.dp))
 private val PillFocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(50))
 
 /**
@@ -152,6 +152,8 @@ fun ListRow(
     leading: @Composable (() -> Unit)? = null,
     titleSize: TextUnit = 17.sp,
     trailing: @Composable (() -> Unit)? = null,
+    /** Între coloana din stânga și text: sigle, banda culorilor echipelor. */
+    icon: @Composable (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Surface(
@@ -175,6 +177,9 @@ fun ListRow(
             ) {
                 if (leading != null) {
                     Box(modifier = Modifier.width(76.dp)) { leading() }
+                }
+                if (icon != null) {
+                    Box(modifier = Modifier.padding(end = 12.dp)) { icon() }
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = title, fontSize = titleSize, fontWeight = FontWeight.Medium, maxLines = 1)
