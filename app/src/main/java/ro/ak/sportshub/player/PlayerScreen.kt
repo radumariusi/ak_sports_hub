@@ -305,14 +305,19 @@ fun PlayerScreen(
         }
     }
 
-    // Datele meciului se cer doar cât e deschis panoul: pre-meci o dată, live la un minut (cât se joacă).
-    LaunchedEffect(linkedMatch?.id, panel == Panel.Match) {
+    // Datele meciului: pre-meci cât e deschis panoul; live la un minut cât se joacă meciul de pe ecran, ca tabela de
+    // scor să nu rămână la scorul și minutul primei cereri (o cerere ESPN pe minut, fără conexiunea playlistului).
+    LaunchedEffect(linkedMatch?.id, panel == Panel.Match, replay) {
         val m = linkedMatch ?: return@LaunchedEffect
-        if (panel != Panel.Match) return@LaunchedEffect
-        details.refreshPreMatch(m)
+        if (replay && panel != Panel.Match) return@LaunchedEffect
+        if (panel == Panel.Match) details.refreshPreMatch(m)
         while (true) {
             val current = container.sports.snapshot.value.matches.firstOrNull { it.match.id == m.id }?.match ?: m
-            if (current.status == MatchStatus.SCHEDULED) break
+            if (current.status == MatchStatus.SCHEDULED) {
+                // Meciul n-a început: se așteaptă startul (lista își schimbă starea singură), fără cereri.
+                delay(DetailsSchedule.LIVE_REFRESH_MS)
+                continue
+            }
             details.refreshLive(current)
             if (current.status != MatchStatus.LIVE) break
             delay(DetailsSchedule.LIVE_REFRESH_MS)

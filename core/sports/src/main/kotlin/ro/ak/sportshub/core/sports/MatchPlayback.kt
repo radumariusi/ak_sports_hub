@@ -144,7 +144,8 @@ object GoalCount {
  */
 class LiveDelay {
 
-    private data class Seen(val at: Long, val details: MatchDetails)
+    /** [at] = de când se arată (0: știut de la început); [observedAt] = când a sosit de fapt (pentru ceas). */
+    private data class Seen(val at: Long, val details: MatchDetails, val observedAt: Long = at)
 
     private val seen = ArrayList<Seen>()
     private val firstSeen = LinkedHashMap<TimelineEntry, Long>()
@@ -155,7 +156,7 @@ class LiveDelay {
         val baseline = seen.isEmpty()
         details.timeline.forEach { t -> if (t !in firstSeen) firstSeen[t] = if (baseline) 0L else at }
         if (last == null || last.event != details.event || last.timeline != details.timeline || last.stats != details.stats) {
-            seen += Seen(if (baseline) 0L else at, details)
+            seen += Seen(if (baseline) 0L else at, details, at)
             // Păstrăm puțin: doar cât e nevoie pentru întârzierea maximă.
             while (seen.size > MAX_SNAPSHOTS) seen.removeAt(0)
         }
@@ -193,7 +194,7 @@ class LiveDelay {
         return PanelView(
             homeScore = e?.homeScore ?: match.homeScore,
             awayScore = e?.awayScore ?: match.awayScore,
-            label = MatchInsights.liveLabel(status, e?.statusCode, e?.progress),
+            label = MatchInsights.liveLabel(status, e?.statusCode, LiveClock.advance(e?.progress, e?.statusCode, match.sport, cutoff - visible.observedAt)),
             status = status,
             timeline = timeline,
             stats = visible.details.stats,
@@ -375,5 +376,28 @@ object OnAirMatch {
         return matches.firstOrNull { m ->
             m.away.isNotBlank() && at >= m.start - LEAD_MS && at <= m.end && TeamNames.samePair(x.home, x.away, m.home, m.away)
         }
+    }
+}
+
+/**
+ * Minutul din tabela de scor merge mai departe între cereri (o cerere pe minut, minutul ESPN de atunci):
+ * la fotbal, în reprize, se adaugă minutele trecute de la cerere; peste 45/90/120 devine „45+2”.
+ */
+object LiveClock {
+
+    fun advance(progress: String?, code: String?, sport: Sport?, elapsedMs: Long): String? {
+        val p = progress?.trim() ?: return progress
+        if (sport != Sport.FOOTBALL || elapsedMs < 60_000) return progress
+        val c = code?.trim()?.uppercase().orEmpty()
+        val cap = when (c) {
+            "1H" -> 45
+            "2H" -> 90
+            "ET" -> 120
+            else -> return progress
+        }
+        val base = p.substringBefore('+').trim().toIntOrNull() ?: return progress
+        val extra = p.substringAfter('+', "").trim().toIntOrNull() ?: 0
+        val total = base + extra + (elapsedMs / 60_000).toInt()
+        return if (total > cap) "$cap+${total - cap}" else total.toString()
     }
 }

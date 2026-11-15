@@ -184,4 +184,12 @@ class MatchPlaybackTest {
         assertEquals("b", found?.id)
         assertNull(OnAirMatch.find("LaLiga Goals Galore", null, null, kickoff + min(20), listOf(belgium, spain)))
     }
+
+    @Test
+    fun minutul_merge_intre_cereri() {
+        assertEquals("25", LiveClock.advance("22", "1H", Sport.FOOTBALL, min(3)))
+        assertEquals("45+2", LiveClock.advance("44", "1H", Sport.FOOTBALL, min(3)))
+        assertEquals("22", LiveClock.advance("22", "HT", Sport.FOOTBALL, min(3)))
+        assertEquals("22", LiveClock.advance("22", "1H", Sport.BASKETBALL, min(3)))
+    }
 }
