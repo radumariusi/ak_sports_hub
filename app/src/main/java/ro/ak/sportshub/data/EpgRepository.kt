@@ -491,6 +491,15 @@ class EpgRepository(
         }
     }
 
+    /** Emisiunile mai multor canale între [from] și [until] (ghidul în grilă din Live TV). */
+    suspend fun programmesWindow(channelIds: List<Long>, from: Long, until: Long): Map<Long, List<Programme>> {
+        if (channelIds.isEmpty()) return emptyMap()
+        val rows = channelIds.distinct().chunked(IN_CHUNK).flatMap { dao.programmesFor(it, from, until) }
+        return rows.groupBy { it.channelId }.mapValues { (_, list) ->
+            list.map { Programme(it.start, it.stop, it.title, it.subtitle, null, it.category) }
+        }
+    }
+
     /** Programul unui canal (de la emisiunea curentă), sau null dacă nu are EPG. */
     suspend fun schedule(channelId: Long, now: Long = System.currentTimeMillis()): List<Programme>? {
         val epgChannel = dao.epgChannelFor(channelId) ?: return null

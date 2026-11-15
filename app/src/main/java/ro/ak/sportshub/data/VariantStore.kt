@@ -21,6 +21,8 @@ data class VariantState(
     val autoFailover: Boolean = true,
     /** Ecranul trece la frecvența potrivită cadrelor stream-ului (50/60 Hz). */
     val matchFrameRate: Boolean = false,
+    /** Live TV ca ghid în grilă (canale × ore), în loc de listă. */
+    val guideGrid: Boolean = false,
     /** Varianta preferată, pe cheia de grupare (aceeași în toate playlisturile). */
     val preferred: Map<String, ChannelRef> = emptyMap(),
     /** Corecțiile manuale, pe playlist și numele original al canalului. */
@@ -63,6 +65,7 @@ class VariantStore(context: Context) {
                 groupVariants = o.optBoolean("groupVariants", true),
                 autoFailover = o.optBoolean("autoFailover", true),
                 matchFrameRate = o.optBoolean("matchFrameRate", false),
+                guideGrid = o.optBoolean("guideGrid", false),
                 preferred = o.optJSONArray("preferred").objects().associate { it.getString("key") to it.ref() },
                 corrections = o.optJSONArray("corrections").objects().associate { e ->
                     val c = e.getJSONObject("correction")
@@ -89,6 +92,7 @@ class VariantStore(context: Context) {
         put("groupVariants", s.groupVariants)
         put("autoFailover", s.autoFailover)
         put("matchFrameRate", s.matchFrameRate)
+        put("guideGrid", s.guideGrid)
         put("preferred", JSONArray().apply { s.preferred.forEach { (k, r) -> put(r.json().put("key", k)) } })
         put(
             "corrections",

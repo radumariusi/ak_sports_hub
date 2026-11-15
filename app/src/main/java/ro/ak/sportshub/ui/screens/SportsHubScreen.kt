@@ -35,6 +35,7 @@ import ro.ak.sportshub.core.sports.TeamCalendar
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.data.MatchEntry
 import ro.ak.sportshub.data.hasReplay
+import ro.ak.sportshub.data.bestSource
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
@@ -102,6 +103,39 @@ fun SportsHubScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // F5: fereastra video (OK ținut pe un meci): meciul și canalul pornit; se oprește la Back sau pe alt meci.
+    var videoMatchId by remember { mutableStateOf<String?>(null) }
+    var videoChannel by remember { mutableStateOf<Long?>(null) }
+    var videoNote by remember { mutableStateOf<String?>(null) }
+    fun toggleVideo(entry: MatchEntry) {
+        if (videoMatchId == entry.match.id) {
+            videoMatchId = null
+            videoChannel = null
+            return
+        }
+        val best = entry.bestSource(settings)
+        if (best == null) {
+            videoNote = "${entry.match.title}: nicio sursă în playlisturile tale."
+            return
+        }
+        videoNote = null
+        videoMatchId = entry.match.id
+        videoChannel = best.id
+    }
+    androidx.activity.compose.BackHandler(enabled = videoChannel != null) {
+        videoMatchId = null
+        videoChannel = null
+    }
+    androidx.compose.runtime.LaunchedEffect(focusedId) {
+        if (videoMatchId != null && focusedId != null && focusedId != videoMatchId) {
+            videoMatchId = null
+            videoChannel = null
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(tab) {
+        videoMatchId = null
+        videoChannel = null
+    }
     // La Back de pe meci, focusul revine pe meciul de unde ai plecat.
     val returnFocus = rememberReturnFocus()
 
@@ -201,7 +235,7 @@ fun SportsHubScreen(
         }
 
         Text(
-            text = status ?: summaryLine(visible.size, snapshot.matches.size, snapshot.loading),
+            text = videoNote ?: status ?: summaryLine(visible.size, snapshot.matches.size, snapshot.loading),
             fontSize = 13.sp,
             color = AkColors.TextDim,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -264,6 +298,7 @@ fun SportsHubScreen(
                                 zone = zone,
                                 onClick = { returnFocus.clicked("team:$team:" + entry.match.id); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
+                                onLongClick = { toggleVideo(entry) },
                                 modifier = returnFocus.on("team:$team:" + entry.match.id),
                             )
                         }
@@ -281,20 +316,27 @@ fun SportsHubScreen(
                             zone = zone,
                             onClick = { returnFocus.clicked(entry.match.id); onOpenMatch(entry.match.id) },
                             onFocused = { focusedId = entry.match.id },
+                            onLongClick = { toggleVideo(entry) },
                             modifier = returnFocus.on(entry.match.id),
                         )
                     }
                 }
                 preview?.let { entry ->
-                    MatchPreviewPanel(
-                        entry = entry,
-                        looks = looks,
-                        favorite = settings.favorites.isFavorite(entry.match),
-                        hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
-                        prefs = settings.sourcePreferences,
-                        zone = zone,
-                        modifier = Modifier.width(360.dp).fillMaxHeight().padding(bottom = 8.dp),
-                    )
+                    Column(modifier = Modifier.width(360.dp).fillMaxHeight().padding(bottom = 8.dp)) {
+                        val channel = videoChannel
+                        if (channel != null && videoMatchId == entry.match.id) {
+                            ro.ak.sportshub.player.VideoPreview(channelId = channel, modifier = Modifier.padding(bottom = 8.dp))
+                        }
+                        MatchPreviewPanel(
+                            entry = entry,
+                            looks = looks,
+                            favorite = settings.favorites.isFavorite(entry.match),
+                            hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
+                            prefs = settings.sourcePreferences,
+                            zone = zone,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        )
+                    }
                 }
             }
         }
@@ -370,6 +412,8 @@ private fun MatchRow(
     zone: ZoneId,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
+    /** OK ținut: fereastra video cu sursa recomandată (F5). */
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val m = entry.match
@@ -391,6 +435,7 @@ private fun MatchRow(
             if (m.status == MatchStatus.FINISHED) "încheiat" else null,
         ).joinToString(" · "),
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         icon = { MatchIcon(m.home, m.away, m.competition, looks) },
         leading = {
@@ -535,7 +580,7 @@ private fun MatchPreviewPanel(
             )
         }
         Spacer(Modifier.weight(1f))
-        Text(text = "OK deschide meciul: surse, pre-meci, live", fontSize = 14.sp, color = AkColors.TextDim)
+        Text(text = "OK deschide meciul: surse, pre-meci, live · OK ținut: video aici (Back oprește)", fontSize = 14.sp, color = AkColors.TextDim)
     }
 }
 
