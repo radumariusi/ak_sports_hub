@@ -135,8 +135,9 @@ fun PlaylistEditScreen(playlistId: Long, newType: PlaylistType, onClose: () -> U
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
         Text(
             text = if (savedId > 0) draft.name.ifEmpty { "Playlist" } else "Playlist nou · ${typeLabel(draft.type)}",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 32.sp,
+            fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed,
+            fontWeight = FontWeight.Bold,
         )
         val live = stored
         Text(

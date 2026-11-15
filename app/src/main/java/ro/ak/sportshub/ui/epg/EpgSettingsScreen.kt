@@ -79,7 +79,7 @@ fun EpgSettingsScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Text(text = "EPG (programul TV)", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = "EPG (programul TV)", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
         Text(
             text = status ?: "Canale cu program: ${formatCount(mapped)}. Se păstrează doar canalele din playlisturile tale.",
             fontSize = 14.sp,

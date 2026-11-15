@@ -2,23 +2,58 @@ package ro.ak.sportshub.ui.theme
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.darkColorScheme
+import ro.ak.sportshub.R
 
+/**
+ * Identitatea „Reflector”: negru-albastru ca un stadion noaptea, chihlimbar ca lumina reflectoarelor.
+ * Rândul focusat e alb cu ramă chihlimbar; calitatea se vede după luminozitate (4K plin chihlimbar, FHD plin alb,
+ * HD contur, SD doar text).
+ */
 object AkColors {
-    val Background = Color(0xFF0E1116)
-    val Panel = Color(0xFF171B22)
-    val Focus = Color(0xFFE8EAED)
-    val OnFocus = Color(0xFF0E1116)
-    val Text = Color(0xFFE8EAED)
-    val TextDim = Color(0xFF9AA3AF)
-    val Accent = Color(0xFF35C46A)
-    val Live = Color(0xFFE5484D)
+    val Background = Color(0xFF0B0F14)
+    val Panel = Color(0xFF151B24)
+    val Divider = Color(0xFF1E2631)
+    val Focus = Color(0xFFEEF1F4)
+    val OnFocus = Color(0xFF0B0F14)
+    val Text = Color(0xFFEEF1F4)
+    val TextDim = Color(0xFF9AA4B1)
+    /** Textul secundar pe rândul focusat (alb). */
+    val TextDimOnFocus = Color(0xFF3A4452)
+    val Accent = Color(0xFFFFB547)
+    /** Chihlimbarul pe fundal alb (stea, accente pe rândul focusat). */
+    val AccentOnFocus = Color(0xFFB87A0F)
+    val Live = Color(0xFFFF4D4F)
+    /** Roșul „live” pe fundal alb. */
+    val LiveOnFocus = Color(0xFFD92D30)
+}
+
+/** Literele: Barlow pentru text, Barlow Condensed (înguste) pentru titluri, ore, scoruri și etichete. */
+object AkFonts {
+    val Body = FontFamily(
+        Font(R.font.barlow_regular, FontWeight.Normal),
+        Font(R.font.barlow_medium, FontWeight.Medium),
+        Font(R.font.barlow_semibold, FontWeight.SemiBold),
+        Font(R.font.barlow_semibold, FontWeight.Bold),
+    )
+    val Condensed = FontFamily(
+        Font(R.font.barlowcondensed_medium, FontWeight.Normal),
+        Font(R.font.barlowcondensed_medium, FontWeight.Medium),
+        Font(R.font.barlowcondensed_semibold, FontWeight.SemiBold),
+        Font(R.font.barlowcondensed_bold, FontWeight.Bold),
+    )
 }
 
 private val Scheme = darkColorScheme(
@@ -30,20 +65,23 @@ private val Scheme = darkColorScheme(
     onSurface = AkColors.Text,
     surfaceVariant = AkColors.Panel,
     onSurfaceVariant = AkColors.TextDim,
+    border = AkColors.Accent,
 )
 
 @Composable
 fun AkTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = Scheme) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            shape = RectangleShape,
-            colors = SurfaceDefaults.colors(
-                containerColor = AkColors.Background,
-                contentColor = AkColors.Text,
-            ),
-        ) {
-            content()
+        CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.merge(TextStyle(fontFamily = AkFonts.Body))) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = RectangleShape,
+                colors = SurfaceDefaults.colors(
+                    containerColor = AkColors.Background,
+                    contentColor = AkColors.Text,
+                ),
+            ) {
+                content()
+            }
         }
     }
 }

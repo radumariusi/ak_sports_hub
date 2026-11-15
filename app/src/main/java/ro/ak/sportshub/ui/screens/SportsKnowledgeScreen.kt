@@ -74,7 +74,7 @@ fun SportsKnowledgeScreen() {
     fun nameOf(groupKey: String) = names[groupKey] ?: groupKey.substringAfter(':')
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Text(text = "Dicționar Sports Hub", fontSize = 24.sp, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp))
+        Text(text = "Dicționar Sports Hub", fontSize = 32.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 14.dp, bottom = 8.dp))
         TabStrip(tabs = KnowledgeTabs, selectedIndex = tab, onSelect = { tab = it }, firstTabModifier = Modifier.focusRequester(firstTab))
         LazyColumn(modifier = Modifier.padding(top = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             when (tab) {

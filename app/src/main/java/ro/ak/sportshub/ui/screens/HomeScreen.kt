@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,7 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import ro.ak.sportshub.ui.components.AkLogo
 import ro.ak.sportshub.ui.components.TabStrip
+import ro.ak.sportshub.ui.theme.AkFonts
 import ro.ak.sportshub.ui.theme.AkColors
 
 private val Sections = listOf("Sports Hub", "Live TV", "Setări")
@@ -53,14 +56,18 @@ fun HomeScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "AK", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AkColors.Accent)
-            Spacer(Modifier.width(20.dp))
+            AkLogo(size = 44.dp)
+            Spacer(Modifier.width(24.dp))
             TabStrip(
                 tabs = Sections,
                 selectedIndex = section,
                 onSelect = { section = it },
                 firstTabModifier = Modifier.focusRequester(firstTab),
+                fontSize = 24.sp,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            Spacer(Modifier.weight(1f))
+            HeaderClock()
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
             when (section) {
@@ -81,4 +88,21 @@ fun HomeScreen(
             }
         }
     }
+}
+
+private val ClockFormat = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", java.util.Locale.forLanguageTag("ro"))
+
+/** Ziua și ora, în colțul din dreapta sus (ca pe un tabelă de stadion). */
+@Composable
+private fun HeaderClock() {
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            kotlinx.coroutines.delay(15_000)
+        }
+    }
+    val text = remember(now / 60_000) {
+        java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault()).format(ClockFormat)
+    }
+    Text(text = text, fontSize = 22.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold, color = AkColors.TextDim)
 }

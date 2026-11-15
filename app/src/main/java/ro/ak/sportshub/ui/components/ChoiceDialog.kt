@@ -60,7 +60,7 @@ fun ChoiceDialog(
                         onClick = { onSelect(index) },
                         modifier = if (index == start) Modifier.focusRequester(focus) else Modifier,
                         trailing = if (index == selectedIndex) {
-                            { Text(text = "✓", fontSize = 16.sp, color = AkColors.Accent) }
+                            { Text(text = "✓", fontSize = 16.sp, color = ro.ak.sportshub.ui.components.accentText()) }
                         } else {
                             null
                         },
