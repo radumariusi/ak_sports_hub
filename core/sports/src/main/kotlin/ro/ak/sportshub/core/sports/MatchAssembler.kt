@@ -264,6 +264,11 @@ object MatchAssembler {
                 abs(o.start - e.start) <= DEDUP_WINDOW_MS && (
                     (o.provider == e.provider && o.providerId == e.providerId) ||
                         (o.away.isNotBlank() && e.away.isNotBlank() && TeamNames.samePair(o.home, o.away, e.home, e.away)) ||
+                        // Meci feminin scris o dată „Arsenal Frauen – London City Lionesses”, altă dată „Arsenal – London
+                        // City” (în „Women's Super League”): fără semnul feminin, la ambele.
+                        (o.away.isNotBlank() && e.away.isNotBlank() && womenSide(o) && womenSide(e) &&
+                            TeamNames.samePair(TeamNames.withoutWomen(o.home), TeamNames.withoutWomen(o.away),
+                                TeamNames.withoutWomen(e.home), TeamNames.withoutWomen(e.away))) ||
                         (o.away.isBlank() && e.away.isBlank() && EventNames.same(o.home, e.home) == true &&
                             sameEvent(o.home, sportOf(o), o.start, e.home, sportOf(e), e.start, DEDUP_WINDOW_MS))
                     )
@@ -277,6 +282,9 @@ object MatchAssembler {
         }
         return out
     }
+
+    private fun womenSide(e: SportEvent): Boolean =
+        TeamNames.isWomenCompetition(e.competition) || TeamNames.isWomenTeam(e.home) || TeamNames.isWomenTeam(e.away)
 
     /**
      * Același meci de la doi furnizori: datele (id, nume, competiție) vin de la cel mai de încredere

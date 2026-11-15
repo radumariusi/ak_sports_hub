@@ -127,4 +127,16 @@ class FewerMissesTest {
         assertEquals("Engleză și română", LanguageGroups.label(LanguageGroup.PREFERRED, pref))
         assertFalse(LanguageGroups.label(LanguageGroup.EUROPEAN, pref).isEmpty())
     }
+
+    @Test
+    fun `meciul feminin scris diferit de doi furnizori e unul singur`() {
+        val t = 1_763_200_000_000L
+        val a = SportEvent("espn", "1", "Soccer", "Women's Super League", "Arsenal", "London City", t, null)
+        val b = SportEvent("livesoccertv", "x", "Soccer", null, "Arsenal Frauen", "London City Lionesses", t + 5 * 60_000L, null)
+        assertEquals(1, MatchAssembler.dedupe(listOf(a, b)).size)
+        // Echipa mare și cea feminină rămân diferite în afara competițiilor feminine.
+        val men = SportEvent("espn", "2", "Soccer", "Premier League", "Arsenal", "Chelsea", t, null)
+        val women = SportEvent("livesoccertv", "y", "Soccer", null, "Arsenal Women", "Chelsea Women", t, null)
+        assertEquals(2, MatchAssembler.dedupe(listOf(men, women)).size)
+    }
 }
