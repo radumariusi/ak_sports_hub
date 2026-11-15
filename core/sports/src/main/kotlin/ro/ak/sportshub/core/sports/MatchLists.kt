@@ -130,6 +130,8 @@ data class MatchSource<T>(
     val rejected: Boolean = false,
     /** Cum fusese găsită înainte de alegerea ta. */
     val origin: Confidence = confidence,
+    /** Ce arată EPG-ul canalului la ora meciului, când e altceva ([Confidence.ELSEWHERE]). */
+    val airing: String? = null,
 )
 
 object MatchSources {
@@ -147,12 +149,13 @@ object MatchSources {
     ): List<ChannelFamily<MatchSource<T>>> {
         val tiers = sources.groupBy {
             when {
-                it.rejected -> 2
+                it.rejected -> 3
+                it.confidence == Confidence.ELSEWHERE -> 2
                 it.confidence.guess -> 1
                 else -> 0
             }
         }
-        return (0..2).flatMap { tier ->
+        return (0..3).flatMap { tier ->
             val part = tiers[tier].orEmpty().sortedBy { it.confidence.ordinal }
             val ranked = SourceRanking.rank(
                 part.mapIndexed { i, s -> SourceCandidate(i.toString(), s.language, s.quality) },
@@ -164,12 +167,61 @@ object MatchSources {
     }
 
     fun <T> summary(all: List<MatchSource<T>>): SourceSummary {
-        val sources = all.filterNot { it.rejected }
+        // Sursele al căror EPG arată altceva nu contează ca surse (rămân doar afișate, la final).
+        val sources = all.filterNot { it.rejected || it.confidence == Confidence.ELSEWHERE }
         return if (sources.isEmpty()) SourceSummary.NONE else SourceSummary(
             count = sources.size,
             languages = sources.mapNotNull { it.language?.lowercase() }.toSet(),
             best = sources.maxByOrNull { it.quality.rank }?.quality ?: Quality.UNKNOWN,
             sure = sources.count { !it.confidence.guess },
         )
+    }
+}
+
+/** Grupurile de limbi din lista surselor unui meci (cererea lui Radu): limbile tale, apoi cele europene mari, apoi restul. */
+enum class LanguageGroup { PREFERRED, EUROPEAN, OTHER }
+
+object LanguageGroups {
+
+    /** Limbile europene mari (după engleză și română): spaniolă, italiană, germană, franceză. */
+    val EUROPEAN = setOf("es", "it", "de", "fr")
+
+    private val names = mapOf(
+        "en" to "engleză", "ro" to "română", "es" to "spaniolă", "it" to "italiană", "de" to "germană", "fr" to "franceză",
+        "pt" to "portugheză", "nl" to "olandeză", "hu" to "maghiară", "pl" to "poloneză", "tr" to "turcă", "el" to "greacă",
+        "ar" to "arabă", "ru" to "rusă", "sr" to "sârbă", "hr" to "croată", "bg" to "bulgară", "cs" to "cehă",
+    )
+
+    fun name(code: String): String = names[code.lowercase()] ?: code.uppercase()
+
+    fun of(language: String?, preferred: List<String>): LanguageGroup {
+        val l = language?.lowercase() ?: return LanguageGroup.OTHER
+        return when {
+            preferred.any { it.lowercase() == l } -> LanguageGroup.PREFERRED
+            l in EUROPEAN -> LanguageGroup.EUROPEAN
+            else -> LanguageGroup.OTHER
+        }
+    }
+
+    /** Titlul grupului: „Engleză și română”, „Limbi europene (spaniolă, italiană, germană, franceză)”, „Alte limbi”. */
+    fun label(group: LanguageGroup, preferred: List<String>): String = when (group) {
+        LanguageGroup.PREFERRED -> preferred.map { name(it) }.let { n ->
+            if (n.size <= 1) n.firstOrNull().orEmpty() else n.dropLast(1).joinToString(", ") + " și " + n.last()
+        }.replaceFirstChar { it.uppercase() }.ifEmpty { "Limbile tale" }
+        LanguageGroup.EUROPEAN -> "Limbi europene (" + (EUROPEAN.map { it } - preferred.map { it.lowercase() }.toSet()).joinToString(", ") { name(it) } + ")"
+        LanguageGroup.OTHER -> "Alte limbi (și necunoscute)"
+    }
+
+    /**
+     * Familiile de surse (deja în ordinea [MatchSources.order]) pe grupuri de limbi, în ordinea grupurilor; în fiecare
+     * grup ordinea rămâne (găsite, presupuse, „EPG-ul arată altceva”). Cele respinse de tine stau separat, la final.
+     */
+    fun <T> split(
+        families: List<ChannelFamily<MatchSource<T>>>,
+        preferred: List<String>,
+    ): Pair<List<Pair<LanguageGroup, List<ChannelFamily<MatchSource<T>>>>>, List<ChannelFamily<MatchSource<T>>>> {
+        val (rejected, kept) = families.partition { it.members.first().rejected }
+        val groups = kept.groupBy { of(it.members.first().language, preferred) }
+        return LanguageGroup.entries.mapNotNull { g -> groups[g]?.let { g to it } } to rejected
     }
 }

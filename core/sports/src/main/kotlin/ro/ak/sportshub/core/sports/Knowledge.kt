@@ -137,6 +137,7 @@ data class SportsKnowledge(
                     k.copy(learnedRights = k.learnedRights.minusFrom(comp, groupKey), rightsBlocks = k.rightsBlocks + pair)
                 }
             }
+            Confidence.ELSEWHERE -> Unit // Nu se ajunge aici: [origin] e felul în care fusese găsită.
             Confidence.EPG, Confidence.EVENT -> Unit // EPG-ul și canalele eveniment n-au ce învăța: doar alegerea pentru meci.
         }
         return k
@@ -185,6 +186,8 @@ data class FoundSource(
     val rejected: Boolean = false,
     /** Cum fusese găsită, înainte de alegerea ta (pentru ce se învață din confirmare sau respingere). */
     val origin: Confidence = confidence,
+    /** Emisiunea din EPG-ul canalului la ora meciului, când arată altceva ([Confidence.ELSEWHERE]). */
+    val airing: String? = null,
 )
 
 /**
@@ -284,6 +287,61 @@ object BusyChannels {
                 f.confidence == Confidence.STATION -> f.copy(confidence = Confidence.RIGHTS)
                 else -> null
             }
+        }
+    }
+}
+
+/**
+ * Verificarea în EPG a surselor nesigure: un post anunțat sau o presupunere pe un canal care are EPG la ora meciului,
+ * dar emisiunea de atunci nu pomenește nicio echipă și nici competiția („Știri”, „Snooker”, „NFL: Chiefs v Bills”),
+ * transmite altceva. Sursa coboară la final ([Confidence.ELSEWHERE]), cu titlul emisiunii; nu dispare.
+ * Un canal fără EPG la ora aceea, sau cu un titlu generic („Live: Football”), rămâne cum era.
+ */
+object AiringCheck {
+
+    /** O emisiune a canalului: [text] = titlul, subtitlul și începutul descrierii. */
+    data class Airing(val start: Long, val stop: Long, val title: String, val text: String)
+
+    private val CHECK_AFTER_START_MS = java.util.concurrent.TimeUnit.MINUTES.toMillis(10)
+
+    private val checked = setOf(Confidence.STATION, Confidence.LEARNED, Confidence.DEDICATED, Confidence.RIGHTS)
+
+    /** Cuvinte care nu spun ce meci e: un titlu doar din ele e generic. */
+    private val generic = setOf(
+        "live", "direct", "en", "vivo", "in", "diretta", "directo", "ao", "vivo", "football", "fotbal", "soccer", "futbol",
+        "fussball", "calcio", "voetbal", "sport", "sports", "match", "meci", "game", "tbc", "tba", "tbd", "programme",
+        "program", "event", "eveniment", "coverage", "transmisiune", "the", "of", "and", "si", "v", "vs",
+    )
+
+    /** Cuvintele din competiție care nu o deosebesc de altele. */
+    private val genericCompetition = setOf(
+        "league", "liga", "cup", "cupa", "copa", "coppa", "coupe", "pokal", "division", "serie", "premier", "first", "second",
+        "super", "superliga", "championship", "national", "nationala", "uefa", "fifa", "football", "fotbal", "women", "men",
+        "round", "group", "stage", "the", "of", "de", "and",
+    )
+
+    private val word = Regex("[a-z0-9]+")
+
+    fun words(text: String): Set<String> = word.findAll(Sport.fold(text)).map { it.value }.toSet()
+
+    fun adjust(match: Match, found: List<FoundSource>, airing: (String) -> List<Airing>?): List<FoundSource> {
+        if (found.none { !it.rejected && it.confidence in checked }) return found
+        val at = match.start + CHECK_AFTER_START_MS
+        val teamTokens = (TeamNames.parts(match.home).longTokens + if (match.away.isBlank()) emptyList() else TeamNames.parts(match.away).longTokens)
+            .filter { it !in generic }.toSet()
+        val compTokens = match.competition?.let { words(it) }.orEmpty().filter { it.length >= 4 && it !in genericCompetition }.toSet()
+        return found.map { f ->
+            if (f.rejected || f.confidence !in checked) return@map f
+            val list = airing(f.groupKey) ?: return@map f
+            val now = list.filter { at >= it.start && at < it.stop }
+            if (now.isEmpty()) return@map f
+            // Toate emisiunile de atunci (canalul poate avea mai multe EPG-uri) trebuie să arate altceva.
+            val fits = now.any { a ->
+                val w = words(a.text)
+                teamTokens.any { it in w } || compTokens.any { it in w } || (w - generic).isEmpty()
+            }
+            if (fits) return@map f
+            f.copy(confidence = Confidence.ELSEWHERE, airing = now.first().title)
         }
     }
 }

@@ -43,13 +43,23 @@ import ro.ak.sportshub.ui.theme.AkFonts
 fun LazyListScope.groupedStats(stats: List<StatLine>, keyPrefix: String, home: String, away: String, title: String? = null) {
     if (stats.isEmpty()) return
     if (title != null) item(key = "$keyPrefix-title") { SectionLabel(title) }
+    statTeams(home, away, keyPrefix)
+    statGroups(StatGroups.group(stats), keyPrefix)
+}
+
+/** Rândul cu numele echipelor deasupra statisticilor (gazdele în stânga, cu chihlimbar). */
+fun LazyListScope.statTeams(home: String, away: String, keyPrefix: String) {
     item(key = "$keyPrefix-teams") {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
             Text(text = home, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AkColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Text(text = away, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         }
     }
-    StatGroups.group(stats).forEach { g ->
+}
+
+/** Doar grupurile date (pentru două coloane: o parte din grupuri în stânga, restul în dreapta). */
+fun LazyListScope.statGroups(groups: List<StatGroups.Group>, keyPrefix: String) {
+    groups.forEach { g ->
         item(key = "$keyPrefix-g-${g.title}") {
             Text(
                 text = g.title.uppercase(),

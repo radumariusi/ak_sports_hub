@@ -107,11 +107,11 @@ object LiveSoccerTv {
         // Un meci în desfășurare arată uneori doar minutul: ora aproximativă e cea a rândului de dinainte.
         val start = startOf(row, day, zone) ?: previousStart?.takeIf { status == MatchStatus.LIVE } ?: return null
 
+        // Pagina zilei arată doar posturile țării din care e deschisă; țara e la finalul adresei postului
+        // („/channels/digi-sport-4-romania/”), ca „beIN Sports 2” să nu se lege de canalele din toate țările.
         val stations = row.select("a[href*=/channels/]")
-            .map { it.text().trim().ifEmpty { it.attr("title").trim() }.replace(liveStream, "") }
-            .filter { it.length >= 2 && !it.startsWith("+") && !it.equals("more", ignoreCase = true) }
-            .distinctBy { StationIndex.compact(it) }
-            .map { TvStation(it) }
+            .mapNotNull { a -> stationOf(a, Countries.fromSlug(a.attr("href"))) }
+            .distinctBy { StationIndex.compact(it.name) + "|" + it.country }
 
         return SportEvent(
             provider = PROVIDER,
@@ -125,7 +125,54 @@ object LiveSoccerTv {
             homeScore = homeScore.takeIf { status != null },
             awayScore = awayScore.takeIf { status != null },
             stations = stations,
+            url = link.absUrl("href").substringBefore('#').ifEmpty { null },
         )
+    }
+
+    private fun stationOf(a: Element, country: String?): TvStation? {
+        val name = a.text().trim().ifEmpty { a.attr("title").trim() }.replace(liveStream, "").trim()
+        if (name.length < 2 || name.startsWith("+") || name.equals("more", ignoreCase = true)) return null
+        return TvStation(name, country)
+    }
+
+    /** Pagina meciului pare validă (are lista posturilor, nu e o pagină de verificare)? */
+    fun looksValidMatch(html: String): Boolean = html.contains("/channels/") && !html.contains("cf-challenge") && !html.contains("challenge-platform")
+
+    /**
+     * Posturile de pe pagina unui meci, pe țări („International coverage”: Algeria → beIN SPORTS CONNECT,
+     * Australia → beIN SPORTS 2…). Citire tolerantă: fiecare legătură spre `/channels/…`; țara e textul unei celule
+     * din același rând care e un nume de țară (sau `title`/`alt` al steagului), altfel ultimul titlu de țară de
+     * dinainte, altfel finalul adresei postului. Fără țară găsită, postul rămâne fără țară.
+     */
+    fun parseMatchStations(html: String): List<TvStation> {
+        val doc = runCatching { Jsoup.parse(html, BASE) }.getOrNull() ?: return emptyList()
+        val out = ArrayList<TvStation>()
+        var lastHeading: String? = null
+        // Titlurile de țară din afara rândurilor cu posturi, în ordinea din pagină.
+        for (el in doc.body()?.select("*").orEmpty()) {
+            if (el.tagName() == "a" && el.attr("href").contains("/channels/")) {
+                val row = el.closest("tr") ?: el.closest("li") ?: el.parent()
+                val country = row?.let { countryInRow(it, el) } ?: lastHeading ?: Countries.fromSlug(el.attr("href"))
+                stationOf(el, country)?.let { out += it }
+                continue
+            }
+            if (el.childrenSize() == 0 || el.tagName() == "img") {
+                val own = (el.ownText().ifBlank { el.attr("title").ifBlank { el.attr("alt") } }).trim()
+                if (own.length in 2..40 && Countries.isCountry(Sport.fold(own)) && el.closest("a[href*=/channels/]") == null) lastHeading = own
+            }
+        }
+        return out.distinctBy { StationIndex.compact(it.name) + "|" + it.country?.let(Sport::fold) }
+    }
+
+    private fun countryInRow(row: Element, link: Element): String? {
+        for (e in row.select("td, th, span, div, img, b, strong")) {
+            if (e === link || e.closest("a[href*=/channels/]") != null) continue
+            val t = (if (e.tagName() == "img") e.attr("alt").ifBlank { e.attr("title") } else e.ownText()).trim()
+            if (t.length in 2..40 && Countries.isCountry(Sport.fold(t))) return t
+        }
+        // Prima celulă a rândului, chiar dacă nu știm țara („Bangladesh”): mai bine decât nimic.
+        val first = row.selectFirst("td")?.takeIf { it.selectFirst("a[href*=/channels/]") == null }?.text()?.trim()
+        return first?.takeIf { it.length in 3..40 && it.none(Char::isDigit) }
     }
 
     /** „latvia-vs-armenia” → [„Latvia”, „Armenia”]. */

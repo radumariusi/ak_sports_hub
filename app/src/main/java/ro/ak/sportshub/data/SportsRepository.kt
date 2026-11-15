@@ -49,6 +49,8 @@ import ro.ak.sportshub.core.sports.TeamNames
 import ro.ak.sportshub.core.sports.EpgMatchExtractor
 import ro.ak.sportshub.core.sports.ExtractedMatch
 import ro.ak.sportshub.core.sports.FoundSource
+import ro.ak.sportshub.core.sports.AiringCheck
+import ro.ak.sportshub.core.sports.Confidence
 import ro.ak.sportshub.core.sports.LiveSoccerTv
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchAssembler
@@ -285,7 +287,7 @@ class SportsRepository(
      * ([Verdict.REJECTED]); null anulează alegerea. [source] e sursa așa cum a fost găsită (null: adăugată de mână).
      */
     fun decide(match: Match, groupKey: String, verdict: Verdict?, source: MatchSource<*>?) {
-        val found = source?.let { FoundSource(groupKey, it.confidence, it.station, it.rejected, it.origin) }
+        val found = source?.let { FoundSource(groupKey, it.confidence, it.station, it.rejected, it.origin, it.airing) }
         knowledge.update { it.decide(match, groupKey, verdict, found, System.currentTimeMillis()) }
         scope.launch { recompute() }
     }
@@ -377,6 +379,12 @@ class SportsRepository(
         val (gOk, gFailed) = runJobs(guarded.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor (furnizori protejați)", force)
         changed = ok + gOk > 0
         errors += failed + gFailed
+        // Posturile pe țări de pe pagina meciului LiveSoccerTV (pagina zilei are doar posturile țării tale).
+        if (s.liveSoccerTvEnabled) {
+            val (mOk, mFailed) = fetchLiveSoccerTvMatches(s, force)
+            if (mOk > 0) changed = true
+            errors += mFailed
+        }
         // Apoi posturile TV de la Sofascore, pentru câteva meciuri (programul e deja la zi).
         if (s.sofascoreEnabled && s.sofascoreTv) {
             val (tvOk, tvFailed) = fetchSofascoreTv(s, force)
@@ -597,6 +605,85 @@ class SportsRepository(
         }
         runJobs(channelJobs, "Se descarcă numele posturilor (Sofascore)", force).let { (a, b) -> ok += a; failed += b }
         return ok to failed
+    }
+
+    /** Meciurile LiveSoccerTV din paginile zilelor salvate. */
+    private fun liveSoccerTvEvents(): List<SportEvent> {
+        val zone = ZoneId.systemDefault()
+        return dir.listFiles().orEmpty().filter { it.name.startsWith("lstv-") && it.name.endsWith(".html") }.flatMap { f ->
+            val day = DAY_IN_NAME.find(f.name)?.value?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@flatMap emptyList()
+            parsed(f) { LiveSoccerTv.parse(it, day, zone) }
+        }
+    }
+
+    private fun lstMatchFile(e: SportEvent): File {
+        val day = java.time.Instant.ofEpochMilli(e.start).atZone(ZoneId.systemDefault()).toLocalDate()
+        return File(dir, "lstvm-$day-${e.providerId.replace(UNSAFE_NAME, "_")}.html")
+    }
+
+    /**
+     * Paginile meciurilor LiveSoccerTV (lista posturilor pe țări), pentru cel mult [LSTV_MATCH_PER_ROUND] meciuri pe rundă
+     * din următoarele 30 de ore: întâi favoritele, apoi cele fără sursă sigură, apoi competițiile cu drepturi TV știute.
+     * Fiecare pagină se reîmprospătează la [LSTV_MATCH_FRESH_MS]; un furnizor în pauză nu e întrebat.
+     */
+    private suspend fun fetchLiveSoccerTvMatches(s: SportsSettings, force: Boolean): Pair<Int, Int> {
+        val now = System.currentTimeMillis()
+        val k = knowledge.current
+        val covered = _snapshot.value.matches.filter { it.summary.sure > 0 }.map { pairKey(it.match.home, it.match.away) }.toSet()
+        val candidates = liveSoccerTvEvents()
+            .filter { it.url != null && it.status != MatchStatus.FINISHED && it.start in (now - LSTV_MATCH_BACK_MS)..(now + LSTV_MATCH_AHEAD_MS) }
+            .distinctBy { it.providerId }
+        fun rank(e: SportEvent): Int = when {
+            s.favorites.teams.any { t -> TeamNames.same(t, e.home) || TeamNames.same(t, e.away) } || s.favorites.isCompetition(e.competition) -> 0
+            pairKey(e.home, e.away) !in covered -> 1
+            k.allRules.any { it.appliesTo(e.competition) } || e.competition?.let { Sport.fold(it) } in k.learnedRights -> 2
+            else -> 3
+        }
+        val jobs = candidates.sortedWith(compareBy<SportEvent>({ rank(it) }, { it.start }))
+            .filter { rank(it) < 3 }
+            .mapNotNull { e -> lstMatchFile(e).takeIf { isStale(it, LSTV_MATCH_FRESH_MS) }?.let { Job(e.url!!, it, html = LiveSoccerTv::looksValidMatch) } }
+            .take(LSTV_MATCH_PER_ROUND)
+        if (jobs.isEmpty()) return 0 to 0
+        return runJobs(jobs, "Se descarcă posturile pe țări (LiveSoccerTV)", force)
+    }
+
+    /**
+     * Pagina LiveSoccerTV a meciului [match], cerută la deschiderea ferestrei meciului dacă e mai veche de
+     * [LSTV_MATCH_OPEN_FRESH_MS] (nu cât rulează playerul, nu cât furnizorul e în pauză). Lista se recalculează dacă a venit.
+     */
+    suspend fun refreshStationsFor(match: Match) {
+        if (match.away.isBlank() || match.status == MatchStatus.FINISHED || playing.value) return
+        val s = settings.current
+        if (!s.liveSoccerTvEnabled || blockOf(LiveSoccerTv.PROVIDER).active(System.currentTimeMillis())) return
+        val e = withContext(Dispatchers.IO) {
+            liveSoccerTvEvents().firstOrNull {
+                it.url != null && kotlin.math.abs(it.start - match.start) < LSTV_MATCH_SAME_MS && TeamNames.samePair(it.home, it.away, match.home, match.away)
+            }
+        } ?: return
+        val f = lstMatchFile(e)
+        if (!isStale(f, LSTV_MATCH_OPEN_FRESH_MS)) return
+        val ok = fetchMutex.withLock {
+            withContext(Dispatchers.IO) { runJobs(listOf(Job(e.url!!, f, html = LiveSoccerTv::looksValidMatch)), "Se descarcă posturile meciului", false) }.first
+        }
+        _status.value = null
+        if (ok > 0) recompute()
+    }
+
+    /** Posturile pe țări ale unui meci LiveSoccerTV (din pagina lui salvată), doar din țările canalelor tale. */
+    private val parsedMatchPages = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<ro.ak.sportshub.core.sports.TvStation>>>()
+
+    private fun lstMatchStations(e: SportEvent, myCountries: Set<String>): List<ro.ak.sportshub.core.sports.TvStation> {
+        val f = lstMatchFile(e)
+        if (!f.exists()) return emptyList()
+        val modified = f.lastModified()
+        val all = parsedMatchPages[f.path]?.takeIf { it.first == modified }?.second ?: run {
+            val list = runCatching { LiveSoccerTv.parseMatchStations(f.readText()) }.getOrDefault(emptyList())
+            log.log(LiveSoccerTv.PROVIDER, "citit ${f.name} (${f.length()}B): ${list.size} posturi, ${list.mapNotNull { it.country }.distinct().size} țări")
+            parsedMatchPages[f.path] = modified to list
+            list
+        }
+        if (myCountries.isEmpty()) return all
+        return all.filter { st -> st.country == null || ro.ak.sportshub.core.sports.Countries.codes(st.country).any { it in myCountries } }
     }
 
     private fun pairKey(home: String, away: String) = listOf(TeamNames.key(home), TeamNames.key(away)).sorted().joinToString("|")
@@ -876,9 +963,14 @@ class SportsRepository(
         }
         if (s.liveSoccerTvEnabled) {
             val zone = ZoneId.systemDefault()
+            val mine = playlistCountries()
             files.filter { it.name.startsWith("lstv-") && it.name.endsWith(".html") }.forEach { f ->
                 val day = DAY_IN_NAME.find(f.name)?.value?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@forEach
-                events += parsed(f) { LiveSoccerTv.parse(it, day, zone) }
+                parsed(f) { LiveSoccerTv.parse(it, day, zone) }.forEach { e ->
+                    // Posturile pe țări de pe pagina meciului, dacă a fost citită.
+                    val more = lstMatchStations(e, mine)
+                    events += if (more.isEmpty()) e else e.copy(stations = (e.stations + more).distinctBy { StationIndex.compact(it.name) + "|" + it.country })
+                }
             }
         }
         if (s.sofascoreEnabled) {
@@ -1045,6 +1137,8 @@ class SportsRepository(
         /** Emisiunile care pomenesc un nume urmărit ([names]), recunoscute sau nu ca meci. */
         val followed: List<EpgBroadcast> = emptyList(),
         val names: List<String> = emptyList(),
+        /** Toate emisiunile canalelor de sport (canal EPG → emisiuni), pentru verificarea surselor nesigure. */
+        val airing: Map<Long, List<AiringCheck.Airing>> = emptyMap(),
     )
 
     /** Azi și mâine (cu 30 de ore în urmă, pentru reluări): recitit la o oră sau când se schimbă EPG-ul. */
@@ -1112,14 +1206,14 @@ class SportsRepository(
         val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS && it.names == names }
             ?: (now + NEAR_AHEAD_MS).let { end ->
                 loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, end, names)
-                    .let { (list, followed) -> BroadcastWindow(now - BROADCAST_BACK_MS, end, now, list, followed, names) }
+                    .let { r -> BroadcastWindow(now - BROADCAST_BACK_MS, end, now, r.matches, r.followed, names, r.airing) }
             }.also { nearWindow = it; lap("EPG azi-mâine (${it.list.size} emisiuni)") }
         val far = farWindow?.takeIf { now - it.loadedAt < FAR_RELOAD_MS && it.names == names }
             ?: if (_snapshot.value.loading && farWindow == null) {
                 null
             } else {
                 loadBroadcasts(scan.sportEpg, near.until, until, names)
-                    .let { (list, followed) -> BroadcastWindow(near.until, until, now, list, followed, names) }
+                    .let { r -> BroadcastWindow(near.until, until, now, r.matches, r.followed, names, r.airing) }
                     .also { farWindow = it; lap("EPG restul săptămânii (${it.list.size} emisiuni)") }
             }
         val broadcasts = if (far == null) near.list else (near.list + far.list).distinctBy { it.broadcast.programmeId }
@@ -1170,6 +1264,7 @@ class SportsRepository(
         val allKeys = HashSet<String>()
         val unmatched = HashMap<String, Int>()
         val aliases = knowledge.current.stationAliases
+        val myCountries = index.countries()
         for (m in matches) {
             val epgKeys = m.broadcasts.flatMap { b -> channelsByEpg[b.epgChannelId].orEmpty() }
                 .mapNotNull { epgChannels[it]?.groupKey }.toSet()
@@ -1180,6 +1275,9 @@ class SportsRepository(
             found.forEach { allKeys += it.groupKey }
             if (m.status != MatchStatus.FINISHED) {
                 for (st in m.stations) {
+                    // Posturile din țări fără niciun canal al tău (lista LiveSoccerTV are 100+ țări) nu „lipsesc”.
+                    val cc = ro.ak.sportshub.core.sports.Countries.codes(st.country)
+                    if (cc.isNotEmpty() && myCountries.isNotEmpty() && cc.none { it in myCountries }) continue
                     val compact = StationIndex.stationKey(st.name)
                     if (compact !in aliases && index.find(st).isEmpty()) unmatched.merge(st.name, 1, Int::plus)
                 }
@@ -1188,6 +1286,33 @@ class SportsRepository(
         lap("surse")
         val variants = allKeys.toList().chunked(IN_CHUNK).flatMap { db.channels().variants(it) }.groupBy { it.groupKey }
         lap("variante")
+
+        // Sursele nesigure (post anunțat, presupuneri) pe canale al căror EPG arată altceva la ora meciului coboară la final.
+        val airingByEpg = if (far == null) near.airing else near.airing + far.airing
+        if (airingByEpg.isNotEmpty()) {
+            val unsure = setOf(Confidence.STATION, Confidence.LEARNED, Confidence.DEDICATED, Confidence.RIGHTS)
+            val keysToCheck = foundByMatch.values.flatten().filter { !it.rejected && it.confidence in unsure }.map { it.groupKey }.toSet()
+            val channelToKey = HashMap<Long, String>()
+            keysToCheck.forEach { k -> variants[k].orEmpty().forEach { channelToKey[it.id] = k } }
+            val epgOfKey = HashMap<String, MutableSet<Long>>()
+            epg.mapForChannels(channelToKey.keys).forEach { (ch, e) -> channelToKey[ch]?.let { epgOfKey.getOrPut(it) { HashSet() } += e } }
+            val airingOfKey = HashMap<String, List<AiringCheck.Airing>?>()
+            fun airingOf(key: String): List<AiringCheck.Airing>? = airingOfKey.getOrPut(key) {
+                val ids = epgOfKey[key] ?: return@getOrPut null
+                ids.flatMap { airingByEpg[it].orEmpty() }.takeIf { ids.any { id -> id in airingByEpg } }
+            }
+            var moved = 0
+            for (m in matches) {
+                if (m.status == MatchStatus.FINISHED) continue
+                val before = foundByMatch.getValue(m.id)
+                val after = AiringCheck.adjust(m, before, ::airingOf)
+                if (after !== before) {
+                    moved += after.indices.count { after[it].confidence != before[it].confidence }
+                    foundByMatch[m.id] = after
+                }
+            }
+            lap("verificare EPG ($moved surse arată altceva)")
+        }
 
         val seen = observed.current
         val variantState = variantStore.current
@@ -1198,7 +1323,7 @@ class SportsRepository(
                 if (ChannelNameParser.isSeparator(c.name)) return@forEach
                 // Calitatea: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist.
                 val quality = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
-                sources += MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin)
+                sources += MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
             }
             val unique = sources.distinctBy { it.channel.id }
             MatchEntry(m, unique, MatchSources.summary(unique))
@@ -1332,7 +1457,7 @@ class SportsRepository(
      */
     fun diagnosticFiles(): List<Pair<String, String>> {
         val files = dir.listFiles().orEmpty().filter { !it.name.endsWith(".tmp") && it.length() > 0 }
-        val prefixes = listOf("lstv-", "sofa-", "sofatv-", "sofa-tvcountry-", "sofa-tvchannel-", "los-", "fotmob-", "espn-", "nhl-", "mlb-", "fetv-", "events-", "tv-")
+        val prefixes = listOf("lstv-", "lstvm-", "sofa-", "sofatv-", "sofa-tvcountry-", "sofa-tvchannel-", "los-", "fotmob-", "espn-", "nhl-", "mlb-", "fetv-", "events-", "tv-")
         return prefixes.mapNotNull { prefix ->
             val group = files.filter { f ->
                 f.name.startsWith(prefix) && prefixes.none { other -> other != prefix && other.startsWith(prefix) && f.name.startsWith(other) }
@@ -1368,9 +1493,18 @@ class SportsRepository(
         from: Long,
         until: Long,
         names: List<String>,
-    ): Pair<List<MatchBroadcast>, List<EpgBroadcast>> {
+    ): LoadedBroadcasts {
         val rows = (epg.programmesOn(sportEpg, from, until) + epg.sportCategoryProgrammes(from, until, MAX_CATEGORY_ROWS))
             .distinctBy { it.id }
+        // Ce arată fiecare canal de sport, oricând (și emisiunile care nu sunt meciuri): un post anunțat care arată
+        // altceva la ora meciului coboară la final (AiringCheck).
+        val airing = HashMap<Long, MutableList<AiringCheck.Airing>>()
+        for (r in rows) {
+            if (r.epgChannelId !in sportEpg) continue
+            val head = r.descriptionHead?.lineSequence()?.firstOrNull()?.take(80)
+            val text = listOfNotNull(r.title, r.subtitle, head).joinToString(" ")
+            airing.getOrPut(r.epgChannelId) { ArrayList() } += AiringCheck.Airing(r.start, r.stop, r.title, text)
+        }
         // Titlurile se repetă (zile, canale): fiecare se analizează o singură dată; cache-ul se golește doar când e foarte mare.
         val cache = extractCache
         if (cache.size > MAX_EXTRACT_CACHE) cache.clear()
@@ -1393,8 +1527,14 @@ class SportsRepository(
             }
             x?.let { MatchBroadcast(b, it) }
         }
-        return list to followed
+        return LoadedBroadcasts(list, followed, airing)
     }
+
+    private class LoadedBroadcasts(
+        val matches: List<MatchBroadcast>,
+        val followed: List<EpgBroadcast>,
+        val airing: Map<Long, List<AiringCheck.Airing>>,
+    )
 
     /** Ce contează pentru recunoașterea unui meci într-o emisiune (titlul se repetă pe multe canale și zile). */
     private data class ExtractKey(val title: String, val subtitle: String?, val category: String?, val sport: Boolean, val description: String?)
@@ -1528,7 +1668,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 4
+        const val INPUTS_VERSION = 5
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
@@ -1550,13 +1690,20 @@ class SportsRepository(
         val DAY_IN_NAME = Regex("""\d{4}-\d{2}-\d{2}""")
         /** Prefixele de țară ale canalelor din SUA și Canada. */
         val NORTH_AMERICA = setOf("us", "usa", "ca")
+        val UNSAFE_NAME = Regex("[^A-Za-z0-9]")
+        const val LSTV_MATCH_PER_ROUND = 10
+        val LSTV_MATCH_FRESH_MS = TimeUnit.HOURS.toMillis(12)
+        val LSTV_MATCH_OPEN_FRESH_MS = TimeUnit.HOURS.toMillis(3)
+        val LSTV_MATCH_BACK_MS = TimeUnit.HOURS.toMillis(2)
+        val LSTV_MATCH_AHEAD_MS = TimeUnit.HOURS.toMillis(30)
+        val LSTV_MATCH_SAME_MS = TimeUnit.HOURS.toMillis(3)
     }
 }
 
 /** Sursa care pornește direct (prima găsită, în ordinea preferințelor tale), fără cele respinse. */
 fun MatchEntry.bestSource(settings: SportsSettings): ChannelWithPlaylist? =
     MatchSources.order(sources, isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
-        .firstOrNull { !it.members.first().rejected }
+        .firstOrNull { it.members.first().let { h -> !h.rejected && h.confidence != ro.ak.sportshub.core.sports.Confidence.ELSEWHERE } }
         ?.members?.firstOrNull()?.channel
 
 /** Prima sursă (în aceeași ordine) al cărei canal are arhivă (catch-up), pentru „de la început”. */

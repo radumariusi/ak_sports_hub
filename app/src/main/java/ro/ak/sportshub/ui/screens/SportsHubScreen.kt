@@ -759,6 +759,7 @@ private fun ro.ak.sportshub.core.sports.Confidence.short(): String = when (this)
     ro.ak.sportshub.core.sports.Confidence.LEARNED -> "învățat"
     ro.ak.sportshub.core.sports.Confidence.DEDICATED -> "dedicat"
     ro.ak.sportshub.core.sports.Confidence.RIGHTS -> "drepturi TV"
+    ro.ak.sportshub.core.sports.Confidence.ELSEWHERE -> "EPG: altceva"
 }
 
 
