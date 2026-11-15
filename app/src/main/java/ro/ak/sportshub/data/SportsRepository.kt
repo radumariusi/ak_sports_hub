@@ -41,6 +41,7 @@ import ro.ak.sportshub.core.sports.SourceDiagnosis
 import ro.ak.sportshub.core.sports.SourceDiagnostics
 import ro.ak.sportshub.core.sports.TeamNames
 import ro.ak.sportshub.core.sports.EpgMatchExtractor
+import ro.ak.sportshub.core.sports.ExtractedMatch
 import ro.ak.sportshub.core.sports.FoundSource
 import ro.ak.sportshub.core.sports.LiveSoccerTv
 import ro.ak.sportshub.core.sports.Match
@@ -820,13 +821,32 @@ class SportsRepository(
     private suspend fun loadBroadcasts(sportEpg: Set<Long>, from: Long, until: Long): List<MatchBroadcast> {
         val rows = (epg.programmesOn(sportEpg, from, until) + epg.sportCategoryProgrammes(from, until, MAX_CATEGORY_ROWS))
             .distinctBy { it.id }
-        return rows.mapNotNull { r ->
+        // Lista se recalculează la fiecare minut, dar emisiunile se schimbă rar: titlurile deja citite nu se mai analizează.
+        val previous = extractCache
+        val next = HashMap<ExtractKey, ExtractedMatch?>(rows.size * 2)
+        val out = rows.mapNotNull { r ->
             val b = EpgBroadcast(r.id, r.epgChannelId, r.start, r.stop, r.title, r.subtitle, null, r.category)
             val sport = r.epgChannelId in sportEpg
-            (EpgMatchExtractor.extract(b, channelIsSport = sport) ?: EpgMatchExtractor.extractEvent(b, channelIsSport = sport))
-                ?.let { MatchBroadcast(b, it) }
+            val key = ExtractKey(r.title, r.subtitle, r.category, sport)
+            val x = if (key in next) {
+                next[key]
+            } else if (previous.containsKey(key)) {
+                previous[key].also { next[key] = it }
+            } else {
+                (EpgMatchExtractor.extract(b, channelIsSport = sport) ?: EpgMatchExtractor.extractEvent(b, channelIsSport = sport))
+                    .also { next[key] = it }
+            }
+            x?.let { MatchBroadcast(b, it) }
         }
+        extractCache = next
+        return out
     }
+
+    /** Ce contează pentru recunoașterea unui meci într-o emisiune (titlul se repetă pe multe canale și zile). */
+    private data class ExtractKey(val title: String, val subtitle: String?, val category: String?, val sport: Boolean)
+
+    @Volatile
+    private var extractCache: Map<ExtractKey, ExtractedMatch?> = emptyMap()
 
     /**
      * O trecere prin numele canalelor active, pe pagini: canalele de sport (și canalele lor EPG, plus cele fără EPG),

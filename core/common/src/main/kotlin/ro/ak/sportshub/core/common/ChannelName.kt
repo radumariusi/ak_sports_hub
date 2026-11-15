@@ -39,9 +39,15 @@ object ChannelNameParser {
             """\d{2,3} ?fps|raw|vip|backup|multi ?audio|hq|lq)\b""",
     )
 
+    private val bracketNumber = Regex("""\(\d+\)|\[\d+]""")
+    private val nonAlnum = Regex("""[^a-z0-9]+""")
+    private val spaces = Regex("""\s+""")
+    private val marks = Regex("""\p{M}+""")
+
     fun parse(rawName: String, groupTitle: String? = null): ChannelName {
         var name = rawName.trim()
-        superscripts.forEach { (k, v) -> name = name.replace(k, v) }
+        // Literele mici de sus (ᴴᴰ, ⁴ᴷ…) sunt toate după U+02B0: numele obișnuite sar peste înlocuiri.
+        if (name.any { it.code >= 0x2B0 }) superscripts.forEach { (k, v) -> name = name.replace(k, v) }
 
         var country: String? = null
         countryPrefix.find(name)?.let {
@@ -57,19 +63,20 @@ object ChannelNameParser {
             ?: Quality.UNKNOWN
 
         val core = lower
-            .replace(Regex("""\(\d+\)|\[\d+]"""), " ")
+            .replace(bracketNumber, " ")
             .replace(noise, " ")
-            .replace(Regex("""[^a-z0-9]+"""), " ")
+            .replace(nonAlnum, " ")
             .trim()
-            .replace(Regex("""\s+"""), " ")
+            .replace(spaces, " ")
 
         val key = listOfNotNull(country?.lowercase(), core.ifEmpty { lower.trim() }).joinToString(":")
         return ChannelName(displayName = rawName.trim(), groupKey = key, quality = quality, country = country)
     }
 
     /** Fără diacritice, litere mici. */
-    fun fold(text: String): String =
-        Normalizer.normalize(text, Normalizer.Form.NFD)
-            .replace(Regex("""\p{M}+"""), "")
-            .lowercase()
+    fun fold(text: String): String {
+        // Textul ASCII (cel mai des) nu are diacritice: doar litere mici, fără normalizare Unicode.
+        if (text.all { it.code < 0x80 }) return text.lowercase()
+        return marks.replace(Normalizer.normalize(text, Normalizer.Form.NFD), "").lowercase()
+    }
 }

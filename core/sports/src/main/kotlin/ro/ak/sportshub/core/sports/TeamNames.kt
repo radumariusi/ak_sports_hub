@@ -56,7 +56,15 @@ object TeamNames {
             val f = base(full)
             if (a.isEmpty() || f.isEmpty() || a == f) null else a to (aliases[f] ?: f)
         }.toMap()
+        partsCache.clear()
     }
+
+    /**
+     * Cuvintele deja normalizate ale fiecărui nume: la asamblarea meciurilor același nume se compară
+     * de mii de ori, iar normalizarea (diacritice, alias-uri) costă mult mai mult decât compararea.
+     */
+    private val partsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Set<String>, Set<String>>>()
+    private const val PARTS_CACHE_MAX = 50_000
 
     /** Cheia unei echipe (doar pentru comparare; în UI apare numele original). */
     fun key(name: String): String {
@@ -74,6 +82,12 @@ object TeamNames {
     }
 
     private fun parts(name: String): Pair<Set<String>, Set<String>> {
+        partsCache[name]?.let { return it }
+        if (partsCache.size > PARTS_CACHE_MAX) partsCache.clear()
+        return computeParts(name).also { partsCache[name] = it }
+    }
+
+    private fun computeParts(name: String): Pair<Set<String>, Set<String>> {
         val tokens = key(name).split(' ').filter { it.isNotEmpty() }
         val marks = tokens.mapNotNull { markers[it] }.toSet()
         val core = tokens.filter { it !in markers }.toSet()

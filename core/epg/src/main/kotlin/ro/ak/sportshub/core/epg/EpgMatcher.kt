@@ -58,6 +58,28 @@ data class ChannelForEpg(
 )
 
 /**
+ * Cheile de potrivire ale unui canal din playlist, calculate o singură dată pe rulare
+ * (analiza numelui e partea scumpă a potrivirii; cu 30.000 de canale se făcea de câteva ori la rând).
+ */
+class ChannelKeys(
+    val id: Long,
+    val playlistId: Long,
+    /** `tvg-id` cu litere mici, sau null. */
+    val tvgId: String?,
+    /** Cheile din `tvg-name`, apoi din nume (în ordinea încercării). */
+    val names: List<EpgNames.Key>,
+) {
+    companion object {
+        fun of(c: ChannelForEpg, playlistId: Long = 0): ChannelKeys = ChannelKeys(
+            id = c.id,
+            playlistId = playlistId,
+            tvgId = c.tvgId?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
+            names = listOfNotNull(c.tvgName, c.name).mapNotNull { EpgNames.ofName(it, c.group) },
+        )
+    }
+}
+
+/**
  * Potrivirea canal ↔ EPG, pe trepte (prima treaptă cu un rezultat câștigă):
  * 1. `tvg-id` identic cu id-ul XMLTV (fără să conteze literele mari);
  * 2. `tvg-name`, apoi numele canalului, comparate cu numele din EPG după normalizare
@@ -83,12 +105,15 @@ class EpgMatcher(channels: List<EpgChannelRef>, private val defaultPriority: (so
     }
 
     /** @param priority prioritatea surselor pentru playlistul canalului (vezi `EpgSources.priorityFor`) */
-    fun match(channel: ChannelForEpg, priority: (sourceKey: String) -> Int = defaultPriority): EpgChannelRef? {
-        channel.tvgId?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.let { id ->
+    fun match(channel: ChannelForEpg, priority: (sourceKey: String) -> Int = defaultPriority): EpgChannelRef? =
+        match(ChannelKeys.of(channel), priority)
+
+    /** La fel, cu cheile calculate dinainte. */
+    fun match(channel: ChannelKeys, priority: (sourceKey: String) -> Int = defaultPriority): EpgChannelRef? {
+        channel.tvgId?.let { id ->
             byId[id]?.let { return best(it, priority) }
         }
-        for (name in listOfNotNull(channel.tvgName, channel.name)) {
-            val key = EpgNames.ofName(name, channel.group) ?: continue
+        for (key in channel.names) {
             val candidates = byName[key.name] ?: continue
             if (key.country != null) {
                 candidates.filter { it.second == key.country }.takeIf { it.isNotEmpty() }
@@ -130,10 +155,11 @@ class WantedKeys(private val ids: Set<String>, private val names: Set<String>) {
         private val ids = HashSet<String>()
         private val names = HashSet<String>()
 
-        fun add(c: ChannelForEpg) {
-            c.tvgId?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.let(ids::add)
-            EpgNames.ofName(c.tvgName, c.group)?.let { names += it.name }
-            EpgNames.ofName(c.name, c.group)?.let { names += it.name }
+        fun add(c: ChannelForEpg) = add(ChannelKeys.of(c))
+
+        fun add(k: ChannelKeys) {
+            k.tvgId?.let(ids::add)
+            k.names.forEach { names += it.name }
         }
 
         fun build() = WantedKeys(ids, names)

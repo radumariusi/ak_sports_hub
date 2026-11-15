@@ -1,7 +1,11 @@
 package ro.ak.sportshub.core.playlist
 
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
+import java.util.zip.Deflater
+import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -36,6 +40,11 @@ class PlaylistDownloader(private val client: OkHttpClient) {
         what: String = "playlistul",
         /** Progresul: octeți primiți și mărimea totală (−1 dacă nu se știe). */
         onBytes: (read: Long, total: Long) -> Unit = { _, _ -> },
+        /**
+         * Fișierul se salvează comprimat (gzip, nivel rapid) dacă serverul nu l-a trimis deja ca .gz:
+         * un XMLTV ocupă de ~10 ori mai puțin, iar cititorul îl recunoaște după primii octeți.
+         */
+        compress: Boolean = false,
     ): Result = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).apply {
             userAgent?.let { header("User-Agent", it) }
@@ -50,8 +59,17 @@ class PlaylistDownloader(private val client: OkHttpClient) {
                 val body = response.body ?: throw PlaylistException("Serverul a trimis un răspuns gol.")
                 val total = body.contentLength()
                 var read = 0L
-                target.outputStream().buffered().use { out ->
-                    body.byteStream().use { input ->
+                body.byteStream().use { raw ->
+                    val input = BufferedInputStream(raw, 64 * 1024)
+                    val gzipped = compress && input.let {
+                        it.mark(2)
+                        val gz = it.read() == 0x1f && it.read() == 0x8b
+                        it.reset()
+                        gz
+                    }
+                    val file = target.outputStream().buffered(64 * 1024)
+                    val sink: OutputStream = if (compress && !gzipped) FastGzipOutputStream(file) else file
+                    sink.use { out ->
                         val buffer = ByteArray(64 * 1024)
                         while (true) {
                             ensureActive()
@@ -99,4 +117,11 @@ class PlaylistDownloader(private val client: OkHttpClient) {
             else -> "Serverul a răspuns cu eroarea $code."
         },
     )
+}
+
+/** Gzip cu compresia cea mai rapidă: comprimarea merge în paralel cu rețeaua și nu încetinește descărcarea. */
+private class FastGzipOutputStream(out: OutputStream) : GZIPOutputStream(out, 64 * 1024) {
+    init {
+        def.setLevel(Deflater.BEST_SPEED)
+    }
 }

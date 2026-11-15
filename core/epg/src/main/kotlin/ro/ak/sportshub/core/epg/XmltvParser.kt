@@ -139,9 +139,14 @@ class XmltvParser(
 
         private fun startProgramme(attributes: Attributes) {
             if (++seen % 1000 == 0) checkCancelled()
+            // Întâi canalul (o căutare într-un set), abia apoi ora: majoritatea emisiunilor sunt ale canalelor nefolosite.
             val channel = attributes.getValue("channel")?.trim()
+            if (channel.isNullOrEmpty() || !sink.wantsProgrammes(channel)) {
+                skipped++
+                return
+            }
             val start = XmltvTime.parse(attributes.getValue("start"))
-            if (channel.isNullOrEmpty() || start == null || !sink.wantsProgrammes(channel)) {
+            if (start == null) {
                 skipped++
                 return
             }
@@ -174,7 +179,7 @@ class XmltvParser(
         override fun endElement(uri: String?, localName: String?, qName: String) {
             if (collecting) {
                 collecting = false
-                val value = text.toString().trim().replace(whitespace, " ")
+                val value = collapse(text)
                 if (value.isNotEmpty()) {
                     when (qName) {
                         "display-name" -> displayNames += value
@@ -233,7 +238,37 @@ class XmltvParser(
     }
 
     companion object {
-        private val whitespace = Regex("""\s+""")
+        /** Textul fără spații la capete și cu spațiile din interior strânse într-unul (fără expresii regulate). */
+        internal fun collapse(text: CharSequence): String {
+            var start = 0
+            var end = text.length
+            while (start < end && text[start].isWhitespace()) start++
+            while (end > start && text[end - 1].isWhitespace()) end--
+            var clean = true
+            var i = start
+            while (i < end) {
+                val c = text[i]
+                if (c.isWhitespace() && (c != ' ' || text[i + 1].isWhitespace())) {
+                    clean = false
+                    break
+                }
+                i++
+            }
+            if (clean) return text.substring(start, end)
+            val out = StringBuilder(end - start)
+            var space = false
+            for (j in start until end) {
+                val c = text[j]
+                if (c.isWhitespace()) {
+                    space = true
+                } else {
+                    if (space) out.append(' ')
+                    space = false
+                    out.append(c)
+                }
+            }
+            return out.toString()
+        }
 
         private fun overlaps(start: Long, stop: Long?, window: LongRange): Boolean =
             start <= window.last && (stop ?: start) >= window.first
