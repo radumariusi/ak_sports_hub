@@ -26,8 +26,8 @@ data class VariantState(
      * altfel în TextureView (compatibilă: pe unele televizoare SurfaceView rămânea negru).
      */
     val smoothVideo: Boolean = false,
-    /** Mărimea textului din toată aplicația (0,85 / 0,92 / 1). */
-    val textScale: Float = 0.92f,
+    /** Mărimea textului din toată aplicația (0,78 / 0,85 / 0,92 / 1). */
+    val textScale: Float = 0.85f,
     /** Live TV ca ghid în grilă (canale × ore), în loc de listă. */
     val guideGrid: Boolean = false,
     /** Varianta preferată, pe cheia de grupare (aceeași în toate playlisturile). */
@@ -73,7 +73,7 @@ class VariantStore(context: Context) {
                 autoFailover = o.optBoolean("autoFailover", true),
                 matchFrameRate = o.optBoolean("matchFrameRate", false),
                 smoothVideo = o.optBoolean("smoothVideo", false),
-                textScale = o.optDouble("textScale", 0.92).toFloat(),
+                textScale = o.optDouble("textScale2", 0.85).toFloat(),
                 guideGrid = o.optBoolean("guideGrid", false),
                 preferred = o.optJSONArray("preferred").objects().associate { it.getString("key") to it.ref() },
                 corrections = o.optJSONArray("corrections").objects().associate { e ->
@@ -102,7 +102,7 @@ class VariantStore(context: Context) {
         put("autoFailover", s.autoFailover)
         put("matchFrameRate", s.matchFrameRate)
         put("smoothVideo", s.smoothVideo)
-        put("textScale", s.textScale.toDouble())
+        put("textScale2", s.textScale.toDouble())
         put("guideGrid", s.guideGrid)
         put("preferred", JSONArray().apply { s.preferred.forEach { (k, r) -> put(r.json().put("key", k)) } })
         put(

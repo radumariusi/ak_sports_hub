@@ -59,7 +59,10 @@ fun TeamLook?.bandColor(): Color? = TeamLooks.band(this)?.let { Color(it.toInt()
 private fun rememberLogo(url: String?, size: Dp): ImageBitmap? {
     val logos = appContainer().logos
     val px = with(LocalDensity.current) { size.roundToPx() }.coerceAtLeast(16)
+    // La schimbarea adresei (panoul din dreapta trece la alt meci) starea veche nu trebuie să rămână: fără asta,
+    // Saints aveau sigla Falcons de la meciul focusat înainte.
     val bmp by produceState(initialValue = logos.cached(url), url) {
+        value = logos.cached(url)
         if (url != null && value == null) value = logos.load(url, px)
     }
     return bmp
