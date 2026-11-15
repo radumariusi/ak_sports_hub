@@ -108,10 +108,18 @@ object MatchAssembler {
             if (best < 0 && xh != null && xa != null) {
                 var found = -1
                 var many = false
-                for (p in arrayOf(xh, xa)) {
+                for ((p, other) in arrayOf(xh to x.away, xa to x.home)) {
                     for (i in byToken.oneCandidates(p, { starts[it] }, b.start - ONE_TEAM_MS, b.start + ONE_TEAM_MS)) {
                         val ap = awayParts[i] ?: continue
-                        if (i == found || !(TeamNames.same(homeParts[i], p) || TeamNames.same(ap, p))) continue
+                        if (i == found) continue
+                        // Celălalt nume din emisiune trebuie să poată fi adversarul („Arm.” → Armenia, „Армения”),
+                        // nu altă echipă („Oakland vs. Miami (OH)” nu e Colts – Dolphins doar pentru că are „Miami”).
+                        val ok = when {
+                            TeamNames.same(homeParts[i], p) -> couldBe(other, merged[i].away)
+                            TeamNames.same(ap, p) -> couldBe(other, merged[i].home)
+                            else -> false
+                        }
+                        if (!ok) continue
                         if (found >= 0) many = true else found = i
                     }
                 }
@@ -147,6 +155,19 @@ object MatchAssembler {
         return matches.map { m ->
             val n = seen.merge(m.id, 1, Int::plus)!!
             if (n == 1) m else m.copy(id = "${m.id}#$n")
+        }
+    }
+
+    /**
+     * [written] (din EPG) poate fi echipa [team] scrisă altfel: prescurtată („Arm.”), în altă limbă sau alfabet cu
+     * aceleași prime litere („armeniya”, „armynya”). Un nume cu totul altul („Oakland” față de „Indianapolis Colts”) nu.
+     */
+    internal fun couldBe(written: String, team: String): Boolean {
+        val w = Sport.fold(written).split(' ').filter { it.length >= 2 }
+        val t = Sport.fold(team).split(' ').filter { it.length >= 2 }
+        if (w.isEmpty() || t.isEmpty()) return false
+        return w.any { a ->
+            t.any { b -> b.startsWith(a) || a.startsWith(b) || (a.length >= 3 && b.length >= 3 && a.take(3) == b.take(3)) }
         }
     }
 

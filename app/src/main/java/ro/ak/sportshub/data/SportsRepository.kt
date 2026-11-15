@@ -1826,7 +1826,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 8
+        const val INPUTS_VERSION = 9
         private const val LIVE_SCORES_MS = 60_000L
         private const val LIVE_CHECK_MS = 4 * 60 * 60_000L
         private const val LIVE_SCORES_MAX_LEAGUES = 8
