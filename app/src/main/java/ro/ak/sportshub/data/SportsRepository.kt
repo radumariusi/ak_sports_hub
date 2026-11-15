@@ -439,13 +439,29 @@ class SportsRepository(
             // în afară de prima listă, care apare cât mai repede.
             val gapOk = System.currentTimeMillis() - lastRecompute >= MID_ROUND_GAP_MS || _snapshot.value.matches.isEmpty()
             if (sinceRecompute > 0 && (next != provider || sinceRecompute >= every) && gapOk) {
-                recompute()
+                // Calculul merge alături, nu în bucla cererilor: înainte, fiecare calcul (secunde pe TV, sau cât
+                // rula playerul) oprea descărcarea, iar runda de ESPN dura minute.
+                recomputeAside()
                 sinceRecompute = 0
                 lastRecompute = System.currentTimeMillis()
             }
             if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
         return ok to failed
+    }
+
+    private val asideRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Un calcul al listei în paralel cu cererile; dacă unul rulează deja, nu se pornește altul. */
+    private fun recomputeAside() {
+        if (!asideRunning.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                recompute()
+            } finally {
+                asideRunning.set(false)
+            }
+        }
     }
 
     /** Cât rămâne bun fișierul unui furnizor ([ProviderPolicy.freshMs]). */
@@ -1655,7 +1671,7 @@ class SportsRepository(
         /** TheSportsDB gratuit: cel mult ~30 de cereri pe minut; aici ~15. */
         const val SPORTSDB_GAP_MS = 4_000L
         /** ESPN: API deschis pe CDN, răspunsuri mici; o cerere pe secundă. */
-        const val ESPN_GAP_MS = 1_000L
+        const val ESPN_GAP_MS = 300L
         /** Calendarul unei ligi ESPN se reîmprospătează cam o dată pe săptămână. */
         val CAL_REFRESH_MS = TimeUnit.DAYS.toMillis(7)
         /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
