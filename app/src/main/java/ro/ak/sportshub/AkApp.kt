@@ -24,6 +24,7 @@ import ro.ak.sportshub.home.HomeChannel
 import ro.ak.sportshub.notify.MatchReminderScheduler
 import ro.ak.sportshub.data.EpgSettingsStore
 import ro.ak.sportshub.data.MatchDetailsRepository
+import ro.ak.sportshub.data.ObservedVideoStore
 import ro.ak.sportshub.data.PlayerHistory
 import ro.ak.sportshub.data.PlaylistRepository
 import ro.ak.sportshub.data.PlaylistUpdateWorker
@@ -61,7 +62,15 @@ class AppContainer(app: Application) {
     /** Dicționarul de posturi, regulile de drepturi TV și ce s-a învățat din confirmări. */
     val sportsKnowledge = SportsKnowledgeStore(app)
 
-    val variants = VariantRepository(database.channels(), variantStore) { sportsSettings.current.sourcePreferences }
+    /** Rezoluția și cadrele văzute la redare, pe variantă. */
+    val observedVideo = ObservedVideoStore(app)
+
+    val variants = VariantRepository(
+        database.channels(),
+        variantStore,
+        preferences = { sportsSettings.current.sourcePreferences },
+        observed = { observedVideo.current },
+    )
 
     /** Fusul orar al serverelor Xtream (pentru catch-up). */
     val catchup = CatchupStore(app)
@@ -103,6 +112,7 @@ class AppContainer(app: Application) {
         epg = epg,
         playlists = playlists,
         variantStore = variantStore,
+        observed = observedVideo,
         settings = sportsSettings,
         knowledge = sportsKnowledge,
         http = http,

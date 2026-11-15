@@ -103,6 +103,7 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.media3.ffmpeg)
+    implementation(libs.zxing.core)
 
     // Capturile de ecran din CI (workflow-ul „Capturi”): doar în teste, nu în APK.
     testImplementation(libs.junit)

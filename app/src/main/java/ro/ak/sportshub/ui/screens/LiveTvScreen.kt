@@ -43,6 +43,7 @@ import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.epg.nowNextLine
@@ -354,7 +355,7 @@ private fun ChannelList(
                         Text(text = "${row.variants.size} var.", fontSize = 13.sp, color = AkColors.TextDim)
                     }
                     c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                    QualityBadge(c.quality)
+                    VariantQualityBadge(c.playlistId, c.name, c.quality)
                 },
             )
         }

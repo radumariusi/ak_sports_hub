@@ -88,6 +88,7 @@ import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.ProgressLine
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.epg.ScheduleList
 import ro.ak.sportshub.ui.epg.formatRange
@@ -142,6 +143,9 @@ fun PlayerScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.onForeground() }
 
     val state by controller.state.collectAsStateWithLifecycle()
+    // Frecvența ecranului după cadrele stream-ului (setare, oprită implicit).
+    val variantSettings by container.variantStore.state.collectAsStateWithLifecycle()
+    FrameRateMatch(state.frameRate, variantSettings.matchFrameRate)
     var panel by remember { mutableStateOf(Panel.None) }
     var infoVisible by remember { mutableStateOf(true) }
     var infoToken by remember { mutableIntStateOf(0) }
@@ -695,7 +699,7 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                     // O reluare nu apare niciodată drept live.
                     if (state.archiveFrom != null) Badge(text = "RELUARE", color = AkColors.Focus)
                     channel.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                    QualityBadge(channel.quality)
+                    VariantQualityBadge(channel.playlistId, channel.name, channel.quality)
                 }
                 Text(
                     text = listOfNotNull(
@@ -740,7 +744,7 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = clock, fontSize = 26.sp)
                 val details = listOfNotNull(
-                    state.videoSize,
+                    listOfNotNull(state.videoSize, state.frameRate?.let { "${"%.2f".format(Locale.US, it).trimEnd('0').trimEnd('.')} fps" }).joinToString(" ").ifEmpty { null },
                     if (state.audioTracks > 1) "${state.audioTracks} piste audio" else null,
                     if (state.textTracks > 0) "subtitrări" else null,
                 ).joinToString(" · ")
@@ -787,7 +791,7 @@ private fun ChannelsPanel(
                         modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
                         trailing = {
                             c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                            QualityBadge(c.quality)
+                            VariantQualityBadge(c.playlistId, c.name, c.quality)
                         },
                     )
                 }
@@ -947,7 +951,7 @@ private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick
                         modifier = if (index == current) Modifier.focusRequester(focus) else Modifier,
                         trailing = {
                             c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                            QualityBadge(c.quality)
+                            VariantQualityBadge(c.playlistId, c.name, c.quality)
                         },
                     )
                 }

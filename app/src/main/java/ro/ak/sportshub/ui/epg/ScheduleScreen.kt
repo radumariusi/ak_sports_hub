@@ -21,6 +21,7 @@ import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.theme.AkColors
 
 private sealed interface ScheduleState {
@@ -41,7 +42,7 @@ fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit, onPlayArchive: (chan
         val channel = ready?.channel
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = channel?.name ?: "Program", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-            channel?.let { QualityBadge(it.quality) }
+            channel?.let { VariantQualityBadge(it.playlistId, it.name, it.quality) }
             Spacer(Modifier.width(20.dp))
             if (channel != null) ActionButton(text = "Pornește canalul", onClick = { onPlay(channel.id) })
         }

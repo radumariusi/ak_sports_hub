@@ -30,6 +30,7 @@ fun SettingsScreen(
     onOpenEpg: () -> Unit,
     onOpenSportsSettings: () -> Unit,
     onOpenBackup: () -> Unit = {},
+    onOpenQrSetup: () -> Unit = {},
 ) {
     val sports by appContainer().sportsSettings.settings.collectAsStateWithLifecycle()
     val playlists by appContainer().playlists.let { r -> remember { r.observePlaylists() } }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -69,6 +70,13 @@ fun SettingsScreen(
         }
         item {
             ListRow(
+                title = "Adaugă un playlist din telefon (cod QR)",
+                subtitle = "Scanezi codul cu telefonul și scrii adresa și parola Xtream (sau linkul M3U) acolo, nu cu telecomanda",
+                onClick = onOpenQrSetup,
+            )
+        }
+        item {
+            ListRow(
                 title = "EPG (programul TV)",
                 subtitle = "Din playlisturi și externe, actualizare automată, decalaj orar",
                 onClick = onOpenEpg,
@@ -91,6 +99,24 @@ fun SettingsScreen(
                 subtitle = "Dacă o variantă nu pornește, încearcă următoarea, una câte una",
                 onClick = { variantStore.update { it.copy(autoFailover = !it.autoFailover) } },
                 trailing = { Text(text = if (variants.autoFailover) "Da" else "Nu", fontSize = 14.sp) },
+            )
+        }
+        item {
+            ListRow(
+                title = "Potrivește frecvența ecranului (50/60 Hz)",
+                subtitle = "Televizorul trece la frecvența cadrelor stream-ului (25/50p → 50 Hz), pentru mișcare fluidă la sport",
+                onClick = { variantStore.update { it.copy(matchFrameRate = !it.matchFrameRate) } },
+                trailing = { Text(text = if (variants.matchFrameRate) "Da" else "Nu", fontSize = 14.sp) },
+            )
+        }
+        item {
+            val observed = appContainer().observedVideo
+            val seen by observed.state.collectAsStateWithLifecycle()
+            ListRow(
+                title = "Rezoluția văzută la redare",
+                subtitle = "Din ce redă playerul oricum, fără verificări: „✓” dacă bate cu playlistul, altfel eticheta reală. OK uită tot",
+                onClick = { observed.clear() },
+                trailing = { Text(text = "${seen.size} variante", fontSize = 14.sp) },
             )
         }
         item {

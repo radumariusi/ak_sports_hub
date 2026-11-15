@@ -28,6 +28,7 @@ import ro.ak.sportshub.core.sports.MatchFilter
 import ro.ak.sportshub.core.sports.MatchLists
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.MatchTab
+import ro.ak.sportshub.core.sports.NowOnChannels
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.TeamCalendar
@@ -41,6 +42,7 @@ import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
@@ -52,7 +54,12 @@ private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm", RoLocale)
 private val DayFormat = DateTimeFormatter.ofPattern("EEE d MMM", RoLocale)
 
 @Composable
-fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit, onPlay: (Long) -> Unit = {}) {
+fun SportsHubScreen(
+    onOpenMatch: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onPlay: (Long) -> Unit = {},
+    onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
+) {
     val container = appContainer()
     val sports = container.sports
     val store = container.sportsSettings
@@ -66,8 +73,10 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit, o
     val filter = settings.filter
     val zone = remember { ZoneId.systemDefault() }
     val now = snapshot.computedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
-    // Ultimul tab („Evenimente”) arată canalele EVENT / PPV din playlisturi, nu meciuri.
+    // Tabul „Evenimente” arată canalele EVENT / PPV din playlisturi, nu meciuri; apoi „Acum pe canale” și „Rezumate”.
     val eventsTab = tab == MatchTab.entries.size
+    val nowTab = tab == MatchTab.entries.size + 1
+    val highlightsTab = tab == MatchTab.entries.size + 2
     val currentTab = MatchTab.entries[tab.coerceAtMost(MatchTab.entries.lastIndex)]
 
     val visible: List<MatchEntry> = remember(snapshot, settings, tab) {
@@ -97,10 +106,23 @@ fun SportsHubScreen(onOpenMatch: (String) -> Unit, onOpenSettings: () -> Unit, o
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel, selectedIndex = tab, onSelect = { tab = it })
+        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel, selectedIndex = tab, onSelect = { tab = it })
 
         if (eventsTab) {
             EventChannelsList(snapshot = snapshot, enabled = settings.eventChannels, zone = zone, onOpenMatch = onOpenMatch, onPlay = onPlay)
+            return@Column
+        }
+        if (nowTab) {
+            NowOnChannelsList(
+                snapshot = snapshot,
+                hideScore = { m -> Spoilers.hide(settings.noSpoilers, m.id in revealed, m.status) },
+                onOpenMatch = onOpenMatch,
+                onPlay = onPlay,
+            )
+            return@Column
+        }
+        if (highlightsTab) {
+            HighlightsList(zone = zone, onPlayArchive = onPlayArchive)
             return@Column
         }
 
@@ -334,7 +356,109 @@ private fun EventChannelsList(
                 ).joinToString(" · "),
                 onClick = { if (e.matchId != null) onOpenMatch(e.matchId) else onPlay(e.channel.id) },
                 onLongClick = { onPlay(e.channel.id) },
-                trailing = { QualityBadge(e.channel.quality) },
+                trailing = { VariantQualityBadge(e.channel.playlistId, e.channel.name, e.channel.quality) },
+            )
+        }
+    }
+}
+
+private const val NowTabLabel = "Acum pe canale"
+private const val HighlightsTabLabel = "Rezumate"
+
+/**
+ * Tabul „Acum pe canalele tale”: fiecare canal de sport cu meciul care rulează acum pe el (din lista de meciuri,
+ * fără cereri în plus). OK pornește canalul (varianta preferată sau cea mai bună), OK ținut deschide meciul.
+ */
+@Composable
+private fun NowOnChannelsList(
+    snapshot: ro.ak.sportshub.data.SportsSnapshot,
+    hideScore: (ro.ak.sportshub.core.sports.Match) -> Boolean,
+    onOpenMatch: (String) -> Unit,
+    onPlay: (Long) -> Unit,
+) {
+    val container = appContainer()
+    val seen by container.observedVideo.state.collectAsStateWithLifecycle()
+    val now = snapshot.computedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
+    val rows = remember(snapshot) { NowOnChannels.build(snapshot.matches.map { it.match to it.sources }, now) }
+    Text(
+        text = if (rows.isEmpty()) "Niciun canal cu meci acum." else "${rows.size} canale cu meci acum · OK pornește canalul · OK ținut: meciul",
+        fontSize = 13.sp,
+        color = AkColors.TextDim,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+    if (rows.isEmpty()) {
+        EmptyState(
+            title = if (snapshot.loading) "Se caută meciurile…" else "Nimic acum pe canalele tale",
+            hint = "Aici apar canalele de sport pe care rulează un meci (din EPG, posturi anunțate, canale EVENT sau drepturi TV).",
+        )
+        return
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        items(rows, key = { "now:" + it.groupKey }) { row ->
+            val m = row.match
+            // Varianta care pornește: cea preferată sau cea mai bună (cu rezoluția văzută la redare).
+            val best = remember(row, seen) { container.variants.order(row.sources.map { it.channel }).first() }
+            val score = if (!hideScore(m) && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED) {
+                "  ${m.homeScore}–${m.awayScore}"
+            } else {
+                ""
+            }
+            ListRow(
+                title = best.name,
+                subtitle = listOfNotNull(m.title + score, m.competition, row.confidence.label, best.playlistName).joinToString(" · "),
+                onClick = { onPlay(best.id) },
+                onLongClick = { onOpenMatch(m.id) },
+                trailing = {
+                    if (m.isLive) Badge(text = "LIVE", color = AkColors.Live)
+                    if (row.sources.size > 1) Text(text = "${row.sources.size} var.", fontSize = 13.sp, color = AkColors.TextDim)
+                    VariantQualityBadge(best.playlistId, best.name, best.quality)
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Tabul „Rezumate”: rezumatele și magazinele sportive din arhiva canalelor (catch-up), găsite în EPG.
+ * OK pornește emisiunea din arhivă (marcată „RELUARE” în player).
+ */
+@Composable
+private fun HighlightsList(zone: ZoneId, onPlayArchive: (Long, Long, Long) -> Unit) {
+    val container = appContainer()
+    val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
+    val list by androidx.compose.runtime.produceState<List<ro.ak.sportshub.data.HighlightEntry>?>(null, snapshot.computedAt / 600_000) {
+        value = runCatching { container.sports.highlights() }.getOrDefault(emptyList())
+    }
+    val items = list
+    Text(
+        text = when {
+            items == null -> "Se caută în EPG…"
+            items.isEmpty() -> "Niciun rezumat în arhivă."
+            else -> "${items.size} rezumate și magazine în arhivă · OK pornește din arhivă"
+        },
+        fontSize = 13.sp,
+        color = AkColors.TextDim,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+    if (items == null) return
+    if (items.isEmpty()) {
+        EmptyState(
+            title = "Niciun rezumat găsit",
+            hint = "Apar emisiunile terminate cu „Highlights”, „Rezumat”, „Match of the Day”… de pe canalele de sport cu arhivă (catch-up, Xtream).",
+        )
+        return
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        items(items, key = { "hl:" + it.channel.id + ":" + it.start }) { h ->
+            val start = Instant.ofEpochMilli(h.start).atZone(zone)
+            ListRow(
+                title = "${start.format(DayFormat)} ${start.format(TimeFormat)}   ${h.title}",
+                subtitle = listOfNotNull(h.subtitle, h.channel.name, h.channel.playlistName).joinToString(" · "),
+                onClick = { onPlayArchive(h.channel.id, h.start, h.stop) },
+                trailing = {
+                    if (h.favorite) Text(text = "★", fontSize = 16.sp, color = AkColors.Accent)
+                    Badge(text = "ARHIVĂ", color = AkColors.Focus)
+                },
             )
         }
     }

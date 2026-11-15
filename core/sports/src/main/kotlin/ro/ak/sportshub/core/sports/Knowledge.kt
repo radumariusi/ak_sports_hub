@@ -13,12 +13,20 @@ data class RightsRule(
     val stations: List<String>,
     val country: String? = null,
     val enabled: Boolean = true,
+    /** Cuvinte care scot competiția din regulă („afc champions league” nu e Liga Campionilor UEFA). */
+    val excludes: List<String> = emptyList(),
+    /** Regulă livrată cu aplicația ([PresetRights]), nu scrisă de tine. */
+    val preset: Boolean = false,
 ) {
     fun appliesTo(competition: String?): Boolean {
         if (!enabled || competition.isNullOrBlank()) return false
         val c = " ${Sport.fold(competition)} "
-        return competitions.any { p -> Sport.fold(p).takeIf { it.isNotEmpty() }?.let { c.contains(" $it ") } == true }
+        fun has(p: String) = Sport.fold(p).takeIf { it.isNotEmpty() }?.let { c.contains(" $it ") } == true
+        return competitions.any(::has) && excludes.none(::has)
     }
+
+    /** Cheia unei reguli preumplute (pentru oprirea ei). */
+    val id: String get() = (competitions.firstOrNull().orEmpty() + "|" + country.orEmpty()).lowercase()
 
     /** Pentru afișare: „Premier League → Sky Sports Main Event, TNT Sports 1 (UK)”. */
     val label: String
@@ -82,7 +90,15 @@ data class SportsKnowledge(
     val decisions: Map<String, MatchDecisions> = emptyMap(),
     /** Alias de echipă → numele complet („Sepsi” → „Sepsi OSK”). */
     val teamAliases: Map<String, String> = emptyMap(),
+    /** Drepturile TV preumplute ([PresetRights]) se folosesc. */
+    val presetRights: Boolean = true,
+    /** Regulile preumplute oprite de tine ([RightsRule.id]). */
+    val disabledPresets: Set<String> = emptySet(),
 ) {
+    /** Regulile tale, apoi cele preumplute (dacă sunt pornite), fără cele oprite. */
+    val allRules: List<RightsRule>
+        get() = if (!presetRights) rules else rules + PresetRights.rules.map { if (it.id in disabledPresets) it.copy(enabled = false) else it }
+
     fun verdict(matchId: String, groupKey: String): Verdict? = decisions[matchId]?.verdicts?.get(groupKey)
 
     /**
@@ -206,7 +222,7 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         dedicatedKeys.filter { comp == null || "$comp|$it" !in knowledge.rightsBlocks }.forEach { add(it, Confidence.DEDICATED) }
         if (comp != null) {
             knowledge.learnedRights[comp].orEmpty().forEach { add(it, Confidence.LEARNED) }
-            for (rule in knowledge.rules) {
+            for (rule in knowledge.allRules) {
                 if (!rule.appliesTo(match.competition)) continue
                 for (station in rule.stations) {
                     index.find(TvStation(station, rule.country))
