@@ -188,10 +188,18 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         item {
             ListRow(
-                title = "Ligile americane (ESPN, NHL, MLB)",
-                subtitle = "NFL, NBA, NHL, MLB și MLS cu posturile exacte din SUA și Canada; doar dacă ai canale de acolo și sportul e ales mai jos",
+                title = "ESPN, NHL, MLB (API deschise)",
+                subtitle = "Fotbalul european de la ESPN (ligile mari, cupele UEFA, naționalele), plus NFL, NBA, NHL, MLB și MLS cu posturile din SUA și Canada, acestea doar dacă ai canale de acolo",
                 onClick = { update(true) { it.copy(usLeaguesEnabled = !it.usLeaguesEnabled) } },
                 trailing = { SettingValue(if (s.usLeaguesEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Doar competițiile importante",
+                subtitle = "Fotbal: primele ligi din Europa (două niveluri; Anglia mai multe, cu U18, U21 și feminin), primul nivel în rest, cupele și naționalele. Alte sporturi: doar ligile și turneele mari, plus mondialele și europenele",
+                onClick = { update(false) { it.copy(topCompetitionsOnly = !it.topCompetitionsOnly) } },
+                trailing = { SettingValue(if (s.topCompetitionsOnly) "Da" else "Nu") },
             )
         }
         item {
