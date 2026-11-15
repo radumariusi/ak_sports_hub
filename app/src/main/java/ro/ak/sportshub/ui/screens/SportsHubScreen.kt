@@ -138,6 +138,13 @@ fun SportsHubScreen(
         videoMatchId = null
         videoChannel = null
     }
+    // Scorul și starea meciurilor live, cât e Sports Hub pe ecran (o cerere pe ligă, cel mult o dată pe minut).
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            runCatching { sports.refreshLiveScores() }
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
     // La Back de pe meci, focusul revine pe meciul de unde ai plecat.
     val returnFocus = rememberReturnFocus()
 
@@ -441,18 +448,23 @@ private fun MatchRow(
         onLongClick = onLongClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         icon = { MatchIcon(m.home, m.away, m.competition, looks) },
+        leadingWidth = 112.dp,
         leading = {
             // Ora (sau LIVE), cu cifre înguste, ca pe o tabelă.
-            if (m.isLive) {
-                Text(
-                    text = "LIVE",
-                    fontSize = 22.sp,
-                    fontFamily = AkFonts.Condensed,
-                    fontWeight = FontWeight.Bold,
-                    color = if (LocalOnFocus.current) AkColors.LiveOnFocus else AkColors.Live,
-                )
-            } else {
-                Text(text = start.format(TimeFormat), fontSize = 22.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                // Iconița sportului, în dreptul fiecărui meci.
+                Text(text = sportIcon(m.sport), fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp).width(28.dp), textAlign = TextAlign.Center)
+                if (m.isLive) {
+                    Text(
+                        text = "LIVE",
+                        fontSize = 22.sp,
+                        fontFamily = AkFonts.Condensed,
+                        fontWeight = FontWeight.Bold,
+                        color = if (LocalOnFocus.current) AkColors.LiveOnFocus else AkColors.Live,
+                    )
+                } else {
+                    Text(text = start.format(TimeFormat), fontSize = 22.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+                }
             }
         },
         trailing = {
@@ -876,4 +888,26 @@ private fun NextFavoriteCard(
             }
         }
     }
+}
+
+/** Iconița unui sport (emoji, desenate de sistem). */
+internal fun sportIcon(sport: ro.ak.sportshub.core.sports.Sport?): String = when (sport) {
+    ro.ak.sportshub.core.sports.Sport.FOOTBALL -> "⚽"
+    ro.ak.sportshub.core.sports.Sport.BASKETBALL -> "🏀"
+    ro.ak.sportshub.core.sports.Sport.TENNIS -> "🎾"
+    ro.ak.sportshub.core.sports.Sport.ICE_HOCKEY -> "🏒"
+    ro.ak.sportshub.core.sports.Sport.HANDBALL -> "🤾"
+    ro.ak.sportshub.core.sports.Sport.VOLLEYBALL -> "🏐"
+    ro.ak.sportshub.core.sports.Sport.RUGBY -> "🏉"
+    ro.ak.sportshub.core.sports.Sport.AMERICAN_FOOTBALL -> "🏈"
+    ro.ak.sportshub.core.sports.Sport.BASEBALL -> "⚾"
+    ro.ak.sportshub.core.sports.Sport.WINTER -> "⛷"
+    ro.ak.sportshub.core.sports.Sport.MOTORSPORT -> "🏎"
+    ro.ak.sportshub.core.sports.Sport.FIGHTING -> "🥊"
+    ro.ak.sportshub.core.sports.Sport.DARTS -> "🎯"
+    ro.ak.sportshub.core.sports.Sport.SNOOKER -> "🎱"
+    ro.ak.sportshub.core.sports.Sport.CYCLING -> "🚴"
+    ro.ak.sportshub.core.sports.Sport.GOLF -> "⛳"
+    ro.ak.sportshub.core.sports.Sport.CRICKET -> "🏏"
+    null -> "🏟"
 }

@@ -168,6 +168,10 @@ fun PlayerScreen(
     // Adaptarea la sacadare: dacă stream-ul pierde cadre mereu (nu doar la pornire), playerul încearcă singur
     // potrivirea frecvenței și imaginea fluidă, păstrează ce ajută și ține minte pentru canal (cât rulează aplicația).
     val adaptKey = state.channel?.let { it.playlistId.toString() + "\u0000" + it.name }
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    fun displayHz(): Float? = hostView.display?.refreshRate
+    fun displayModes(): String = hostView.display?.supportedModes.orEmpty()
+        .joinToString(" ") { "${it.physicalWidth}x${it.physicalHeight}@${"%.2f".format(java.util.Locale.US, it.refreshRate)}" }
     val adapter = remember(adaptKey) { DropAdapter() }
     var adaptActive by remember(adaptKey) { mutableStateOf(adaptKey?.let { AdaptMemory.steps[it] }.orEmpty()) }
     var adaptNote by remember { mutableStateOf<String?>(null) }
@@ -180,13 +184,55 @@ fun PlayerScreen(
             val s = controller.state.value
             if (s.videoSize == null || s.status != PlaybackStatus.Playing) continue
             val v = currentSettings
+            val surfaceNow = (v.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive) && DropAdapter.Step.TEXTURE_VIEW !in adaptActive
             val available = buildSet {
                 if (s.frameRate != null && !v.matchFrameRate) add(DropAdapter.Step.MATCH_RATE)
                 if (!v.smoothVideo) add(DropAdapter.Step.SURFACE_VIEW)
+                if (surfaceNow) add(DropAdapter.Step.TUNNELING)
+                if (v.matchFrameRate) add(DropAdapter.Step.NO_RATE_MATCH)
+                if (v.smoothVideo && DropAdapter.Step.TUNNELING !in adaptActive) add(DropAdapter.Step.TEXTURE_VIEW)
             } - remembered
-            if (adapter.sample(s.droppedFrames, available)) adaptActive = remembered + adapter.active
+            val hz = displayHz()
+            val judder = s.frameRate != null && hz != null && PlaybackCheck.mismatch(s.frameRate, hz)
+            if (adapter.sample(s.droppedFrames, available, judder)) adaptActive = remembered + adapter.active
             if (adapter.kept.isNotEmpty()) AdaptMemory.steps[adaptKey] = remembered + adapter.kept
-            adapter.takeNote()?.let { adaptNote = it }
+            adapter.takeNote()?.let { note ->
+                adaptNote = note
+                container.diagnosticLog.log("player", "adaptare: $note")
+            }
+        }
+    }
+    // Jurnalul playerului (fără numele canalului sau adrese): la 10 s, ce se vede în informații plus ce s-a schimbat.
+    LaunchedEffect(adaptKey) {
+        if (adaptKey == null) return@LaunchedEffect
+        var lastDropped = 0
+        var lastRebuffers = 0
+        val modes = displayModes()
+        container.diagnosticLog.log("player", "pornire · ecran ${displayHz()?.let { "%.2f".format(java.util.Locale.US, it) } ?: "?"} Hz · moduri: $modes")
+        while (true) {
+            delay(10_000)
+            val s = controller.state.value
+            if (s.videoSize == null) continue
+            val v = currentSettings
+            val dropped = s.droppedFrames - lastDropped
+            val rebuffers = s.rebuffers - lastRebuffers
+            lastDropped = s.droppedFrames
+            lastRebuffers = s.rebuffers
+            container.diagnosticLog.log(
+                "player",
+                listOf(
+                    "${s.videoSize} ${s.frameRate?.let { "%.2f".format(java.util.Locale.US, it) } ?: "?"} fps",
+                    s.videoCodec ?: "?",
+                    "video ${s.decoder ?: "?"}",
+                    "audio ${s.audioDecoder ?: "?"}",
+                    "ecran ${displayHz()?.let { "%.2f".format(java.util.Locale.US, it) } ?: "?"} Hz",
+                    "+$dropped cadre pierdute (total ${s.droppedFrames})",
+                    "+$rebuffers încărcări",
+                    "stare ${s.status.javaClass.simpleName}",
+                    "setări fluidă=${v.smoothVideo} frecvență=${v.matchFrameRate}",
+                    "adaptare=${adaptActive.joinToString(",") { it.name }.ifEmpty { "-" }}",
+                ).joinToString(" · "),
+            )
         }
     }
     LaunchedEffect(adaptNote) {
@@ -195,7 +241,12 @@ fun PlayerScreen(
             adaptNote = null
         }
     }
-    FrameRateMatch(state.frameRate, variantSettings.matchFrameRate || DropAdapter.Step.MATCH_RATE in adaptActive)
+    val rateOn = (variantSettings.matchFrameRate || DropAdapter.Step.MATCH_RATE in adaptActive) && DropAdapter.Step.NO_RATE_MATCH !in adaptActive
+    val surfaceOn = (variantSettings.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive) && DropAdapter.Step.TEXTURE_VIEW !in adaptActive
+    FrameRateMatch(state.frameRate, rateOn)
+    LaunchedEffect(surfaceOn, DropAdapter.Step.TUNNELING in adaptActive) {
+        controller.setTunneling(surfaceOn && DropAdapter.Step.TUNNELING in adaptActive)
+    }
     var panel by remember { mutableStateOf(Panel.None) }
     var infoVisible by remember { mutableStateOf(true) }
     var infoToken by remember { mutableIntStateOf(0) }
@@ -468,7 +519,7 @@ fun PlayerScreen(
     ) {
         // TextureView (implicit): imaginea apare sigur sub straturile Compose; SurfaceView („Imagine fluidă”):
         // decodorul scrie direct pe ecran, mai fluid la 4K. Vezi player_view.xml și player_view_surface.xml.
-        val layout = if (variantSettings.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive) R.layout.player_view_surface else R.layout.player_view
+        val layout = if (surfaceOn) R.layout.player_view_surface else R.layout.player_view
         androidx.compose.runtime.key(layout) { AndroidView(
             factory = { ctx ->
                 (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
@@ -582,8 +633,8 @@ fun PlayerScreen(
             InfoBar(
                 state = state,
                 matchLine = linkedMatch?.let { m -> matchLine(m, panelView, spoilerHidden) },
-                rateMatchOn = variantSettings.matchFrameRate || DropAdapter.Step.MATCH_RATE in adaptActive,
-                smoothOn = variantSettings.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive,
+                rateMatchOn = rateOn,
+                smoothOn = surfaceOn,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -896,7 +947,12 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, rateMatchOn: Boole
                     )
                 }
                 Text(
-                    text = "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK ținut: meniu rapid",
+                    // Pe un meci, ▶ deschide panoul meciului; variantele, audio și subtitrările sunt în meniu.
+                    text = if (matchLine != null) {
+                        "▲▼ canale · ◀ lista grupului · ▶ meciul: Live, Statistici, Formații, Pre · Meniu: variante, audio, subtitrări · OK ascunde · OK ținut: meniu rapid"
+                    } else {
+                        "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK ținut: meniu rapid"
+                    },
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 8.dp),

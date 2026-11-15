@@ -15,6 +15,15 @@ class DropAdapter(private val clock: () -> Long = System::currentTimeMillis) {
 
         /** Imaginea direct pe ecran (SurfaceView), fără copia în plus. */
         SURFACE_VIEW("imagine fluidă"),
+
+        /** Redarea tunelată: decodorul televizorului ține imaginea în pas cu sunetul (doar cu imaginea fluidă). */
+        TUNNELING("redarea tunelată"),
+
+        /** Potrivirea frecvenței, pornită din Setări, oprită pentru canalul acesta (unele televizoare sacadează cu ea). */
+        NO_RATE_MATCH("ecranul fără schimbarea frecvenței"),
+
+        /** Imaginea fluidă, pornită din Setări, oprită pentru canalul acesta. */
+        TEXTURE_VIEW("imaginea obișnuită (fără imagine fluidă)"),
     }
 
     private var startedAt = -1L
@@ -45,7 +54,7 @@ class DropAdapter(private val clock: () -> Long = System::currentTimeMillis) {
      * (de exemplu potrivirea frecvenței doar dacă se știu cadrele pe secundă și setarea nu e deja pornită).
      * Întoarce true dacă [active] s-a schimbat.
      */
-    fun sample(dropped: Int, available: Set<Step>): Boolean {
+    fun sample(dropped: Int, available: Set<Step>, judder: Boolean = false): Boolean {
         val now = clock()
         if (startedAt < 0) {
             startedAt = now
@@ -83,19 +92,22 @@ class DropAdapter(private val clock: () -> Long = System::currentTimeMillis) {
             }
         }
 
-        if (rate < BAD_RATE) {
+        // Cadrele stream-ului nu se potrivesc cu ecranul (25 fps pe 60 Hz): mișcarea e inegală chiar fără cadre
+        // pierdute, deci se încearcă potrivirea frecvenței fără să se aștepte pierderi.
+        val judderOnly = rate < BAD_RATE && judder && Step.MATCH_RATE in available && Step.MATCH_RATE !in tried && Step.MATCH_RATE !in active
+        if (rate < BAD_RATE && !judderOnly) {
             badWindows = 0
             return false
         }
         badWindows++
         if (badWindows < BAD_WINDOWS) return false
-        val next = Step.entries.firstOrNull { it in available && it !in tried && it !in active } ?: return false
+        val next = (if (judderOnly) Step.MATCH_RATE else Step.entries.firstOrNull { it in available && it !in tried && it !in active }) ?: return false
         trial = next
         trialSince = now
         trialDropped = dropped
         rateBefore = rate
         active = active + next
-        note = "Pierd cadre (${"%.0f".format(rate)}/s): încerc ${next.label}"
+        note = if (judderOnly) "Cadrele nu se potrivesc cu ecranul: încerc ${next.label}" else "Pierd cadre (${"%.0f".format(rate)}/s): încerc ${next.label}"
         badWindows = 0
         return true
     }
