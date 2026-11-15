@@ -118,7 +118,7 @@ class UsLeaguesTest {
                 "geoBroadcasts":[{"type":{"shortName":"TV"},"media":{"shortName":"NBA TV"}},{"type":{"shortName":"Streaming"},"media":{"shortName":"ESPN+"}}],
                 "venue":{"fullName":"Madison Square Garden"}}]}]}
         """.trimIndent()
-        val e = UsLeagues.parseEspn(body, UsLeagues.League.NBA).single()
+        val e = Espn.parse(body, Espn.league("NBA")!!).single()
         assertEquals("New York Knicks", e.home)
         assertEquals("Boston Celtics", e.away)
         assertEquals("NBA", e.competition)
@@ -154,6 +154,6 @@ class UsLeaguesTest {
         assertEquals("New York Yankees", e.home)
         assertEquals(listOf("YES", "Sportsnet"), e.stations.map { it.name })
         assertEquals("Canada", e.stations[1].country)
-        assertEquals(listOf(UsLeagues.League.NBA, UsLeagues.League.NHL), UsLeagues.leaguesFor(listOf(Sport.BASKETBALL, Sport.ICE_HOCKEY)))
+        assertEquals(listOf("NBA", "NHL"), Espn.leaguesFor(listOf(Sport.BASKETBALL, Sport.ICE_HOCKEY)).map { it.key })
     }
 }

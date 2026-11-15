@@ -59,12 +59,14 @@ class CompetitionFilterTest {
     }
 
     @Test
-    fun `ESPN - fotbalul european se cere si fara canale din SUA, iar competitiile lui trec filtrul`() {
-        val europe = UsLeagues.leaguesFor(listOf(Sport.FOOTBALL, Sport.BASKETBALL), northAmerica = false)
-        assertTrue(UsLeagues.League.EPL in europe && UsLeagues.League.UCL in europe)
-        assertFalse(UsLeagues.League.MLS in europe || UsLeagues.League.NBA in europe)
-        UsLeagues.League.entries.filter { it.sport == Sport.FOOTBALL && it != UsLeagues.League.FRIENDLY }.forEach {
-            assertEquals(it.competition, Verdict.KEEP, CompetitionFilter.verdict(Sport.FOOTBALL, it.competition))
+    fun `catalogul ESPN si EuroLeague trec filtrul (catalogul e el insusi filtrul)`() {
+        Espn.leagues.filter { "friendly" !in it.competition.lowercase() }.forEach {
+            assertEquals(it.competition, Verdict.KEEP, CompetitionFilter.verdict(it.sport, it.competition))
         }
+        EuroLeague.Competition.entries.forEach {
+            assertEquals(it.label, Verdict.KEEP, CompetitionFilter.verdict(Sport.BASKETBALL, it.label))
+        }
+        assertEquals(Verdict.KEEP, CompetitionFilter.verdict(Sport.BASKETBALL, "Euroliga Liga Regular"))
+        assertEquals(Verdict.KEEP, CompetitionFilter.verdict(Sport.TENNIS, "ATP · Nitto ATP Finals"))
     }
 }

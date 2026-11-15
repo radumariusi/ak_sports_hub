@@ -116,6 +116,8 @@ data class EpgProgrammeRow(
     val title: String,
     val subtitle: String?,
     val category: String?,
+    /** Începutul descrierii (primele 160 de caractere): prima linie are uneori echipele (C4). */
+    val descriptionHead: String?,
 )
 
 /** Legătura canal din playlist → canal EPG. */
@@ -230,7 +232,7 @@ interface EpgDao {
     /** Emisiunile canalelor EPG [epgChannelIds] dintre [from] și [until]. */
     @Query(
         """
-        SELECT id, epgChannelId, start, stop, title, subtitle, category FROM programmes
+        SELECT id, epgChannelId, start, stop, title, subtitle, category, substr(description, 1, 160) AS descriptionHead FROM programmes
         WHERE epgChannelId IN (:epgChannelIds) AND stop > :from AND start < :until
         """,
     )
@@ -239,7 +241,7 @@ interface EpgDao {
     /** Emisiunile cu categorie de sport, de pe canalele folosite de playlisturi, dintre [from] și [until]. */
     @Query(
         """
-        SELECT id, epgChannelId, start, stop, title, subtitle, category FROM programmes
+        SELECT id, epgChannelId, start, stop, title, subtitle, category, substr(description, 1, 160) AS descriptionHead FROM programmes
         WHERE stop > :from AND start < :until
           AND (category LIKE '%sport%' OR category LIKE '%football%' OR category LIKE '%fotbal%' OR category LIKE '%soccer%')
           AND epgChannelId IN (SELECT epgChannelId FROM epg_map)

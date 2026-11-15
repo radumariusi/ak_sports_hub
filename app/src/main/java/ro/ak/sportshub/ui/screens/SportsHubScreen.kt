@@ -185,8 +185,8 @@ fun SportsHubScreen(
                     else -> "Niciun meci aici"
                 },
                 hint = when {
-                    snapshot.loading -> "Din EPG-ul tău și din TheSportsDB."
-                    snapshot.matches.isEmpty() -> "Meciurile vin din EPG-ul playlisturilor și din TheSportsDB (Setări → Sports Hub)."
+                    snapshot.loading -> "Din EPG-ul tău, ESPN și ceilalți furnizori."
+                    snapshot.matches.isEmpty() -> "Meciurile vin din EPG-ul playlisturilor, de la ESPN, EuroLeague și ceilalți furnizori (Setări → Sports Hub)."
                     currentTab == MatchTab.FAVORITES && settings.favorites.teams.isEmpty() && settings.favorites.competitions.isEmpty() ->
                         "Marchează echipe sau competiții ca favorite din ecranul unui meci sau din Setări."
                     else -> "Încearcă alt tab sau scoate filtrele."

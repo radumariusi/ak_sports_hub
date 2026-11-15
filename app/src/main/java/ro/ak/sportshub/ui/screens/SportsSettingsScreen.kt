@@ -116,7 +116,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "TheSportsDB",
-                subtitle = "Programul meciurilor, cerut rar (azi și mâine la 3 ore, restul la 12 ore)",
+                subtitle = "Doar pentru sporturile fără ESPN (handbal, volei, darts, snooker, ciclism…): azi și mâine, la 3 ore. Și rezervă pentru Pre-meci/Live",
                 onClick = { update(true) { it.copy(sportsDbEnabled = !it.sportsDbEnabled) } },
                 trailing = { SettingValue(if (s.sportsDbEnabled) "Da" else "Nu") },
             )
@@ -124,7 +124,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "Posturi TV de la TheSportsDB",
-                subtitle = "Pentru potrivirea pe nume de post; cu cheia gratuită datele sunt puține",
+                subtitle = "Pentru potrivirea pe nume de post; doar cu o cheie proprie (cheia gratuită dă un singur rezultat)",
                 onClick = { update(true) { it.copy(sportsDbTv = !it.sportsDbTv) } },
                 trailing = { SettingValue(if (s.sportsDbTv) "Da" else "Nu") },
             )
@@ -165,7 +165,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "FutbolEnLaTV",
-                subtitle = "Neoficial, opțional: ~18 sporturi pe zi (fotbal, baschet, F1, MotoGP, ciclism, MMA, golf…) cu posturile din Spania; o pagină la 3 ore",
+                subtitle = "Neoficial, opțional: ~18 sporturi pe zi cu posturile din Spania, plus site-urile surori ale țărilor canalelor tale (Marea Britanie, SUA, Germania, Italia, Franța, Portugalia…; cel mult 3); o pagină pe site, la 3 ore",
                 onClick = { update(true) { it.copy(futbolEnLaTvEnabled = !it.futbolEnLaTvEnabled) } },
                 trailing = { SettingValue(if (s.futbolEnLaTvEnabled) "Da" else "Nu") },
             )
@@ -188,10 +188,19 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         item {
             ListRow(
-                title = "ESPN, NHL, MLB (API deschise)",
-                subtitle = "Fotbalul european de la ESPN (ligile mari, cupele UEFA, naționalele), plus NFL, NBA, NHL, MLB și MLS cu posturile din SUA și Canada, acestea doar dacă ai canale de acolo",
+                title = "ESPN (API deschis), plus NHL și MLB",
+                subtitle = "Furnizorul principal: ~100 de ligi (fotbal pe două niveluri și cupele, NBA, NHL, NFL, MLB, tenis ATP/WTA, F1, IndyCar, NASCAR, golf, UFC, rugby), " +
+                    "doar în zilele cu meciuri; și Pre-meci/Live. NHL și MLB: posturile din SUA și Canada, dacă ai canale de acolo",
                 onClick = { update(true) { it.copy(usLeaguesEnabled = !it.usLeaguesEnabled) } },
                 trailing = { SettingValue(if (s.usLeaguesEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "EuroLeague (API oficial)",
+                subtitle = "Baschet: tot programul EuroLeague și EuroCup, cerut la 12 ore",
+                onClick = { update(true) { it.copy(euroLeagueEnabled = !it.euroLeagueEnabled) } },
+                trailing = { SettingValue(if (s.euroLeagueEnabled) "Da" else "Nu") },
             )
         }
         item {
@@ -228,7 +237,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         item {
             ListRow(
                 title = "Zile cerute",
-                subtitle = "De azi încolo",
+                subtitle = "Doar pentru TheSportsDB (1 sau 2: azi și mâine); ESPN cere oricum azi și mâine",
                 onClick = { dialog = SportsDialog.DAYS },
                 trailing = { SettingValue(s.daysAhead.toString()) },
             )
@@ -241,6 +250,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             if (s.liveOnSatEnabled) add(LiveOnSat.PROVIDER)
             if (s.fotMobEnabled) add(FotMob.PROVIDER)
             if (s.usLeaguesEnabled) addAll(listOf(UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API))
+            if (s.euroLeagueEnabled) add(ro.ak.sportshub.core.sports.EuroLeague.PROVIDER)
         }
         item { SectionLabel("Starea furnizorilor (de la pornirea aplicației)") }
         active.sortedBy { ProviderPolicy.rank(it) }.forEach { p ->

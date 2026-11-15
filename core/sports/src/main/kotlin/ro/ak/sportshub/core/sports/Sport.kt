@@ -49,8 +49,13 @@ enum class Sport(
     companion object {
         val DEFAULT_DURATION_MS: Long = TimeUnit.MINUTES.toMillis(150)
 
-        /** Sporturile cerute implicit de la TheSportsDB (setare). */
-        val DEFAULT_FETCH: List<Sport> = listOf(FOOTBALL, BASKETBALL, TENNIS, ICE_HOCKEY, HANDBALL, MOTORSPORT)
+        /** Sporturile cerute implicit de la furnizori (setare): toate cele cu un furnizor deschis (ESPN, EuroLeague), plus handbalul. */
+        val DEFAULT_FETCH: List<Sport> = listOf(
+            FOOTBALL, BASKETBALL, TENNIS, ICE_HOCKEY, HANDBALL, MOTORSPORT, FIGHTING, RUGBY, GOLF, AMERICAN_FOOTBALL, BASEBALL,
+        )
+
+        /** Sporturile adăugate la setările vechi odată cu ESPN extins (etapa 14). */
+        val ADDED_WITH_ESPN: List<Sport> = listOf(FIGHTING, RUGBY, GOLF, AMERICAN_FOOTBALL, BASEBALL)
 
         fun fromSportsDb(name: String?): Sport? {
             if (name.isNullOrBlank()) return null

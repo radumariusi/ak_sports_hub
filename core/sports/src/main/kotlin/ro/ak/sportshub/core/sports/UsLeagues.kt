@@ -10,108 +10,24 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
 /**
- * Ligile americane (furnizori opționali, JSON public): posturile exacte pentru SUA și Canada.
- * - ESPN (`site.api.espn.com`, neoficial): NFL, NBA, NHL, MLB și MLS, cu posturile naționale din SUA.
+ * Ligile americane (furnizori opționali, JSON public): posturile exacte pentru SUA și Canada, peste programul ESPN ([Espn]).
  * - NHL (`api-web.nhle.com`): și posturile din Canada (Sportsnet, TVA Sports, CBC).
  * - MLB (`statsapi.mlb.com`): posturile TV naționale și locale.
- * O cerere pe ligă și zi (azi și mâine), la 3 ore, doar dacă ai canale din SUA sau Canada; răspunsurile se
- * păstrează în fișiere. Echipele au numele complete („Boston Celtics”), ca la TheSportsDB, deci meciurile se unesc.
+ * O cerere pe zi (azi și mâine), la 3 ore, doar dacă ai canale din SUA sau Canada; răspunsurile se
+ * păstrează în fișiere. Echipele au numele complete („Boston Bruins”), ca la ESPN, deci meciurile se unesc.
  */
 object UsLeagues {
 
-    /** O ligă ESPN: calea din API, sportul și numele competiției (cel din TheSportsDB, pentru reguli și unire). */
-    enum class League(val path: String, val sport: Sport, val competition: String, val northAmerica: Boolean = true) {
-        NFL("football/nfl", Sport.AMERICAN_FOOTBALL, "NFL"),
-        NBA("basketball/nba", Sport.BASKETBALL, "NBA"),
-        NHL("hockey/nhl", Sport.ICE_HOCKEY, "NHL"),
-        MLB("baseball/mlb", Sport.BASEBALL, "MLB"),
-        MLS("soccer/usa.1", Sport.FOOTBALL, "American Major League Soccer"),
-
-        // Fotbalul european de la ESPN: API deschis, fără protecție anti-robot; programul cerut oricum (nu doar cu canale din SUA).
-        EPL("soccer/eng.1", Sport.FOOTBALL, "English Premier League", false),
-        ENG2("soccer/eng.2", Sport.FOOTBALL, "English Championship", false),
-        FACUP("soccer/eng.fa", Sport.FOOTBALL, "English FA Cup", false),
-        EFLCUP("soccer/eng.league_cup", Sport.FOOTBALL, "English Carabao Cup", false),
-        LALIGA("soccer/esp.1", Sport.FOOTBALL, "Spanish LaLiga", false),
-        LALIGA2("soccer/esp.2", Sport.FOOTBALL, "Spanish LaLiga 2", false),
-        SERIEA("soccer/ita.1", Sport.FOOTBALL, "Italian Serie A", false),
-        SERIEB("soccer/ita.2", Sport.FOOTBALL, "Italian Serie B", false),
-        BUNDESLIGA("soccer/ger.1", Sport.FOOTBALL, "German Bundesliga", false),
-        BUNDESLIGA2("soccer/ger.2", Sport.FOOTBALL, "German 2. Bundesliga", false),
-        LIGUE1("soccer/fra.1", Sport.FOOTBALL, "French Ligue 1", false),
-        LIGUE2("soccer/fra.2", Sport.FOOTBALL, "French Ligue 2", false),
-        PORTUGAL("soccer/por.1", Sport.FOOTBALL, "Portuguese Primeira Liga", false),
-        EREDIVISIE("soccer/ned.1", Sport.FOOTBALL, "Dutch Eredivisie", false),
-        SCOTLAND("soccer/sco.1", Sport.FOOTBALL, "Scottish Premiership", false),
-        TURKEY("soccer/tur.1", Sport.FOOTBALL, "Turkish Super Lig", false),
-        ROMANIA("soccer/rou.1", Sport.FOOTBALL, "Romanian Liga I", false),
-        UCL("soccer/uefa.champions", Sport.FOOTBALL, "UEFA Champions League", false),
-        UEL("soccer/uefa.europa", Sport.FOOTBALL, "UEFA Europa League", false),
-        UECL("soccer/uefa.europa.conf", Sport.FOOTBALL, "UEFA Conference League", false),
-        NATIONS("soccer/uefa.nations", Sport.FOOTBALL, "UEFA Nations League", false),
-        WCQ("soccer/fifa.worldq.uefa", Sport.FOOTBALL, "World Cup Qualification UEFA", false),
-        FRIENDLY("soccer/fifa.friendly", Sport.FOOTBALL, "International Friendly", false),
-    }
-
-    const val ESPN = "espn"
+    /** Cheia furnizorului ESPN (programul e acum în [Espn]). */
+    const val ESPN = Espn.PROVIDER
     const val NHL_API = "nhl"
     const val MLB_API = "mlb"
-
-    fun espnUrl(league: League, day: LocalDate): String =
-        "https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard?dates=" + day.toString().replace("-", "")
 
     fun nhlUrl(day: LocalDate): String = "https://api-web.nhle.com/v1/schedule/$day"
 
     fun mlbUrl(day: LocalDate): String = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=$day&hydrate=broadcasts(all)"
 
-    /** Ligile de cerut, după sporturile alese în setări (cele nord-americane doar cu [northAmerica]). */
-    fun leaguesFor(sports: Collection<Sport>, northAmerica: Boolean = true): List<League> =
-        League.entries.filter { it.sport in sports && (northAmerica || !it.northAmerica) }
-
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-
-    // ---------- ESPN ----------
-
-    fun parseEspn(body: String, league: League): List<SportEvent> {
-        val root = parse(body) ?: return emptyList()
-        return root.arr("events").mapNotNull { e ->
-            val o = e as? JsonObject ?: return@mapNotNull null
-            val id = o.text("id") ?: return@mapNotNull null
-            val comp = o.arr("competitions").firstOrNull() as? JsonObject ?: return@mapNotNull null
-            val teams = comp.arr("competitors").filterIsInstance<JsonObject>()
-            val home = teams.firstOrNull { it.text("homeAway") == "home" } ?: return@mapNotNull null
-            val away = teams.firstOrNull { it.text("homeAway") == "away" } ?: return@mapNotNull null
-            val start = (o.text("date") ?: comp.text("date"))?.let(::isoMillis) ?: return@mapNotNull null
-            val state = o.obj("status")?.obj("type")?.text("state") ?: comp.obj("status")?.obj("type")?.text("state")
-            val status = when (state) {
-                "pre" -> MatchStatus.SCHEDULED
-                "in" -> MatchStatus.LIVE
-                "post" -> MatchStatus.FINISHED
-                else -> null
-            }
-            if (o.obj("status")?.obj("type")?.text("name")?.contains("POSTPONED") == true) return@mapNotNull null
-            val names = LinkedHashSet<String>()
-            comp.arr("broadcasts").filterIsInstance<JsonObject>().forEach { b -> b.arr("names").forEach { n -> n.str()?.let(names::add) } }
-            comp.arr("geoBroadcasts").filterIsInstance<JsonObject>().forEach { g ->
-                val type = g.obj("type")?.text("shortName")
-                if (type == null || type.equals("TV", ignoreCase = true)) g.obj("media")?.let { m -> (m.text("shortName") ?: m.text("name"))?.let(names::add) }
-            }
-            SportEvent(
-                provider = ESPN,
-                providerId = "${league.name}-$id",
-                sport = league.sport.sportsDbName,
-                competition = league.competition,
-                home = home.obj("team")?.let { it.text("displayName") ?: it.text("name") } ?: return@mapNotNull null,
-                away = away.obj("team")?.let { it.text("displayName") ?: it.text("name") } ?: return@mapNotNull null,
-                start = start,
-                status = status,
-                homeScore = home.text("score")?.toIntOrNull().takeIf { status != MatchStatus.SCHEDULED },
-                awayScore = away.text("score")?.toIntOrNull().takeIf { status != MatchStatus.SCHEDULED },
-                venue = comp.obj("venue")?.text("fullName"),
-                stations = names.map { TvStation(it, "USA") },
-            )
-        }
-    }
 
     // ---------- NHL ----------
 

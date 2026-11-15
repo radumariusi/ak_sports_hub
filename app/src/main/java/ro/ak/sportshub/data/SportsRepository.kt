@@ -35,6 +35,10 @@ import ro.ak.sportshub.core.sports.EpgBroadcast
 import ro.ak.sportshub.core.sports.EventChannels
 import ro.ak.sportshub.core.sports.EventSlot
 import ro.ak.sportshub.core.sports.FutbolEnLaTv
+import ro.ak.sportshub.core.sports.Espn
+import ro.ak.sportshub.core.sports.EuroLeague
+import ro.ak.sportshub.core.sports.BusyChannels
+import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.FotMob
 import ro.ak.sportshub.core.sports.Highlights
 import ro.ak.sportshub.core.sports.LiveOnSat
@@ -265,7 +269,7 @@ class SportsRepository(
     private fun fetchKey(s: SportsSettings): String =
         "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}|" +
             "${s.liveSoccerTvEnabled}|${s.sofascoreEnabled}|${s.sofascoreTv}|${s.futbolEnLaTvEnabled}|${s.eventChannels}|${s.eventZone}|" +
-            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.topCompetitionsOnly}"
+            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}"
 
     fun refreshInBackground(force: Boolean = true) {
         scope.launch { refreshDue(force) }
@@ -287,7 +291,7 @@ class SportsRepository(
         if (!force && playing.value) playing.first { !it }
         val s = settings.current
         if (!s.sportsDbEnabled && !s.liveSoccerTvEnabled && !s.sofascoreEnabled && !s.futbolEnLaTvEnabled &&
-            !s.liveOnSatEnabled && !s.fotMobEnabled && !s.usLeaguesEnabled
+            !s.liveOnSatEnabled && !s.fotMobEnabled && !s.usLeaguesEnabled && !s.euroLeagueEnabled
         ) {
             recompute()
             return
@@ -299,7 +303,13 @@ class SportsRepository(
     // ---------- furnizorii ----------
 
     /** O cerere de făcut: adresa, fișierul în care se păstrează și pagina HTML care trebuie să pară validă, dacă e HTML. */
-    private data class Job(val url: String, val file: File, val html: ((String) -> Boolean)? = null)
+    private data class Job(
+        val url: String,
+        val file: File,
+        val html: ((String) -> Boolean)? = null,
+        /** Liga ESPN: după răspuns i se salvează calendarul (zilele cu meciuri). */
+        val espn: Espn.League? = null,
+    )
 
     private suspend fun fetch(s: SportsSettings, force: Boolean): Boolean {
         dir.mkdirs()
@@ -328,8 +338,11 @@ class SportsRepository(
             }
         }
         if (s.futbolEnLaTvEnabled) {
-            val f = File(dir, "fetv-${LocalDate.now(FutbolEnLaTv.ZONE)}.html")
-            if (force || isStale(f, fresh(FutbolEnLaTv.PROVIDER, 0))) jobs += Job(FutbolEnLaTv.URL, f, html = FutbolEnLaTv::looksValid)
+            // Spania (toate sporturile) și site-urile surori ale țărilor canalelor tale (posturile lor).
+            for (site in listOf(FutbolEnLaTv.SPAIN) + FutbolEnLaTv.sitesFor(playlistCountries())) {
+                val f = File(dir, "fetv-${site.code}-${LocalDate.now(site.zone)}.html")
+                if (force || isStale(f, fresh(FutbolEnLaTv.PROVIDER, 0))) jobs += Job(site.url, f, html = FutbolEnLaTv::looksValid)
+            }
         }
         if (s.liveOnSatEnabled) {
             val f = File(dir, "los-$localToday.html")
@@ -341,7 +354,17 @@ class SportsRepository(
                 if (force || isStale(f, fresh(FotMob.PROVIDER, 0))) jobs += Job(FotMob.url(cc), f, html = FotMob::looksValid)
             }
         }
-        if (s.usLeaguesEnabled) addUsJobs(s, localToday, force, jobs, hasNorthAmerica())
+        if (s.usLeaguesEnabled) {
+            addEspnJobs(s, force, jobs)
+            if (hasNorthAmerica()) addUsJobs(s, localToday, force, jobs)
+        }
+        if (s.euroLeagueEnabled && Sport.BASKETBALL in s.sports) {
+            for (c in EuroLeague.Competition.entries) {
+                // Tot sezonul dintr-o cerere (fără dată în nume: nu se șterge la schimbarea zilei).
+                val f = File(dir, "euroleague-${c.code}-s${EuroLeague.seasonYear(localToday)}.json")
+                if (force || isStale(f, fresh(EuroLeague.PROVIDER, 0))) jobs += Job(EuroLeague.url(c, localToday), f)
+            }
+        }
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
@@ -386,6 +409,7 @@ class SportsRepository(
             }
             record(provider, result)
             noteBlock(provider, result)
+            job.espn?.let { league -> noteCalendar(league, job.file, result) }
             if (result == Download.Ok) {
                 ok++
                 sinceRecompute++
@@ -395,7 +419,9 @@ class SportsRepository(
             // Lista se reface pe parcurs (după fiecare furnizor și la fiecare 8 cereri reușite), nu abia la final:
             // meciurile de la primii furnizori apar în câteva secunde, nu după toată runda.
             val next = jobs.getOrNull(i + 1)?.let { providerOf(it.url) }
-            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= RECOMPUTE_EVERY)) {
+            // ESPN are zeci de ligi mici: lista se reface mai rar pe parcurs (fiecare calcul costă câteva secunde).
+            val every = if (provider == Espn.PROVIDER) ESPN_RECOMPUTE_EVERY else RECOMPUTE_EVERY
+            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= every)) {
                 recompute()
                 sinceRecompute = 0
             }
@@ -429,7 +455,12 @@ class SportsRepository(
     }
 
     /** TheSportsDB (cheia gratuită) are o limită pe minut: cererile lui se răresc mai mult. */
-    private fun gapFor(provider: String): Long = if (provider == TheSportsDb.PROVIDER) SPORTSDB_GAP_MS else REQUEST_GAP_MS
+    private fun gapFor(provider: String): Long = when (provider) {
+        TheSportsDb.PROVIDER -> SPORTSDB_GAP_MS
+        // API-ul ESPN e un CDN deschis: cererile pot fi mai dese (multe ligi, câteva KB fiecare).
+        Espn.PROVIDER -> ESPN_GAP_MS
+        else -> REQUEST_GAP_MS
+    }
 
     /** Cererea refuzată, încercată din nou într-un WebView; pentru Sofascore, întâi o vizită pe site (cookie-uri). */
     private suspend fun viaBrowser(job: Job, first: Download.Failed): Download {
@@ -602,15 +633,10 @@ class SportsRepository(
     /** Ai canale din SUA sau Canada? Altfel posturile ligilor americane nu folosesc la nimic. */
     private suspend fun hasNorthAmerica(): Boolean = playlistCountries().any { it in NORTH_AMERICA }
 
-    /** ESPN (o cerere pe ligă și zi), NHL și MLB (o cerere pe zi), azi și mâine, pentru sporturile alese. */
-    private fun addUsJobs(s: SportsSettings, localToday: LocalDate, force: Boolean, jobs: MutableList<Job>, northAmerica: Boolean) {
+    /** NHL și MLB (o cerere pe zi), azi și mâine: posturile din SUA și Canada, doar cu canale de acolo. */
+    private fun addUsJobs(s: SportsSettings, localToday: LocalDate, force: Boolean, jobs: MutableList<Job>) {
         for (offset in 0..1) {
             val day = localToday.plusDays(offset.toLong())
-            for (league in UsLeagues.leaguesFor(s.sports, northAmerica)) {
-                val f = File(dir, "espn-${league.name}-$day.json")
-                if (force || isStale(f, fresh(UsLeagues.ESPN, offset))) jobs += Job(UsLeagues.espnUrl(league, day), f)
-            }
-            if (!northAmerica) continue
             if (Sport.ICE_HOCKEY in s.sports) {
                 val f = File(dir, "nhl-$day.json")
                 if (force || isStale(f, fresh(UsLeagues.NHL_API, offset))) jobs += Job(UsLeagues.nhlUrl(day), f)
@@ -622,15 +648,70 @@ class SportsRepository(
         }
     }
 
+    /**
+     * ESPN: o cerere pe ligă și zi (azi și mâine, zile ESPN), doar în zilele cu meciuri din calendarul ligii.
+     * Calendarul se reîmprospătează cam o dată pe săptămână (cu cererea pentru azi); o ligă inexistentă (404) se
+     * mai încearcă abia peste o lună. „Actualizează acum” nu trece peste calendar (ar însemna sute de cereri).
+     */
+    private fun addEspnJobs(s: SportsSettings, force: Boolean, jobs: MutableList<Job>) {
+        val today = Espn.today()
+        val now = System.currentTimeMillis()
+        for (league in Espn.leaguesFor(s.sports)) {
+            for (offset in 0..1) {
+                val day = today.plusDays(offset.toLong())
+                if (!espnWanted(league, day, offset, now)) continue
+                val f = File(dir, "espn-${league.key}-$day.json")
+                if (force || isStale(f, fresh(Espn.PROVIDER, offset))) jobs += Job(Espn.scoreboardUrl(league, day), f, espn = league)
+            }
+        }
+    }
+
+    private fun calendarFile(league: Espn.League) = File(dir, "espncal-${league.key}.txt")
+
+    /** Liga are meciuri în ziua [day]? Fără calendar (sau cu unul vechi) se cere ziua de azi, ca să-l aflăm. */
+    private fun espnWanted(league: Espn.League, day: LocalDate, offset: Int, now: Long): Boolean {
+        val f = calendarFile(league)
+        if (!f.exists()) return offset == 0
+        val age = now - f.lastModified()
+        val text = runCatching { f.readText() }.getOrNull() ?: return offset == 0
+        if (text == CAL_MISSING) return offset == 0 && age > CAL_MISSING_MS
+        // Reîmprospătarea săptămânală, eșalonată pe ligi (nu toate în aceeași zi).
+        val refresh = CAL_REFRESH_MS + TimeUnit.HOURS.toMillis((league.key.hashCode() and 0x7fffffff) % 48L)
+        if (offset == 0 && age > refresh) return true
+        val cal = Espn.Calendar.decode(text) ?: return offset == 0
+        return cal.has(day)
+    }
+
+    /** După răspunsul ESPN: calendarul ligii (sau „lipsă”, la 404). */
+    private fun noteCalendar(league: Espn.League, file: File, result: Download) {
+        val cal = calendarFile(league)
+        when {
+            result == Download.Ok -> {
+                val parsed = runCatching { Espn.calendar(file.readText()) }.getOrNull() ?: return
+                runCatching { cal.writeText(parsed.encode()) }
+            }
+            result is Download.Failed && (result.reason.startsWith("HTTP 404") || result.reason.startsWith("HTTP 400")) -> {
+                runCatching { cal.writeText(CAL_MISSING) }
+                log.log(Espn.PROVIDER, "liga ${league.key} (${league.path}) nu există la ESPN: se mai încearcă peste o lună")
+            }
+        }
+    }
+
+    /**
+     * TheSportsDB (cheia gratuită dă doar câteva meciuri pe sport și zi): doar sporturile pe care nu le acoperă ESPN
+     * sau EuroLeague ([ProviderPolicy.sportsDbSports]), azi și mâine; posturile TV doar cu o cheie proprie
+     * (cheia gratuită dă un singur rezultat).
+     */
     private fun addSportsDbJobs(s: SportsSettings, today: LocalDate, force: Boolean, jobs: MutableList<Job>) {
-        for (offset in 0 until s.daysAhead.coerceIn(1, 7)) {
+        val sports = if (s.usLeaguesEnabled) ProviderPolicy.sportsDbSports(s.sports) else s.sports
+        for (offset in 0 until s.daysAhead.coerceIn(1, 2)) {
             val day = today.plusDays(offset.toLong())
             val maxAge = if (offset <= 1) FRESH_NEAR_MS else FRESH_FAR_MS
-            for (sport in s.sports) {
+            for (sport in sports) {
                 val f = File(dir, "events-${sport.name}-$day.json")
                 if (force || isStale(f, maxAge)) jobs += Job(TheSportsDb.eventsDayUrl(s.sportsDbKey, day, sport), f)
             }
-            if (s.sportsDbTv && offset <= 1) {
+            if (s.sportsDbTv && offset <= 1 && s.sportsDbKey != TheSportsDb.DEFAULT_KEY) {
                 val f = File(dir, "tv-$day.json")
                 if (force || isStale(f, maxAge)) jobs += Job(TheSportsDb.tvDayUrl(s.sportsDbKey, day), f)
             }
@@ -779,7 +860,8 @@ class SportsRepository(
         val wanted = s.sports.map { it.name }.toSet()
         val events = ArrayList<SportEvent>()
         if (s.sportsDbEnabled) {
-            files.filter { f -> f.name.startsWith("events-") && f.name.split('-').getOrNull(1) in wanted }
+            val dbWanted = (if (s.usLeaguesEnabled) ProviderPolicy.sportsDbSports(s.sports) else s.sports).map { it.name }.toSet()
+            files.filter { f -> f.name.startsWith("events-") && f.name.split('-').getOrNull(1) in dbWanted }
                 .forEach { f -> events += parsed(f, TheSportsDb::parseEvents) }
         }
         if (s.liveSoccerTvEnabled) {
@@ -800,9 +882,13 @@ class SportsRepository(
             }
         }
         if (s.futbolEnLaTvEnabled) {
+            val sites = (listOf(FutbolEnLaTv.SPAIN) + FutbolEnLaTv.sitesFor(playlistCountries())).map { it.code }.toSet()
             files.filter { it.name.startsWith("fetv-") && it.name.endsWith(".html") }.forEach { f ->
                 val day = DAY_IN_NAME.find(f.name)?.value?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@forEach
-                events += parsed(f) { FutbolEnLaTv.parse(it, day) }
+                // „fetv-gb-2026-11-15.html”; cele vechi („fetv-2026-11-15.html”) sunt ale Spaniei.
+                val code = f.name.split('-').getOrNull(1)?.takeIf { c -> c.any { !it.isDigit() } } ?: FutbolEnLaTv.SPAIN.code
+                val site = FutbolEnLaTv.site(code)?.takeIf { it.code in sites } ?: return@forEach
+                events += parsed(f) { FutbolEnLaTv.parse(it, day, site) }
             }
         }
         if (s.liveOnSatEnabled) {
@@ -822,12 +908,18 @@ class SportsRepository(
                 val day = DAY_IN_NAME.find(f.name)?.value?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                 events += when {
                     f.name.startsWith("espn-") -> {
-                        val league = f.name.split('-').getOrNull(1)?.let { n -> UsLeagues.League.entries.firstOrNull { it.name == n } }
-                        if (league == null || league.sport !in s.sports) emptyList() else parsed(f) { UsLeagues.parseEspn(it, league) }
+                        val league = f.name.split('-').getOrNull(1)?.let(Espn::league)
+                        if (league == null || league.sport !in s.sports) emptyList() else parsed(f) { Espn.parse(it, league, day) }
                     }
                     f.name.startsWith("nhl-") -> if (Sport.ICE_HOCKEY in s.sports) parsed(f) { UsLeagues.parseNhl(it, day) } else emptyList()
                     else -> if (Sport.BASEBALL in s.sports) parsed(f) { UsLeagues.parseMlb(it) } else emptyList()
                 }
+            }
+        }
+        if (s.euroLeagueEnabled && Sport.BASKETBALL in s.sports) {
+            files.filter { it.name.startsWith("euroleague-") && it.name.endsWith(".json") }.forEach { f ->
+                val c = EuroLeague.Competition.entries.firstOrNull { it.code == f.name.split('-').getOrNull(1) } ?: return@forEach
+                events += parsed(f) { EuroLeague.parse(it, c) }
             }
         }
         val tv = if (!s.sportsDbEnabled || !s.sportsDbTv) emptyList() else files.filter { it.name.startsWith("tv-") && it.name.endsWith(".json") }
@@ -874,6 +966,22 @@ class SportsRepository(
             if (!touched) e else { changed = true; e.copy(sources = sources, summary = MatchSources.summary(sources)) }
         }
         return if (changed) s.copy(matches = matches) else s
+    }
+
+    /**
+     * Meciul ESPN pentru [match] („EPL-401879243”), pentru Pre-meci și Live: din id, altfel din programul ESPN deja
+     * descărcat (aceleași echipe, ora apropiată). Fără rețea.
+     */
+    fun espnEventFor(match: Match): String? {
+        if (match.id.startsWith(Espn.PROVIDER + ":")) {
+            return match.id.substringAfter(':').substringBefore('#').takeIf { Espn.splitId(it) != null }
+        }
+        if (match.away.isBlank()) return null
+        val candidates = parsedFiles.entries.asSequence()
+            .filter { File(it.key).name.startsWith("espn-") }
+            .flatMap { it.value.second.asSequence() }
+            .toList()
+        return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
     }
 
     /** Recalculează doar dacă s-a schimbat ceva de la ultimul calcul (sau de la lista salvată). */
@@ -1017,6 +1125,13 @@ class SportsRepository(
         val index = stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }
         val finder = SourceFinder(index, knowledge.current)
 
+        // C3: ce meci arată EPG-ul fiecărui canal (cheia de grupare) și când; un post anunțat care arată alt meci nu e sursă probabilă.
+        val busy = HashMap<String, MutableList<BusyChannels.Slot>>()
+        for (m in matches) for (b in m.broadcasts) {
+            channelsByEpg[b.epgChannelId].orEmpty().mapNotNull { epgChannels[it]?.groupKey }.distinct().forEach { key ->
+                busy.getOrPut(key) { ArrayList() } += BusyChannels.Slot(b.start, b.stop, m.id)
+            }
+        }
         val foundByMatch = HashMap<String, List<FoundSource>>()
         val allKeys = HashSet<String>()
         val unmatched = HashMap<String, Int>()
@@ -1026,7 +1141,7 @@ class SportsRepository(
                 .mapNotNull { epgChannels[it]?.groupKey }.toSet()
             val eventKeys = m.eventChannels.mapNotNull { slotChannels[it]?.groupKey }.toSet()
             val dedicatedKeys = DedicatedChannels.seriesOfMatch(m)?.let { scan.dedicated[it] }.orEmpty()
-            val found = finder.find(m, epgKeys, eventKeys, dedicatedKeys)
+            val found = BusyChannels.adjust(m, finder.find(m, epgKeys, eventKeys, dedicatedKeys), busy)
             foundByMatch[m.id] = found
             found.forEach { allKeys += it.groupKey }
             if (m.status != MatchStatus.FINISHED) {
@@ -1115,12 +1230,20 @@ class SportsRepository(
         buildString {
             appendLine("### Setări Sports Hub")
             appendLine("- TheSportsDB: ${s.sportsDbEnabled} (cheie ${if (s.sportsDbKey == TheSportsDb.DEFAULT_KEY) "gratuită" else "proprie"}, posturi TV ${s.sportsDbTv}), zile cerute ${s.daysAhead}")
-            appendLine("- LiveSoccerTV ${s.liveSoccerTvEnabled} · Sofascore ${s.sofascoreEnabled} (posturi ${s.sofascoreTv}) · FutbolEnLaTV ${s.futbolEnLaTvEnabled} · LiveOnSat ${s.liveOnSatEnabled} · FotMob ${s.fotMobEnabled} · ligi SUA ${s.usLeaguesEnabled}")
+            appendLine("- LiveSoccerTV ${s.liveSoccerTvEnabled} · Sofascore ${s.sofascoreEnabled} (posturi ${s.sofascoreTv}) · FutbolEnLaTV ${s.futbolEnLaTvEnabled} · LiveOnSat ${s.liveOnSatEnabled} · FotMob ${s.fotMobEnabled} · ESPN/NHL/MLB ${s.usLeaguesEnabled} · EuroLeague ${s.euroLeagueEnabled}")
+            appendLine("- TheSportsDB cerut doar pentru: ${(if (s.usLeaguesEnabled) ProviderPolicy.sportsDbSports(s.sports) else s.sports).joinToString(", ") { it.name }.ifEmpty { "—" }}")
             appendLine("- Sporturi: ${s.sports.joinToString(", ") { it.name }}")
             appendLine("- Canale EVENT ${s.eventChannels}, fus EVENT „${s.eventZone}”")
             val countries = runCatching { playlistCountries() }.getOrDefault(emptySet())
             appendLine("- Țările canalelor (prefixe): ${countries.sorted().joinToString(", ").ifEmpty { "—" }}; America de Nord: ${countries.any { it in NORTH_AMERICA }}")
-            appendLine("- FotMob cere țările: ${FotMob.countriesFor(countries).joinToString(", ").ifEmpty { "—" }}")
+            appendLine("- FotMob cere țările: ${FotMob.countriesFor(countries).joinToString(", ").ifEmpty { "—" }}; FutbolEnLaTV: es${FutbolEnLaTv.sitesFor(countries).joinToString("") { ", " + it.code }}")
+            val cals = Espn.leaguesFor(s.sports).map { l -> l to runCatching { File(dir, "espncal-${l.key}.txt").readText() }.getOrNull() }
+            val today = Espn.today()
+            appendLine(
+                "- ESPN: ${cals.size} ligi; fără calendar ${cals.count { it.second == null }}, inexistente ${cals.count { it.second == CAL_MISSING }}; " +
+                    "cu meciuri azi/mâine: " + cals.filter { (_, t) -> Espn.Calendar.decode(t)?.let { c -> !c.unknown && (c.has(today) || c.has(today.plusDays(1))) } == true }
+                    .joinToString(", ") { it.first.key }.ifEmpty { "—" },
+            )
             appendLine()
             appendLine("### Lista")
             appendLine("- ${snap.matches.size} meciuri (calculat ${utc.format(java.time.Instant.ofEpochMilli(snap.computedAt))} UTC), cu sursă găsită ${snap.matches.count { it.summary.sure > 0 }}, cu orice sursă ${snap.matches.count { it.summary.count > 0 }}")
@@ -1137,7 +1260,7 @@ class SportsRepository(
             appendLine("| furnizor | nivel | ok | eșuate | meciuri | ultima reușită | pauză | ultima eroare |")
             appendLine("|---|---|---|---|---|---|---|---|")
             val known = listOf(
-                TheSportsDb.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API, FutbolEnLaTv.PROVIDER,
+                UsLeagues.ESPN, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, TheSportsDb.PROVIDER, FutbolEnLaTv.PROVIDER,
                 LiveOnSat.PROVIDER, LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
             )
             val health = _health.value
@@ -1211,9 +1334,11 @@ class SportsRepository(
         val cache = extractCache
         if (cache.size > MAX_EXTRACT_CACHE) cache.clear()
         return rows.mapNotNull { r ->
-            val b = EpgBroadcast(r.id, r.epgChannelId, r.start, r.stop, r.title, r.subtitle, null, r.category)
             val sport = r.epgChannelId in sportEpg
-            val key = ExtractKey(r.title, r.subtitle, r.category, sport)
+            // Prima linie a descrierii contează doar pe canalele de sport (C4).
+            val desc = if (sport) r.descriptionHead?.lineSequence()?.firstOrNull()?.takeIf { it.length <= 80 } else null
+            val b = EpgBroadcast(r.id, r.epgChannelId, r.start, r.stop, r.title, r.subtitle, desc, r.category)
+            val key = ExtractKey(r.title, r.subtitle, r.category, sport, desc)
             val x = if (cache.containsKey(key)) {
                 cache[key]
             } else {
@@ -1225,7 +1350,7 @@ class SportsRepository(
     }
 
     /** Ce contează pentru recunoașterea unui meci într-o emisiune (titlul se repetă pe multe canale și zile). */
-    private data class ExtractKey(val title: String, val subtitle: String?, val category: String?, val sport: Boolean)
+    private data class ExtractKey(val title: String, val subtitle: String?, val category: String?, val sport: Boolean, val description: String?)
 
     /** Folosit doar sub computeMutex (calculul listei), deci fără sincronizare. */
     private val extractCache = HashMap<ExtractKey, ExtractedMatch?>()
@@ -1336,10 +1461,18 @@ class SportsRepository(
         const val TOO_MANY_GAP_MS = 60_000L
         /** TheSportsDB gratuit: cel mult ~30 de cereri pe minut; aici ~15. */
         const val SPORTSDB_GAP_MS = 4_000L
+        /** ESPN: API deschis pe CDN, răspunsuri mici; o cerere pe secundă. */
+        const val ESPN_GAP_MS = 1_000L
+        /** Calendarul unei ligi ESPN se reîmprospătează cam o dată pe săptămână. */
+        val CAL_REFRESH_MS = TimeUnit.DAYS.toMillis(7)
+        /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
+        val CAL_MISSING_MS = TimeUnit.DAYS.toMillis(30)
+        const val CAL_MISSING = "missing"
         val ROUND_MS = TimeUnit.MINUTES.toMillis(10)
         val WINDOW_BACK_MS = TimeUnit.HOURS.toMillis(12)
         val BROADCAST_BACK_MS = TimeUnit.HOURS.toMillis(30)
         const val RECOMPUTE_EVERY = 8
+        const val ESPN_RECOMPUTE_EVERY = 30
         val NEAR_AHEAD_MS = TimeUnit.HOURS.toMillis(36)
         val NEAR_RELOAD_MS = TimeUnit.HOURS.toMillis(1)
         val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
@@ -1347,7 +1480,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 2
+        const val INPUTS_VERSION = 3
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
@@ -1406,7 +1539,8 @@ fun providerOf(url: String): String {
         "thesportsdb" in u -> TheSportsDb.PROVIDER
         "livesoccertv" in u -> "livesoccertv"
         "sofascore" in u -> "sofascore"
-        "futbolenlatv" in u -> FutbolEnLaTv.PROVIDER
+        FutbolEnLaTv.isSite(u) -> FutbolEnLaTv.PROVIDER
+        "euroleague" in u -> EuroLeague.PROVIDER
         "liveonsat" in u -> LiveOnSat.PROVIDER
         "fotmob" in u -> FotMob.PROVIDER
         "espn.com" in u -> UsLeagues.ESPN
@@ -1424,6 +1558,7 @@ fun providerLabel(provider: String): String = when (provider) {
     LiveOnSat.PROVIDER -> "LiveOnSat"
     FotMob.PROVIDER -> "FotMob"
     UsLeagues.ESPN -> "ESPN"
+    EuroLeague.PROVIDER -> "EuroLeague"
     UsLeagues.NHL_API -> "NHL"
     UsLeagues.MLB_API -> "MLB"
     else -> provider

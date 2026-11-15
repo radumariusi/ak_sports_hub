@@ -19,6 +19,8 @@ object EpgMatchExtractor {
         "replica", "differita", "sintesi", "repeticion", "repetición", "diferido", "resumen", "rediffusion", "differe",
         "différé", "resume", "résumé", "wiederholung", "zusammenfassung", "aufzeichnung", "reprise", "resumo",
         "powtorka", "powtórka", "retransmisja", "skrot", "skrót", "(rpt)", "(replay)", "(rep)",
+        // Studio înainte și după meci (C4).
+        "pre match", "prematch", "post match", "postmatch", "build up", "countdown", "reaction", "debrief", "kick off show",
     )
     private val strongSeparators = listOf(
         Regex("""\s+(?i:vs\.?|v\.?)\s+"""),
@@ -37,10 +39,33 @@ object EpgMatchExtractor {
      * @return meciul citit din emisiune, sau null dacă nu arată a meci.
      */
     fun extract(b: EpgBroadcast, channelIsSport: Boolean): ExtractedMatch? {
+        if (nonEvent(b.category)) return null
         if (datedEarlier(b.title, b.start) || b.subtitle?.let { datedEarlier(it, b.start) } == true) return null
         val title = withoutDate(b.title)
         return extract(title, b.category, channelIsSport, context = null)
             ?: b.subtitle?.let { extract(withoutDate(it), b.category, channelIsSport, context = title) }
+            ?: descriptionLine(b, channelIsSport)?.let { extract(it, b.category, channelIsSport, context = title) }
+    }
+
+    /** Categoria spune că nu e o transmisie („Sports non-event”, „Sport magazine”, „Talk”). */
+    fun nonEvent(category: String?): Boolean {
+        val c = category?.let { " " + Sport.fold(it) + " " } ?: return false
+        return nonEventCategories.any { c.contains(it) }
+    }
+
+    private val nonEventCategories = listOf(" non event ", " nonevent ", " sports magazine ", " sport magazine ", " talk ", " news ")
+
+    /**
+     * Prima linie a descrierii, ca subtitlu: multe EPG-uri pun acolo echipele („Arsenal v Chelsea”) sub un titlu
+     * generic („Premier League Football”). Doar pe canalele de sport, doar un rând scurt cu „v”, „vs” sau „@”
+     * (o frază din descriere nu e un meci).
+     */
+    private fun descriptionLine(b: EpgBroadcast, channelIsSport: Boolean): String? {
+        if (!channelIsSport) return null
+        val line = b.description?.trim()?.lineSequence()?.firstOrNull()?.trim()?.trimEnd('.') ?: return null
+        if (line.length !in 5..70 || datedEarlier(line, b.start)) return null
+        if (strongSeparators.none { it.containsMatchIn(line) }) return null
+        return withoutDate(line)
     }
 
     /** O dată în titlu („Norway - Wales 14/11/26”, „15.11.2026”). */
@@ -131,7 +156,7 @@ object EpgMatchExtractor {
         val categoryIsSport = b.category != null && Sport.fold(b.category).let { c -> SPORT_CATEGORY.any { c.contains(it) } }
         val categorySport = Sport.detect(b.category)
         if (!channelIsSport && !categoryIsSport && categorySport == null) return null
-        if (datedEarlier(b.title, b.start)) return null
+        if (nonEvent(b.category) || datedEarlier(b.title, b.start)) return null
         val raw = withoutDate(b.title).trim()
         if (raw.isEmpty()) return null
         val folded = Sport.fold(raw)

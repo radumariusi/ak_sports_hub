@@ -137,7 +137,7 @@ fun SettingsScreen(
         item {
             ListRow(
                 title = "Sports Hub",
-                subtitle = "Limbi preferate, prag de calitate, TheSportsDB, sporturi, echipe și competiții favorite",
+                subtitle = "Limbi preferate, prag de calitate, furnizori de meciuri, sporturi, echipe și competiții favorite",
                 onClick = { returnFocus.clicked("sports"); onOpenSportsSettings() },
                 modifier = returnFocus.on("sports"),
                 trailing = { Text(text = languages + " · " + sports.sourcePreferences.goodQuality.label + "+", fontSize = 14.sp) },
