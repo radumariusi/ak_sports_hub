@@ -241,7 +241,7 @@ fun SportsHubScreen(
                         hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
                         prefs = settings.sourcePreferences,
                         zone = zone,
-                        modifier = Modifier.width(400.dp).fillMaxHeight().padding(bottom = 8.dp),
+                        modifier = Modifier.width(360.dp).fillMaxHeight().padding(bottom = 8.dp),
                     )
                 }
             }
@@ -329,7 +329,7 @@ private fun MatchRow(
     val count = entry.summary.count
     ListRow(
         title = title,
-        titleSize = 20.sp,
+        titleSize = 19.sp,
         subtitle = listOfNotNull(
             if (showDay) start.format(DayFormat) else null,
             m.sport?.label,
@@ -357,20 +357,19 @@ private fun MatchRow(
             // Meci terminat cu arhivă pe o sursă: se poate vedea ca reluare (niciodată marcat drept live).
             if (m.status == MatchStatus.FINISHED && entry.hasReplay(System.currentTimeMillis())) Badge(text = "RELUARE", color = AkColors.Focus)
             if (count > 0) QualityBadge(entry.summary.best)
+            // Pe scurt, ca titlul să încapă; presupusele se văd în panoul din dreapta.
             Text(
-                text = when (count) {
-                    0 -> "fără surse"
-                    1 -> "1 sursă"
+                text = when {
+                    count == 0 -> "fără surse"
+                    entry.summary.sure == 0 -> "$count presup."
+                    count == 1 -> "1 sursă"
                     else -> "$count surse"
-                } + when (val guesses = count - entry.summary.sure) {
-                    0 -> ""
-                    count -> if (count == 1) " presupusă" else " presupuse"
-                    else -> " ($guesses presupuse)"
                 },
                 fontSize = 15.sp,
+                maxLines = 1,
                 color = if (count == 0 || entry.summary.sure == 0) dimText() else LocalContentColor.current,
                 textAlign = TextAlign.End,
-                modifier = Modifier.padding(start = 12.dp).width(150.dp),
+                modifier = Modifier.padding(start = 10.dp).width(92.dp),
             )
         },
     )
@@ -406,8 +405,8 @@ private fun MatchPreviewPanel(
     Column(
         modifier = modifier
             .background(AkColors.Panel, RoundedCornerShape(16.dp))
-            .padding(horizontal = 24.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 22.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = listOfNotNull(m.sport?.label, m.competition, m.venue).joinToString(" · "),
@@ -419,8 +418,8 @@ private fun MatchPreviewPanel(
             listOf(m.home, m.away).filter { it.isNotBlank() }.forEach { team ->
                 Text(
                     text = team,
-                    fontSize = 32.sp,
-                    lineHeight = 34.sp,
+                    fontSize = 27.sp,
+                    lineHeight = 29.sp,
                     fontFamily = AkFonts.Condensed,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -431,16 +430,17 @@ private fun MatchPreviewPanel(
             val score = !hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED
             Text(
                 text = if (score) "${m.homeScore} – ${m.awayScore}" else start.format(TimeFormat),
-                fontSize = 34.sp,
+                fontSize = 30.sp,
                 fontFamily = AkFonts.Condensed,
                 fontWeight = FontWeight.Bold,
                 color = if (m.isLive) AkColors.Live else AkColors.Text,
             )
             Text(
                 text = (if (score) start.format(TimeFormat) + " · " else "") + Countdown.text(m.start, now, m.status),
-                fontSize = 17.sp,
+                fontSize = 15.sp,
                 color = AkColors.TextDim,
-                modifier = Modifier.padding(start = 12.dp, bottom = 5.dp),
+                maxLines = 2,
+                modifier = Modifier.padding(start = 10.dp, bottom = 4.dp),
             )
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(AkColors.Divider))
@@ -450,15 +450,22 @@ private fun MatchPreviewPanel(
         }
         best.forEach { s ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = s.channel.name, fontSize = 18.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                Text(text = s.channel.name, fontSize = 16.sp, maxLines = 1, modifier = Modifier.weight(1f))
                 Text(text = s.confidence.short(), fontSize = 14.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 8.dp))
                 VariantQualityBadge(s.channel.playlistId, s.channel.name, s.channel.quality)
             }
         }
         val more = entry.summary.count - best.size
-        if (more > 0) Text(text = "+ încă $more " + (if (more == 1) "sursă" else "surse"), fontSize = 15.sp, color = AkColors.TextDim)
+        val guesses = entry.summary.count - entry.summary.sure
+        if (more > 0) {
+            Text(
+                text = "+ încă $more " + (if (more == 1) "sursă" else "surse") + (if (guesses > 0) " · $guesses presupuse în total" else ""),
+                fontSize = 14.sp,
+                color = AkColors.TextDim,
+            )
+        }
         Spacer(Modifier.weight(1f))
-        Text(text = "OK deschide meciul: surse, pre-meci, live", fontSize = 15.sp, color = AkColors.TextDim)
+        Text(text = "OK deschide meciul: surse, pre-meci, live", fontSize = 14.sp, color = AkColors.TextDim)
     }
 }
 
