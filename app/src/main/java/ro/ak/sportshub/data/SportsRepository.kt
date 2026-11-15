@@ -128,6 +128,10 @@ class SportsRepository(
     private val scope: CoroutineScope,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports")
+    /** A doua încercare, ca un browser, pentru site-urile care refuză clientul HTTP (403). */
+    private val browser = WebViewFetcher(context)
+    /** Furnizorii care au răspuns 429 în runda curentă: cererile lor rămase se amână la runda următoare. */
+    private val throttled = HashSet<String>()
     private val fetchMutex = Mutex()
     private val computeMutex = Mutex()
     private val started = AtomicBoolean(false)
@@ -224,6 +228,8 @@ class SportsRepository(
 
     private suspend fun fetch(s: SportsSettings, force: Boolean): Boolean {
         dir.mkdirs()
+        throttled.clear()
+        sofascoreWarmed = false
         val today = LocalDate.now(ZoneOffset.UTC)
         cleanup(today.minusDays(1))
         var changed = false
@@ -267,19 +273,50 @@ class SportsRepository(
         var ok = 0
         var failed = 0
         jobs.forEachIndexed { i, job ->
+            val provider = providerOf(job.url)
+            // După un 429 repetat, furnizorul nu mai e întrebat în runda asta: rămân datele salvate.
+            if (provider in throttled) return@forEachIndexed
             _status.value = "$label (${i + 1}/${jobs.size})…"
             var result = download(job)
+            // Refuz anti-robot: a doua încercare printr-un browser adevărat (WebView).
+            if (result is Download.Failed && result.blocked) result = viaBrowser(job, result)
             // Prea multe cereri sau serverul ocupat: o singură reîncercare, după o pauză lungă.
             if (result is Download.Failed && result.retry) {
-                delay(RETRY_GAP_MS)
+                delay(if (result.tooMany) TOO_MANY_GAP_MS else RETRY_GAP_MS)
                 result = download(job)
+                if (result is Download.Failed && result.tooMany) throttled += provider
             }
-            record(providerOf(job.url), result)
+            record(provider, result)
             if (result == Download.Ok) ok++ else failed++
-            if (i < jobs.lastIndex) delay(REQUEST_GAP_MS) // cereri rare, una câte una
+            if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
         return ok to failed
     }
+
+    /** TheSportsDB (cheia gratuită) are o limită pe minut: cererile lui se răresc mai mult. */
+    private fun gapFor(provider: String): Long = if (provider == TheSportsDb.PROVIDER) SPORTSDB_GAP_MS else REQUEST_GAP_MS
+
+    /** Cererea refuzată, încercată din nou într-un WebView; pentru Sofascore, întâi o vizită pe site (cookie-uri). */
+    private suspend fun viaBrowser(job: Job, first: Download.Failed): Download {
+        val isHtml = job.html != null
+        val accept: (String) -> Boolean = { text ->
+            if (isHtml) job.html!!.invoke(text) else text.trimStart().let { it.startsWith("{") || it.startsWith("[") }
+        }
+        if (job.url.contains("sofascore") && !sofascoreWarmed) {
+            sofascoreWarmed = true
+            browser.fetch("https://www.sofascore.com/", html = true, accept = { it.length > 1000 })
+        }
+        return when (val r = browser.fetch(job.url, isHtml, accept)) {
+            is WebViewFetcher.Result.Ok -> {
+                save(job.file, r.text)
+                Download.Ok
+            }
+            is WebViewFetcher.Result.Failed -> Download.Failed("${first.reason}; și prin browser: ${r.reason}")
+        }
+    }
+
+    @Volatile
+    private var sofascoreWarmed = false
 
     private fun record(provider: String, result: Download) {
         _health.update { all ->
@@ -430,7 +467,14 @@ class SportsRepository(
 
     private sealed interface Download {
         data object Ok : Download
-        data class Failed(val reason: String, val retry: Boolean = false) : Download
+        data class Failed(
+            val reason: String,
+            val retry: Boolean = false,
+            /** Refuz anti-robot (403): se poate încerca printr-un browser. */
+            val blocked: Boolean = false,
+            /** HTTP 429: prea multe cereri. */
+            val tooMany: Boolean = false,
+        ) : Download
     }
 
     private fun download(job: Job): Download = try {
@@ -449,24 +493,24 @@ class SportsRepository(
             .build()
         http.newCall(request).execute().use { r ->
             if (!r.isSuccessful) {
-                return Download.Failed(httpReason(r.code), retry = r.code == 429 || r.code >= 500)
+                return Download.Failed(
+                    httpReason(r.code),
+                    retry = r.code == 429 || r.code >= 500,
+                    blocked = r.code == 403,
+                    tooMany = r.code == 429,
+                )
             }
             val body = r.body?.string() ?: return Download.Failed("răspuns gol")
             // O pagină de eroare (sau de verificare anti-robot) nu înlocuiește fișierul bun de dinainte.
             if (job.html != null) {
-                if (!job.html.invoke(body)) return Download.Failed("pagină de verificare anti-robot sau cu alt format")
+                if (!job.html.invoke(body)) return Download.Failed("pagină de verificare anti-robot sau cu alt format", blocked = true)
             } else {
                 val trimmed = body.trimStart()
                 if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
                     return Download.Failed(if (trimmed.isEmpty()) "răspuns gol" else "răspunsul nu e JSON (limită sau cheie)", retry = true)
                 }
             }
-            val tmp = File(target.parentFile, target.name + ".tmp")
-            tmp.writeText(body)
-            if (!tmp.renameTo(target)) {
-                target.delete()
-                tmp.renameTo(target)
-            }
+            save(target, body)
             Download.Ok
         }
     } catch (e: java.net.UnknownHostException) {
@@ -477,6 +521,16 @@ class SportsRepository(
         Download.Failed("eroare de conexiune securizată (SSL)")
     } catch (e: Exception) {
         Download.Failed("eroare de rețea (${e.javaClass.simpleName})")
+    }
+
+    /** Scrie fișierul printr-unul temporar, ca o eroare la mijloc să nu strice fișierul bun. */
+    private fun save(target: File, body: String) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        tmp.writeText(body)
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            tmp.renameTo(target)
+        }
     }
 
     private fun httpReason(code: Int): String = when (code) {
@@ -711,6 +765,10 @@ class SportsRepository(
         val FRESH_FAR_MS = TimeUnit.HOURS.toMillis(12)
         const val REQUEST_GAP_MS = 2_500L
         const val RETRY_GAP_MS = 15_000L
+        /** După un 429: limita TheSportsDB e pe minut. */
+        const val TOO_MANY_GAP_MS = 60_000L
+        /** TheSportsDB gratuit: cel mult ~30 de cereri pe minut; aici ~15. */
+        const val SPORTSDB_GAP_MS = 4_000L
         val ROUND_MS = TimeUnit.MINUTES.toMillis(10)
         val WINDOW_BACK_MS = TimeUnit.HOURS.toMillis(12)
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
