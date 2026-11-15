@@ -158,6 +158,13 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private var pendingSeekMs = 0L
 
     init {
+        // Cadrele pe secundă măsurate din orele cadrelor redate, când stream-ul nu le declară (TS de IPTV):
+        // fără ele, potrivirea frecvenței ecranului nu avea ce potrivi, iar 50 fps pe 60 Hz sacadează.
+        player.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+            fpsMeter.add(presentationTimeUs)?.let { measured ->
+                _state.update { if (it.frameRate == null) it.copy(frameRate = measured) else it }
+            }
+        }
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) = onState(playbackState)
             override fun onPlayerError(error: PlaybackException) = onError(error)
@@ -368,6 +375,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
     // ---------- rezoluția văzută la redare ----------
 
+    private val fpsMeter = ro.ak.sportshub.core.common.FpsMeter()
+
     /** Cea mai bună rezoluție văzută în sesiunea curentă (la HLS adaptiv, primele secunde pot fi mai mici). */
     private var sessionBest: ObservedVideo? = null
 
@@ -382,8 +391,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
         val w = if (f.width > 0) f.width else size.width
         val h = if (f.height > 0) f.height else size.height
         if (w <= 0 || h <= 0) return
-        val fps = ObservedQuality.cleanFps(f.frameRate)
-        if (fps != _state.value.frameRate) _state.update { it.copy(frameRate = fps) }
+        val fps = ObservedQuality.cleanFps(f.frameRate) ?: fpsMeter.fps
+        if (fps != null && fps != _state.value.frameRate) _state.update { it.copy(frameRate = fps) }
         val seen = ObservedVideo(w, h, fps, System.currentTimeMillis())
         val best = sessionBest
         if (best != null && best.height * best.width > w * h) return
@@ -437,6 +446,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             failover = FailoverPlan(variantOrder.map { it.id }, channel.id)
         }
         sessionBest = null
+        fpsMeter.reset()
         _state.update {
             it.copy(
                 channel = channel,

@@ -127,4 +127,34 @@ class FewerMissesTest {
         assertEquals("Engleză și română", LanguageGroups.label(LanguageGroup.PREFERRED, pref))
         assertFalse(LanguageGroups.label(LanguageGroup.EUROPEAN, pref).isEmpty())
     }
+
+    @Test
+    fun `meciul feminin scris diferit de doi furnizori e unul singur`() {
+        val t = 1_763_200_000_000L
+        val a = SportEvent("espn", "1", "Soccer", "Women's Super League", "Arsenal", "London City", t, null)
+        val b = SportEvent("livesoccertv", "x", "Soccer", null, "Arsenal Frauen", "London City Lionesses", t + 5 * 60_000L, null)
+        assertEquals(1, MatchAssembler.dedupe(listOf(a, b)).size)
+        // Echipa mare și cea feminină rămân diferite în afara competițiilor feminine.
+        val men = SportEvent("espn", "2", "Soccer", "Premier League", "Arsenal", "Chelsea", t, null)
+        val women = SportEvent("livesoccertv", "y", "Soccer", null, "Arsenal Women", "Chelsea Women", t, null)
+        assertEquals(2, MatchAssembler.dedupe(listOf(men, women)).size)
+    }
+
+    @Test
+    fun `naționalele scrise în alte limbi sunt același meci`() {
+        val t = 1_763_230_000_000L
+        val list = listOf(
+            SportEvent("espn", "1", "Soccer", "UEFA Nations League", "Belarus", "Albania", t, null),
+            SportEvent("futbolenlatv", "2", "Soccer", "UEFA Nations League Fase de Liga", "Bielorrusia", "Albania", t, null),
+            SportEvent("livesoccertv", "3", "Soccer", "UEFA Nations League", "Weißrussland", "Albanien", t + 60_000L, null),
+            SportEvent("espn", "4", "Soccer", "UEFA Nations League", "Finland", "San Marino", t, null),
+            SportEvent("futbolenlatv", "5", "Soccer", null, "Finlandia", "San Marino", t, null),
+            SportEvent("livesoccertv", "6", "Soccer", null, "Finnland", "San Marino", t, null),
+            SportEvent("futbolenlatv", "7", "Soccer", null, "Alemania", "España", t, null),
+            SportEvent("livesoccertv", "8", "Soccer", null, "Deutschland", "Spanien", t, null),
+        )
+        assertEquals(3, MatchAssembler.dedupe(list).size)
+        assertTrue(TeamNames.same("Weißrussland", "Belarus"))
+        assertTrue(TeamNames.same("Türkiye", "Turquía"))
+    }
 }

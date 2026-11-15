@@ -40,7 +40,7 @@ object TeamNames {
         "rapid" to "rapid bucuresti", "dinamo" to "dinamo bucuresti",
         "sporting" to "sporting cp", "sporting lisbon" to "sporting cp", "benfica lisbon" to "benfica",
         "porto" to "fc porto", "ajax amsterdam" to "ajax", "psv eindhoven" to "psv",
-    )
+    ) + NationNames.aliases
 
     /**
      * Alias-urile tale (din dicționar), deja normalizate: alias → nume. Au prioritate față de cele încorporate.
@@ -168,6 +168,19 @@ object TeamNames {
         (same(home1, home2) && same(away1, away2)) || (same(home1, away2) && same(away1, home2))
 
     /** Aceeași pereche de echipe, în orice ordine (EPG-urile le inversează uneori). */
+    private val womenWords = setOf("women", "womens", "woman", "w", "feminin", "femenino", "femminile", "fem", "ladies", "frauen", "lionesses", "wfc")
+    private val womenCompetition = Regex("""\b(women|womens|feminin\w*|femenin\w*|femminile|frauen\w*|ladies|wsl|nwsl|liga f)\b""")
+
+    /** Competiția e feminină („Women's Super League”, „Bundesliga Frauen”, „Liga F”)? */
+    fun isWomenCompetition(competition: String?): Boolean =
+        competition != null && womenCompetition.containsMatchIn(Sport.fold(competition))
+
+    /** Numele are semnul echipei feminine („Arsenal Women”, „Bayern Frauen”)? */
+    fun isWomenTeam(name: String): Boolean = Sport.fold(name).split(' ').any { it in womenWords }
+
+    /** Numele fără cuvintele care arată echipa feminină: „Arsenal Frauen” → „Arsenal”. */
+    fun withoutWomen(name: String): String = Sport.fold(name).split(' ').filter { it.isNotEmpty() && it !in womenWords }.joinToString(" ")
+
     fun samePair(home1: String, away1: String, home2: String, away2: String): Boolean =
         (same(home1, home2) && same(away1, away2)) || (same(home1, away2) && same(away1, home2))
 }

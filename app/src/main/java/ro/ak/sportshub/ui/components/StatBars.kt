@@ -40,11 +40,11 @@ import ro.ak.sportshub.ui.theme.AkFonts
  * stânga, a oaspeților în dreapta și bara care arată cine domină. Rândurile primesc focus, ca lista să se deruleze
  * cu telecomanda.
  */
-fun LazyListScope.groupedStats(stats: List<StatLine>, keyPrefix: String, home: String, away: String, title: String? = null) {
+fun LazyListScope.groupedStats(stats: List<StatLine>, keyPrefix: String, home: String, away: String, title: String? = null, compact: Boolean = false) {
     if (stats.isEmpty()) return
     if (title != null) item(key = "$keyPrefix-title") { SectionLabel(title) }
     statTeams(home, away, keyPrefix)
-    statGroups(StatGroups.group(stats), keyPrefix)
+    statGroups(StatGroups.group(stats), keyPrefix, compact)
 }
 
 /** Rândul cu numele echipelor deasupra statisticilor (gazdele în stânga, cu chihlimbar). */
@@ -58,23 +58,26 @@ fun LazyListScope.statTeams(home: String, away: String, keyPrefix: String) {
 }
 
 /** Doar grupurile date (pentru două coloane: o parte din grupuri în stânga, restul în dreapta). */
-fun LazyListScope.statGroups(groups: List<StatGroups.Group>, keyPrefix: String) {
+fun LazyListScope.statGroups(groups: List<StatGroups.Group>, keyPrefix: String, compact: Boolean = false) {
     groups.forEach { g ->
         item(key = "$keyPrefix-g-${g.title}") {
             Text(
                 text = g.title.uppercase(),
-                fontSize = 12.sp,
+                fontSize = if (compact) 10.sp else 12.sp,
                 letterSpacing = 1.5.sp,
-                color = AkColors.TextDim,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                color = AkColors.Accent.copy(alpha = 0.8f),
+                modifier = Modifier.padding(start = 16.dp, top = if (compact) 3.dp else 8.dp, bottom = if (compact) 0.dp else 2.dp),
             )
         }
-        items(g.rows, key = { "$keyPrefix-${g.title}-${it.line.name}" }) { r -> StatBarRow(r) }
+        items(g.rows, key = { "$keyPrefix-${g.title}-${it.line.name}" }) { r -> StatBarRow(r, compact) }
     }
 }
 
 @Composable
-private fun StatBarRow(r: StatGroups.Row) {
+private fun StatBarRow(r: StatGroups.Row, compact: Boolean = false) {
+    // Mărunt (tabul Statistici, Pre): toate grupurile încap pe o pagină, pe două coloane.
+    val valueSize = if (compact) 13.sp else 16.sp
+    val nameSize = if (compact) 11.sp else 14.sp
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = {},
@@ -90,14 +93,14 @@ private fun StatBarRow(r: StatGroups.Row) {
         ),
     ) {
         CompositionLocalProvider(LocalOnFocus provides focused) {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 1.dp else 5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val share = r.homeShare
                     val homeLeads = share != null && share > 0.5f
                     val awayLeads = share != null && share < 0.5f
                     Text(
                         text = r.line.home,
-                        fontSize = 16.sp,
+                        fontSize = valueSize,
                         fontFamily = AkFonts.Condensed,
                         fontWeight = if (homeLeads) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
@@ -106,7 +109,7 @@ private fun StatBarRow(r: StatGroups.Row) {
                     )
                     Text(
                         text = r.line.name,
-                        fontSize = 14.sp,
+                        fontSize = nameSize,
                         color = dimText(),
                         textAlign = TextAlign.Center,
                         maxLines = 1,
@@ -114,7 +117,7 @@ private fun StatBarRow(r: StatGroups.Row) {
                     )
                     Text(
                         text = r.line.away,
-                        fontSize = 16.sp,
+                        fontSize = valueSize,
                         fontFamily = AkFonts.Condensed,
                         fontWeight = if (awayLeads) FontWeight.Bold else FontWeight.Normal,
                         textAlign = TextAlign.End,
@@ -125,7 +128,7 @@ private fun StatBarRow(r: StatGroups.Row) {
                 }
                 val share = r.homeShare
                 if (share != null) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = if (compact) 1.dp else 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         // Două jumătăți care pornesc din mijloc: bara gazdelor spre stânga, a oaspeților spre dreapta.
                         val top = maxOf(share, 1f - share).coerceAtLeast(0.0001f)
                         Bar(fraction = share / top, fromEnd = true, color = if (focused) Color(0xFF0B0F14) else AkColors.Accent, modifier = Modifier.weight(1f))

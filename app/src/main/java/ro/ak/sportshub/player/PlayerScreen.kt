@@ -865,7 +865,7 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                 if (fps != null && hz != null && PlaybackCheck.mismatch(fps, hz)) {
                     Text(text = "Cadrele nu se potrivesc cu ecranul: pornește „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
                 } else if (state.droppedFrames >= PlaybackCheck.MANY_DROPPED) {
-                    Text(text = "Multe cadre pierdute: încearcă „Imagine fluidă” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                    Text(text = "Multe cadre pierdute: pornește „Imagine fluidă” și „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
                 }
             }
         }
