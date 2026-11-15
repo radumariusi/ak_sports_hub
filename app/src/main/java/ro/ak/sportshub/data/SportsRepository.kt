@@ -204,17 +204,46 @@ class SportsRepository(
     /** Cum a mers ultima rundă de cereri la fiecare furnizor (cheia: [providerOf]) și câte meciuri a dat. */
     val health: StateFlow<Map<String, ProviderHealth>> = _health.asStateFlow()
 
-    val snapshot: StateFlow<SportsSnapshot> = _snapshot.asStateFlow()
+    /** Lista arătată: ca [_snapshot], cu scorul și starea întârziate cât stream-ul ([ScoreDelay]). */
+    private val _shown = MutableStateFlow(SportsSnapshot())
+    private val scoreDelay = ro.ak.sportshub.core.sports.ScoreDelay()
+
+    val snapshot: StateFlow<SportsSnapshot> = _shown.asStateFlow()
+
+    /** Reface lista arătată din cea calculată, cu întârzierea scorurilor din setări. */
+    private fun publishShown() {
+        val raw = _snapshot.value
+        val now = System.currentTimeMillis()
+        val delayMs = settings.settings.value.streamDelaySeconds * 1_000L
+        if (!raw.loading) scoreDelay.observe(raw.matches.map { it.match }, now)
+        var changed = false
+        val matches = raw.matches.map { e ->
+            val m = scoreDelay.apply(e.match, now, delayMs)
+            if (m === e.match) e else { changed = true; e.copy(match = m) }
+        }
+        _shown.value = if (changed) raw.copy(matches = matches) else raw
+    }
 
     /** Ce face acum („Se descarcă programul…”) sau ultima eroare; null dacă nimic. */
     val status: StateFlow<String?> = _status.asStateFlow()
 
-    fun find(id: String): MatchEntry? = _snapshot.value.matches.firstOrNull { it.match.id == id }
+    fun find(id: String): MatchEntry? = _shown.value.matches.firstOrNull { it.match.id == id }
 
     /** Pornește recalcularea la orice schimbare (EPG, playlisturi, corecții, setări) și la fiecare minut. */
     @OptIn(FlowPreview::class)
     fun start() {
         if (!started.compareAndSet(false, true)) return
+        // Lista arătată urmează lista calculată; cât o schimbare de scor își așteaptă întârzierea, la 5 s.
+        scope.launch {
+            merge(_snapshot.map { "list" }, settings.settings.map { it.streamDelaySeconds }.distinctUntilChanged().map { "delay" })
+                .collect { publishShown() }
+        }
+        scope.launch {
+            while (true) {
+                delay(DELAY_TICK_MS)
+                if (scoreDelay.pending(System.currentTimeMillis(), settings.settings.value.streamDelaySeconds * 1_000L)) publishShown()
+            }
+        }
         scope.launch {
             // Lista de data trecută apare imediat (și după ce Android a închis aplicația); se recalculează doar dacă
             // s-a schimbat ceva de atunci.
@@ -1752,6 +1781,9 @@ class SportsRepository(
 
         /** Zilele ESPN cerute: azi, mâine și restul săptămânii (tabul „Săptămâna asta”). */
         const val ESPN_DAYS = 7
+
+        /** Cât de des se verifică scorurile care își așteaptă întârzierea. */
+        const val DELAY_TICK_MS = 5_000L
         /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
         val CAL_MISSING_MS = TimeUnit.DAYS.toMillis(30)
         const val CAL_MISSING = "missing"

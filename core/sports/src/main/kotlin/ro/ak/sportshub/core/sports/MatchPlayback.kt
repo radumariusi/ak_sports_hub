@@ -164,6 +164,23 @@ class LiveDelay {
     @Synchronized
     fun isEmpty(): Boolean = seen.isEmpty()
 
+    /**
+     * Detaliile de arătat la [now] (tabul Live, Statistici, alertele): scorul și starea de acum [delayMs] în urmă,
+     * doar evenimentele văzute până atunci; restul (echipe, formații) cele mai noi. Null dacă nu s-a văzut nimic.
+     */
+    @Synchronized
+    fun details(now: Long, delayMs: Long): MatchDetails? {
+        val cutoff = now - delayMs.coerceAtLeast(0)
+        val visible = seen.lastOrNull { it.at <= cutoff } ?: return null
+        val latest = seen.last().details
+        if (visible.details === latest && latest.timeline.all { (firstSeen[it] ?: 0L) <= cutoff }) return latest
+        return latest.copy(
+            event = visible.details.event,
+            timeline = latest.timeline.filter { (firstSeen[it] ?: 0L) <= cutoff },
+            stats = visible.details.stats,
+        )
+    }
+
     /** Starea de arătat la [now], cu întârzierea [delayMs]; null dacă încă nu s-a văzut nimic. */
     @Synchronized
     fun view(now: Long, delayMs: Long, match: Match): PanelView? {
@@ -283,5 +300,62 @@ data class Formation(val lines: List<List<LineupPlayer>>) {
             if (byLine[PitchLine.GOALKEEPER]?.size != 1) return null
             return Formation(PitchLine.entries.mapNotNull { byLine[it] })
         }
+    }
+}
+
+/**
+ * Scorul și starea meciurilor din listă întârziate cât stream-ul (setarea „întârzierea stream-ului”), ca un gol să nu
+ * apară în Sports Hub înainte să-l vezi. Ce se știa la prima vedere se arată imediat; o schimbare apare abia după
+ * întârziere. Doar în memorie, doar pentru meciurile care și-au schimbat scorul sau starea.
+ */
+class ScoreDelay {
+
+    private data class Score(val home: Int?, val away: Int?, val status: MatchStatus, val end: Long)
+
+    /** Pe meci: (când s-a văzut, scorul), în ordine; prima intrare are ora 0 (știută de la început). */
+    private val history = HashMap<String, ArrayList<Pair<Long, Score>>>()
+
+    /** Notează scorurile din [matches] (lista de acum). Meciurile care nu mai sunt în listă se uită. */
+    @Synchronized
+    fun observe(matches: List<Match>, now: Long) {
+        val ids = HashSet<String>(matches.size * 2)
+        for (m in matches) {
+            ids += m.id
+            val score = Score(m.homeScore, m.awayScore, m.status, m.end)
+            val h = history[m.id]
+            if (h == null) {
+                history[m.id] = arrayListOf(0L to score)
+                continue
+            }
+            val last = h.last().second
+            if (last.home != score.home || last.away != score.away || last.status != score.status) {
+                h += now to score
+                while (h.size > MAX_ENTRIES) h.removeAt(0)
+            }
+        }
+        if (history.size > ids.size) history.keys.retainAll(ids)
+    }
+
+    /** [m] cu scorul și starea de acum [delayMs] în urmă; același obiect dacă nu e nimic de întârziat. */
+    @Synchronized
+    fun apply(m: Match, now: Long, delayMs: Long): Match {
+        if (delayMs <= 0) return m
+        val h = history[m.id] ?: return m
+        if (h.size == 1) return m
+        val cutoff = now - delayMs
+        val shown = h.lastOrNull { it.first <= cutoff }?.second ?: h.first().second
+        if (shown.home == m.homeScore && shown.away == m.awayScore && shown.status == m.status) return m
+        // Terminat de puțin (încă în întârziere): rămâne LIVE și ora de final nu e încă trecută.
+        val end = if (shown.status != MatchStatus.FINISHED && m.status == MatchStatus.FINISHED) maxOf(m.end, now + delayMs) else m.end
+        return m.copy(homeScore = shown.home, awayScore = shown.away, status = shown.status, end = end)
+    }
+
+    /** Mai e vreo schimbare care încă așteaptă întârzierea (ca ecranul să se reîmprospăteze)? */
+    @Synchronized
+    fun pending(now: Long, delayMs: Long): Boolean =
+        delayMs > 0 && history.values.any { h -> h.size > 1 && h.last().first > now - delayMs }
+
+    private companion object {
+        const val MAX_ENTRIES = 12
     }
 }
