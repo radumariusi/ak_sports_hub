@@ -15,6 +15,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -65,6 +66,10 @@ data class PlayerUiState(
     val videoSize: String? = null,
     /** Cadrele pe secundă ale stream-ului (din decodor), dacă stream-ul le declară. */
     val frameRate: Float? = null,
+    /** Decodorul video folosit (de ex. „c2.amlogic.hevc.decoder”), pentru verificarea redării. */
+    val decoder: String? = null,
+    /** Cadrele aruncate de decodor de la pornirea stream-ului (sacadările se văd aici). */
+    val droppedFrames: Int = 0,
     val audioTracks: Int = 0,
     val textTracks: Int = 0,
     /** Câte variante are canalul (aceeași cheie de grupare, din toate playlisturile active). */
@@ -169,6 +174,21 @@ class PlayerController(context: Context, private val container: AppContainer) {
                         textTracks = tracks.groups.filter { g -> g.type == C.TRACK_TYPE_TEXT }.sumOf { g -> g.length },
                     )
                 }
+            }
+        })
+        // Verificarea redării (informațiile din player): decodorul și cadrele aruncate, din ce raportează playerul oricum.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                _state.update { it.copy(decoder = decoderName) }
+            }
+
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                _state.update { it.copy(droppedFrames = it.droppedFrames + droppedFrames) }
             }
         })
     }
@@ -424,6 +444,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 position = Zapping.position(zapFamilies.map { f -> f.key }, zapKey(channel)),
                 videoSize = null,
                 frameRate = null,
+                decoder = null,
+                droppedFrames = 0,
                 audioTracks = 0,
                 textTracks = 0,
                 variantCount = variantOrder.size,

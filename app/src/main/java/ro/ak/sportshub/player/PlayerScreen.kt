@@ -432,10 +432,12 @@ fun PlayerScreen(
                 }
             },
     ) {
-        AndroidView(
+        // TextureView (implicit): imaginea apare sigur sub straturile Compose; SurfaceView („Imagine fluidă”):
+        // decodorul scrie direct pe ecran, mai fluid la 4K. Vezi player_view.xml și player_view_surface.xml.
+        val layout = if (variantSettings.smoothVideo) R.layout.player_view_surface else R.layout.player_view
+        androidx.compose.runtime.key(layout) { AndroidView(
             factory = { ctx ->
-                // TextureView (din layout): imaginea apare sigur sub straturile Compose; vezi player_view.xml.
-                (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
+                (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     useController = false
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
@@ -448,7 +450,7 @@ fun PlayerScreen(
             },
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
-        )
+        ) }
 
         StatusOverlay(state.status, Modifier.align(Alignment.Center))
 
@@ -848,6 +850,20 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                     if (state.textTracks > 0) "subtitrări" else null,
                 ).joinToString(" · ")
                 if (details.isNotEmpty()) Text(text = details, fontSize = 13.sp, color = AkColors.TextDim)
+                // Verificarea redării: decodorul, cadrele aruncate și frecvența ecranului (sacadările se văd aici).
+                val hz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate
+                val check = listOfNotNull(
+                    state.decoder?.let { "decodor ${it.removePrefix("c2.").removePrefix("OMX.").removeSuffix(".decoder")}" },
+                    if (state.videoSize != null) "${state.droppedFrames} cadre pierdute" else null,
+                    hz?.let { "ecran ${Math.round(it)} Hz" },
+                ).joinToString(" · ")
+                if (check.isNotEmpty()) Text(text = check, fontSize = 12.sp, color = AkColors.TextDim)
+                val fps = state.frameRate
+                if (fps != null && hz != null && PlaybackCheck.mismatch(fps, hz)) {
+                    Text(text = "Cadrele nu se potrivesc cu ecranul: pornește „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                } else if (state.droppedFrames >= PlaybackCheck.MANY_DROPPED) {
+                    Text(text = "Multe cadre pierdute: încearcă „Imagine fluidă” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                }
             }
         }
     }
@@ -1063,5 +1079,18 @@ private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick
                 }
             }
         }
+    }
+}
+
+/** Pragurile verificării redării din informațiile playerului. */
+internal object PlaybackCheck {
+    /** De la câte cadre aruncate sugerăm „Imagine fluidă”. */
+    const val MANY_DROPPED = 30
+
+    /** 25/50 fps pe un ecran de 60 Hz (sau 30/60 pe 50 Hz): mișcarea sacadează regulat (judder). */
+    fun mismatch(fps: Float, hz: Float): Boolean {
+        if (fps <= 0f || hz <= 0f) return false
+        val ratio = hz / fps
+        return kotlin.math.abs(ratio - Math.round(ratio)) > 0.05f
     }
 }

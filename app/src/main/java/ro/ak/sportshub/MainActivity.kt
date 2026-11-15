@@ -8,7 +8,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import ro.ak.sportshub.ui.AppNavigation
 import ro.ak.sportshub.ui.theme.AkTheme
@@ -24,7 +26,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) deepLink.value = DeepLinks.parse(intent?.data)
         setContent {
-            AkTheme {
+            val variants by (application as AkApp).container.variantStore.state.collectAsStateWithLifecycle()
+            AkTheme(textScale = variants.textScale) {
                 AppNavigation(deepLink = deepLink)
             }
         }

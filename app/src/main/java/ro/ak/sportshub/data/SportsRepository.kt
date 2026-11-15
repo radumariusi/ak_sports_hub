@@ -274,7 +274,7 @@ class SportsRepository(
         "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}|" +
             "${s.liveSoccerTvEnabled}|${s.sofascoreEnabled}|${s.sofascoreTv}|${s.futbolEnLaTvEnabled}|${s.eventChannels}|${s.eventZone}|" +
             "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}|" +
-            s.favorites.names.joinToString(",")
+            s.favorites.names.joinToString(",") + "|" + s.favorites.teams.joinToString(",") + "|" + s.favorites.competitions.joinToString(",")
 
     fun refreshInBackground(force: Boolean = true) {
         scope.launch { refreshDue(force) }
@@ -1096,7 +1096,9 @@ class SportsRepository(
             }
             allEvents.filterIndexed { i, e ->
                 val keep = verdicts[i] == CompetitionFilter.Verdict.KEEP ||
-                    CompetitionFilter.keepMatch(eventSport(e), e.competition, e.home, e.away, knownTeams, fromProvider = true)
+                    CompetitionFilter.keepMatch(eventSport(e), e.competition, e.home, e.away, knownTeams, fromProvider = true) ||
+                    // Echipele și competițiile tale favorite rămân, oricare ar fi competiția.
+                    s.favorites.isCompetition(e.competition) || s.favorites.isTeam(e.home) || (e.away.isNotBlank() && s.favorites.isTeam(e.away))
                 if (!keep) dropped.merge("${e.sport ?: "?"} · ${e.competition ?: "fără competiție"}", 1, Int::plus)
                 keep
             }.also { droppedCompetitions = dropped }
