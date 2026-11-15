@@ -429,7 +429,7 @@ class SportsRepository(
             val every = if (provider == Espn.PROVIDER) ESPN_RECOMPUTE_EVERY else RECOMPUTE_EVERY
             // Și cel mult o dată la [MID_ROUND_GAP_MS] (jurnalul arăta calcule la 10 s, de câte 5–12 s fiecare),
             // în afară de prima listă, care apare cât mai repede.
-            val gapOk = System.currentTimeMillis() - lastRecompute >= MID_ROUND_GAP_MS || _snapshot.value.entries.isEmpty()
+            val gapOk = System.currentTimeMillis() - lastRecompute >= MID_ROUND_GAP_MS || _snapshot.value.matches.isEmpty()
             if (sinceRecompute > 0 && (next != provider || sinceRecompute >= every) && gapOk) {
                 recompute()
                 sinceRecompute = 0
