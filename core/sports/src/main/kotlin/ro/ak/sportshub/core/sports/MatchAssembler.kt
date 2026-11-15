@@ -264,6 +264,9 @@ object MatchAssembler {
                 abs(o.start - e.start) <= DEDUP_WINDOW_MS && (
                     (o.provider == e.provider && o.providerId == e.providerId) ||
                         (o.away.isNotBlank() && e.away.isNotBlank() && TeamNames.samePair(o.home, o.away, e.home, e.away)) ||
+                        // O echipă nu joacă două meciuri deodată: aceeași echipă (cheie identică) la aceeași oră, de la alt
+                        // furnizor, e același meci chiar dacă adversarul e scris în altă limbă („Finlandia”/„Finnland”).
+                        (o.provider != e.provider && abs(o.start - e.start) <= SAME_TEAM_WINDOW_MS && oneTeamSame(o, e)) ||
                         // Meci feminin scris o dată „Arsenal Frauen – London City Lionesses”, altă dată „Arsenal – London
                         // City” (în „Women's Super League”): fără semnul feminin, la ambele.
                         (o.away.isNotBlank() && e.away.isNotBlank() && womenSide(o) && womenSide(e) &&
@@ -281,6 +284,20 @@ object MatchAssembler {
             }
         }
         return out
+    }
+
+    private val SAME_TEAM_WINDOW_MS = TimeUnit.MINUTES.toMillis(5)
+    private val PLACEHOLDER_TEAMS = setOf("tbd", "tba", "to be determined", "to be announced", "winner", "loser", "n a")
+
+    private fun oneTeamSame(o: SportEvent, e: SportEvent): Boolean {
+        if (o.away.isBlank() || e.away.isBlank()) return false
+        if (sportOf(o) != null && sportOf(e) != null && sportOf(o) != sportOf(e)) return false
+        fun solid(name: String): String? = TeamNames.cachedKey(name).takeIf { it.length >= 4 && it !in PLACEHOLDER_TEAMS && !it.startsWith("winner ") && !it.startsWith("loser ") }
+        val oh = solid(o.home)
+        val oa = solid(o.away)
+        val eh = solid(e.home)
+        val ea = solid(e.away)
+        return (oh != null && (oh == eh || oh == ea)) || (oa != null && (oa == eh || oa == ea))
     }
 
     private fun womenSide(e: SportEvent): Boolean =

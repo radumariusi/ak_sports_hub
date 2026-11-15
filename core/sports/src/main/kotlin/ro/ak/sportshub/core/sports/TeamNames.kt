@@ -40,7 +40,7 @@ object TeamNames {
         "rapid" to "rapid bucuresti", "dinamo" to "dinamo bucuresti",
         "sporting" to "sporting cp", "sporting lisbon" to "sporting cp", "benfica lisbon" to "benfica",
         "porto" to "fc porto", "ajax amsterdam" to "ajax", "psv eindhoven" to "psv",
-    )
+    ) + NationNames.aliases
 
     /**
      * Alias-urile tale (din dicționar), deja normalizate: alias → nume. Au prioritate față de cele încorporate.
