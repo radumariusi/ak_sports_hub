@@ -59,6 +59,7 @@ import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.components.TextInputDialog
@@ -257,7 +258,7 @@ fun MatchScreen(
                             onLongClick = { menuFor = s },
                             trailing = {
                                 c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                                QualityBadge(c.quality)
+                                VariantQualityBadge(c.playlistId, c.name, c.quality)
                             },
                         )
                     }
@@ -412,6 +413,7 @@ private const val ARCHIVE_LEAD_MS = 120_000L
 private val ProviderNames = mapOf(
     "thesportsdb" to "TheSportsDB", "livesoccertv" to "LiveSoccerTV", "sofascore" to "Sofascore",
     "futbolenlatv" to "FutbolEnLaTV", "epg" to "EPG-ul tău", "playlist" to "canale EVENT / PPV",
+    "liveonsat" to "LiveOnSat", "fotmob" to "FotMob", "espn" to "ESPN", "nhl" to "NHL", "mlb" to "MLB",
 )
 
 /**
@@ -450,8 +452,8 @@ private fun WhyNoSource(
         if (d.stations.isEmpty()) {
             item {
                 Text(
-                    text = "Niciun furnizor nu a anunțat posturi pentru meciul ăsta. Posturile vin de la LiveSoccerTV (fotbal), " +
-                        "FutbolEnLaTV (Spania, multe sporturi), Sofascore (pe țară) și TheSportsDB; le pornești din Setări → Sports Hub.",
+                    text = "Niciun furnizor nu a anunțat posturi pentru meciul ăsta. Posturile vin de la LiveSoccerTV, LiveOnSat și FotMob (fotbal), " +
+                        "FutbolEnLaTV (Spania, multe sporturi), Sofascore (pe țară), ESPN / NHL / MLB (SUA, Canada) și TheSportsDB; le pornești din Setări → Sports Hub.",
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),

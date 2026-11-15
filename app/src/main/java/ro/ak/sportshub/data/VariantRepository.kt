@@ -1,24 +1,33 @@
 package ro.ak.sportshub.data
 
 import java.util.concurrent.TimeUnit
+import ro.ak.sportshub.core.common.ObservedVideo
 import ro.ak.sportshub.core.common.VariantOrder
 import ro.ak.sportshub.core.database.ChannelDao
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.PlayableChannel
 import ro.ak.sportshub.core.model.ChannelCorrection
 import ro.ak.sportshub.core.model.ChannelLabels
+import ro.ak.sportshub.core.model.Quality
 import ro.ak.sportshub.core.model.SourcePreferences
 
 /**
  * Variantele canalelor: aceeași cheie de grupare (numele normalizat + țara), din toate playlisturile active.
  * Ordinea: varianta preferată, apoi rezoluția, apoi limbile preferate; cele care n-au pornit ultima oară
- * coboară la final. Nu se citește niciun stream: totul vine din playlist și din corecțiile tale.
+ * coboară la final. Nu se citește niciun stream separat: totul vine din playlist, din corecțiile tale și din
+ * rezoluția văzută la redările obișnuite.
  */
 class VariantRepository(
     private val dao: ChannelDao,
     private val store: VariantStore,
     private val preferences: () -> SourcePreferences = { SourcePreferences() },
+    /** Rezoluțiile văzute la redare ([ObservedVideoStore]): ordinea folosește rezoluția reală. */
+    private val observed: () -> Map<CorrectionKey, ObservedVideo> = { emptyMap() },
 ) {
+
+    /** Calitatea pentru ordine: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist. */
+    fun effectiveQuality(v: ChannelWithPlaylist, s: VariantState = store.current, seen: Map<CorrectionKey, ObservedVideo> = observed()): Quality =
+        qualityView(v.playlistId, v.name, v.quality, seen, s).quality
 
     fun isPreferred(v: ChannelWithPlaylist, s: VariantState = store.current): Boolean =
         s.preferred[v.groupKey]?.let { it.playlistId == v.playlistId && it.name == v.name } == true
@@ -28,9 +37,10 @@ class VariantRepository(
 
     fun order(variants: List<ChannelWithPlaylist>, s: VariantState = store.current): List<ChannelWithPlaylist> {
         val now = System.currentTimeMillis()
+        val seen = observed()
         return VariantOrder.sort(
             variants,
-            quality = { it.quality },
+            quality = { effectiveQuality(it, s, seen) },
             language = { it.language },
             isPreferred = { isPreferred(it, s) },
             failedRecently = { failedRecently(it, s, now) },

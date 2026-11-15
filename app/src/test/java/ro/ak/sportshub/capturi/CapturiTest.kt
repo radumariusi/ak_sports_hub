@@ -38,7 +38,9 @@ import ro.ak.sportshub.player.MatchPanelActions
 import ro.ak.sportshub.player.MatchPanelContent
 import ro.ak.sportshub.player.QuickMenuContent
 import ro.ak.sportshub.ui.components.SectionLabel
+import ro.ak.sportshub.ui.screens.ChannelScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
+import ro.ak.sportshub.core.common.ObservedVideo
 import ro.ak.sportshub.ui.screens.PitchView
 import ro.ak.sportshub.ui.screens.MatchScreen
 import ro.ak.sportshub.ui.theme.AkTheme
@@ -193,5 +195,30 @@ class CapturiTest {
         }
         waitFor("A început")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/6-player-meniu-rapid.png")
+    }
+
+    /** Rezoluția văzută la redare: o variantă „4K” care e de fapt FHD și una FHD verificată. */
+    private fun seedObserved(): Long = runBlocking {
+        val pid = app.container.database.playlists().all().first().id
+        app.container.observedVideo.record(pid, "UK: Sky Sports Main Event UHD", ObservedVideo(1920, 1080, 50f, System.currentTimeMillis()))
+        app.container.observedVideo.record(pid, "UK: Sky Sports Main Event FHD", ObservedVideo(1920, 1080, 50f, System.currentTimeMillis()))
+        app.container.database.channels().findByName(pid, "UK: Sky Sports Main Event FHD", "UK | Sports")!!
+    }
+
+    @Test
+    fun variantaVerificata() {
+        val id = seedObserved()
+        compose.setContent { AkTheme { ChannelScreen(channelId = id, onPlay = {}, onOpenSchedule = {}) } }
+        waitFor("în playlist")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/7-variante-rezolutie-reala.png")
+    }
+
+    @Test
+    fun acumPeCanale() {
+        seedObserved()
+        home()
+        click("Acum pe canale")
+        waitFor("canale cu meci acum")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/8-acum-pe-canale.png")
     }
 }

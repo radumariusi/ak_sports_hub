@@ -26,6 +26,9 @@ import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.data.providerLabel
 import ro.ak.sportshub.core.sports.FutbolEnLaTv
+import ro.ak.sportshub.core.sports.FotMob
+import ro.ak.sportshub.core.sports.LiveOnSat
+import ro.ak.sportshub.core.sports.UsLeagues
 import ro.ak.sportshub.core.sports.TheSportsDb
 
 private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, EVENT_ZONE, STREAM_DELAY }
@@ -165,6 +168,30 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         item {
             ListRow(
+                title = "LiveOnSat",
+                subtitle = "Neoficial, opțional: fotbal, zeci de posturi pe meci din toată lumea (Balcani, Orientul Mijlociu, Asia); o pagină la 3 ore",
+                onClick = { update(true) { it.copy(liveOnSatEnabled = !it.liveOnSatEnabled) } },
+                trailing = { SettingValue(if (s.liveOnSatEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "FotMob (ghid TV)",
+                subtitle = "Neoficial, opțional: fotbal, posturile din țările canalelor tale (România, Marea Britanie…); o pagină pe țară, cel mult 4, la 3 ore",
+                onClick = { update(true) { it.copy(fotMobEnabled = !it.fotMobEnabled) } },
+                trailing = { SettingValue(if (s.fotMobEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
+                title = "Ligile americane (ESPN, NHL, MLB)",
+                subtitle = "NFL, NBA, NHL, MLB și MLS cu posturile exacte din SUA și Canada; doar dacă ai canale de acolo și sportul e ales mai jos",
+                onClick = { update(true) { it.copy(usLeaguesEnabled = !it.usLeaguesEnabled) } },
+                trailing = { SettingValue(if (s.usLeaguesEnabled) "Da" else "Nu") },
+            )
+        }
+        item {
+            ListRow(
                 title = "Canale EVENT / PPV din playlisturi",
                 subtitle = "Meciul citit din numele canalului („EVENT 03: UFC 310 20:00”), ca sursă sigură și în tabul Evenimente. Fără rețea",
                 onClick = { update(false) { it.copy(eventChannels = !it.eventChannels) } },
@@ -199,6 +226,9 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
             if (s.liveSoccerTvEnabled) add("livesoccertv")
             if (s.sofascoreEnabled) add("sofascore")
             if (s.futbolEnLaTvEnabled) add(FutbolEnLaTv.PROVIDER)
+            if (s.liveOnSatEnabled) add(LiveOnSat.PROVIDER)
+            if (s.fotMobEnabled) add(FotMob.PROVIDER)
+            if (s.usLeaguesEnabled) addAll(listOf(UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API))
         }
         item { SectionLabel("Starea furnizorilor (de la pornirea aplicației)") }
         active.forEach { p ->

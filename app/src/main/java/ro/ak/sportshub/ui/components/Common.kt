@@ -1,6 +1,8 @@
 package ro.ak.sportshub.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
@@ -38,7 +43,8 @@ fun TabStrip(
 ) {
     // focusRestorer: când revii din listă în rândul de taburi, focusul se întoarce pe tabul curent.
     Row(
-        modifier = modifier.focusRestorer().focusGroup(),
+        // Defilează orizontal când taburile nu încap (focusul aduce tabul în vedere).
+        modifier = modifier.focusRestorer().focusGroup().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         tabs.forEachIndexed { index, title ->
@@ -139,14 +145,36 @@ fun Badge(text: String, color: Color = AkColors.Accent, modifier: Modifier = Mod
 
 @Composable
 fun QualityBadge(quality: Quality) {
-    val color = when (quality) {
-        Quality.UHD -> Color(0xFFF2C94C)
-        Quality.FHD -> AkColors.Accent
-        Quality.HD -> Color(0xFF56B6F7)
-        Quality.SD -> Color(0xFFB0B7C3)
-        Quality.UNKNOWN -> Color(0xFF6B7280)
+    Badge(text = quality.label, color = qualityColor(quality))
+}
+
+/** Culoarea etichetei de calitate. */
+fun qualityColor(quality: Quality): Color = when (quality) {
+    Quality.UHD -> Color(0xFFF2C94C)
+    Quality.FHD -> AkColors.Accent
+    Quality.HD -> Color(0xFF56B6F7)
+    Quality.SD -> Color(0xFFB0B7C3)
+    Quality.UNKNOWN -> Color(0xFF6B7280)
+}
+
+/**
+ * Eticheta de calitate a unei variante, cu ce s-a văzut la redare: „FHD 50p ✓” când rezoluția redată bate cu
+ * playlistul, altfel eticheta reală și, lângă ea, cea din playlist tăiată („FHD 50p, în playlist ~~4K~~”).
+ * Corecția ta manuală are prioritate.
+ */
+@Composable
+fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
+    val container = ro.ak.sportshub.ui.appContainer()
+    val seen by container.observedVideo.state.collectAsStateWithLifecycle()
+    val variants by container.variantStore.state.collectAsStateWithLifecycle()
+    val view = ro.ak.sportshub.data.qualityView(playlistId, name, quality, seen, variants)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Badge(text = view.label + if (view.verified) " ✓" else "", color = qualityColor(view.quality))
+        view.playlistLabel?.let { old ->
+            Text(text = ", în playlist ", fontSize = 12.sp, color = AkColors.TextDim, modifier = Modifier.padding(start = 4.dp))
+            Text(text = old, fontSize = 12.sp, color = AkColors.TextDim, textDecoration = TextDecoration.LineThrough)
+        }
     }
-    Badge(text = quality.label, color = color)
 }
 
 @Composable

@@ -50,7 +50,7 @@ object SourceDiagnostics {
             .map { st -> check(st, index, knowledge) }
             .sortedBy { it.outcome.ordinal }
         val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
-        val rules = knowledge.rules.filter { it.appliesTo(match.competition) }.map { rule ->
+        val rules = knowledge.allRules.filter { it.appliesTo(match.competition) }.map { rule ->
             val found = rule.stations.associateWith { s -> index.find(TvStation(s, rule.country)) }
             RuleCheck(
                 rule = rule,

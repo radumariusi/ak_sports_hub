@@ -33,6 +33,8 @@ import ro.ak.sportshub.AppContainer
 import ro.ak.sportshub.core.common.ChannelFamilies
 import ro.ak.sportshub.core.common.ChannelFamily
 import ro.ak.sportshub.core.common.FailoverPlan
+import ro.ak.sportshub.core.common.ObservedQuality
+import ro.ak.sportshub.core.common.ObservedVideo
 import ro.ak.sportshub.core.common.player.PlaybackErrors
 import ro.ak.sportshub.core.common.player.ReconnectBackoff
 import ro.ak.sportshub.core.common.player.StreamLease
@@ -61,6 +63,8 @@ data class PlayerUiState(
     val position: String? = null,
     /** Rezoluția stream-ului care rulează (din decodor, nu dintr-o verificare separată). */
     val videoSize: String? = null,
+    /** Cadrele pe secundă ale stream-ului (din decodor), dacă stream-ul le declară. */
+    val frameRate: Float? = null,
     val audioTracks: Int = 0,
     val textTracks: Int = 0,
     /** Câte variante are canalul (aceeași cheie de grupare, din toate playlisturile active). */
@@ -155,8 +159,10 @@ class PlayerController(context: Context, private val container: AppContainer) {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val text = if (videoSize.width > 0) "${videoSize.width}×${videoSize.height}" else null
                 _state.update { it.copy(videoSize = text) }
+                observeVideo()
             }
             override fun onTracksChanged(tracks: Tracks) {
+                observeVideo()
                 _state.update {
                     it.copy(
                         audioTracks = tracks.groups.filter { g -> g.type == C.TRACK_TYPE_AUDIO }.sumOf { g -> g.length },
@@ -340,6 +346,31 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
         }
 
+    // ---------- rezoluția văzută la redare ----------
+
+    /** Cea mai bună rezoluție văzută în sesiunea curentă (la HLS adaptiv, primele secunde pot fi mai mici). */
+    private var sessionBest: ObservedVideo? = null
+
+    /**
+     * Notează rezoluția și cadrele pe care le redă playerul oricum (din formatul decodat), pe variantă.
+     * Nicio cerere în plus: eticheta variantei primește „verificat” sau eticheta reală, iar ordinea o folosește.
+     */
+    private fun observeVideo() {
+        val c = _state.value.channel ?: return
+        val f = player.videoFormat ?: return
+        val size = player.videoSize
+        val w = if (f.width > 0) f.width else size.width
+        val h = if (f.height > 0) f.height else size.height
+        if (w <= 0 || h <= 0) return
+        val fps = ObservedQuality.cleanFps(f.frameRate)
+        if (fps != _state.value.frameRate) _state.update { it.copy(frameRate = fps) }
+        val seen = ObservedVideo(w, h, fps, System.currentTimeMillis())
+        val best = sessionBest
+        if (best != null && best.height * best.width > w * h) return
+        sessionBest = seen
+        container.observedVideo.record(c.playlistId, c.name, seen)
+    }
+
     // ---------- interne ----------
 
     private fun zapKey(c: PlayableChannel): String = if (zapGrouped) c.groupKey else c.id.toString()
@@ -372,12 +403,14 @@ class PlayerController(context: Context, private val container: AppContainer) {
             variantOrder = variants.variants(channel.groupKey)
             failover = FailoverPlan(variantOrder.map { it.id }, channel.id)
         }
+        sessionBest = null
         _state.update {
             it.copy(
                 channel = channel,
                 status = PlaybackStatus.Connecting,
                 position = Zapping.position(zapFamilies.map { f -> f.key }, zapKey(channel)),
                 videoSize = null,
+                frameRate = null,
                 audioTracks = 0,
                 textTracks = 0,
                 variantCount = variantOrder.size,
@@ -556,7 +589,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
         cancelJobs()
         stopStream()
         val target = variantOrder.firstOrNull { it.id == next }
-        val label = target?.let { "${it.name} (${it.quality.label}${it.language?.let { l -> ", " + l.uppercase() }.orEmpty()})" }
+        val label = target?.let { "${it.name} (${variants.effectiveQuality(it).label}${it.language?.let { l -> ", " + l.uppercase() }.orEmpty()})" }
         _state.update {
             it.copy(
                 status = PlaybackStatus.Waiting("Trec la altă variantă…"),

@@ -62,7 +62,7 @@ class SourceFinderTest {
     @Test
     fun `ordinea încrederii și fără dubluri`() {
         val m = match("a", stations = listOf(TvStation("Sky Sports Main Event", "United Kingdom")))
-        val found = SourceFinder(index, SportsKnowledge()).find(m, epgKeys = listOf("bbc 1"))
+        val found = SourceFinder(index, SportsKnowledge(presetRights = false)).find(m, epgKeys = listOf("bbc 1"))
         val byKey = found.associateBy { it.groupKey }
         assertEquals(Confidence.EPG, byKey.getValue("bbc 1").confidence)
         // Sky Main Event e și post anunțat, și în regula de drepturi: rămâne „post anunțat”.
@@ -77,10 +77,10 @@ class SourceFinderTest {
     fun `confirmarea unui post îl pune în dicționar, respingerea îl blochează`() {
         val st = TvStation("Sky Sp Main Ev") // nume pe care indexul nu-l știe
         val m = match("a", comp = null, stations = listOf(st))
-        assertTrue(SourceFinder(index, SportsKnowledge()).find(m, emptyList()).isEmpty())
+        assertTrue(SourceFinder(index, SportsKnowledge(presetRights = false)).find(m, emptyList()).isEmpty())
 
         // Îl legi de mână în dicționar → apare la orice meci cu postul ăsta.
-        var k = SportsKnowledge().addStationAlias("Sky Sp Main Ev", "uk:sky sport main event")
+        var k = SportsKnowledge(presetRights = false).addStationAlias("Sky Sp Main Ev", "uk:sky sport main event")
         val m2 = match("b", comp = null, stations = listOf(st))
         val found = SourceFinder(index, k).find(m2, emptyList()).single()
         assertEquals(Confidence.STATION, found.confidence)
@@ -97,7 +97,7 @@ class SourceFinderTest {
 
     @Test
     fun `confirmarea unei presupuneri învață competiția`() {
-        val noRules = SportsKnowledge(rules = emptyList())
+        val noRules = SportsKnowledge(rules = emptyList(), presetRights = false)
         val m1 = match("a", comp = "Romania - Superliga")
         assertTrue(SourceFinder(index, noRules).find(m1, emptyList()).isEmpty())
 
@@ -110,7 +110,7 @@ class SourceFinderTest {
         assertEquals(Confidence.LEARNED, learned.confidence)
 
         // Respingerea unei presupuneri o oprește pentru competiție.
-        val withRules = SportsKnowledge()
+        val withRules = SportsKnowledge(presetRights = false)
         val guess = SourceFinder(index, withRules).find(m1, emptyList()).first { it.groupKey == "ro:prima sport 1" }
         assertEquals(Confidence.RIGHTS, guess.confidence)
         val k2 = withRules.decide(m1, guess.groupKey, Verdict.REJECTED, guess, now = 1)
@@ -121,8 +121,8 @@ class SourceFinderTest {
     @Test
     fun `respingerea unei surse EPG e doar pentru meci, iar anularea o readuce`() {
         val m = match("a", comp = null)
-        val epg = SourceFinder(index, SportsKnowledge()).find(m, listOf("bbc 1")).single()
-        var k = SportsKnowledge().decide(m, "bbc 1", Verdict.REJECTED, epg, now = 1)
+        val epg = SourceFinder(index, SportsKnowledge(presetRights = false)).find(m, listOf("bbc 1")).single()
+        var k = SportsKnowledge(presetRights = false).decide(m, "bbc 1", Verdict.REJECTED, epg, now = 1)
         assertTrue(SourceFinder(index, k).find(m, listOf("bbc 1")).single().rejected)
         assertFalse(SourceFinder(index, k).find(match("b", comp = null), listOf("bbc 1")).single().rejected)
         k = k.decide(m, "bbc 1", null, null, now = 2)
@@ -132,7 +132,7 @@ class SourceFinderTest {
 
     @Test
     fun `alegerile vechi se uită`() {
-        val k = SportsKnowledge()
+        val k = SportsKnowledge(presetRights = false)
             .decide(match("a"), "bbc 1", Verdict.CONFIRMED, null, now = 100)
             .decide(match("b"), "bbc 1", Verdict.CONFIRMED, null, now = 200)
             .prune(before = 150)
@@ -260,5 +260,35 @@ class SofascoreTest {
         assertEquals(1, events[1].homeScore)
         assertTrue(Sofascore.parse("not json", Sport.FOOTBALL).isEmpty())
         assertNull(Sofascore.scheduleUrl(Sport.GOLF, LocalDate.of(2026, 11, 14)))
+    }
+}
+
+class PresetRightsTest {
+
+    @Test
+    fun `regulile preumplute prind competitia corecta si nu pe cele cu nume asemanator`() {
+        val ucl = PresetRights.rules.first { it.country == "UK" && it.competitions.contains("uefa champions league") }
+        assertTrue(ucl.appliesTo("UEFA Champions League"))
+        assertTrue(ucl.appliesTo("Champions League"))
+        assertFalse(ucl.appliesTo("AFC Champions League"))
+        assertFalse(ucl.appliesTo("EHF Champions League"))
+        val epl = PresetRights.rules.first { it.country == "UK" && it.competitions.contains("english premier league") }
+        assertTrue(epl.appliesTo("English Premier League"))
+        assertFalse(epl.appliesTo("Egyptian Premier League"))
+        val bl = PresetRights.rules.first { it.country == "Germany" && it.competitions.contains("german bundesliga") }
+        assertTrue(bl.appliesTo("German Bundesliga"))
+        assertFalse(bl.appliesTo("Austrian Bundesliga"))
+        assertFalse(bl.appliesTo("2. Bundesliga"))
+    }
+
+    @Test
+    fun `regulile preumplute se pot opri toate sau cate una`() {
+        val k = SportsKnowledge(rules = emptyList())
+        assertTrue(k.allRules.any { it.appliesTo("UEFA Champions League") })
+        assertTrue(k.copy(presetRights = false).allRules.isEmpty())
+        val id = PresetRights.rules.first { it.country == "RO" && it.appliesTo("UEFA Champions League") }.id
+        val off = k.copy(disabledPresets = setOf(id)).allRules.first { it.id == id }
+        assertFalse(off.appliesTo("UEFA Champions League"))
+        assertEquals(PresetRights.rules.size, PresetRights.rules.map { it.id }.distinct().size)
     }
 }

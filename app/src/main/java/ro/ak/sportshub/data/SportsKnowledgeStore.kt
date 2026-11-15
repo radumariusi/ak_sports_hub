@@ -71,6 +71,8 @@ class SportsKnowledgeStore(context: Context) {
                 teamAliases = o.optJSONObject("teamAliases")?.let { t ->
                     t.keys().asSequence().associateWith { t.optString(it) }.filterValues { it.isNotBlank() }
                 }.orEmpty(),
+                presetRights = o.optBoolean("presetRights", true),
+                disabledPresets = o.optJSONArray("disabledPresets").strings().toSet(),
             )
         }.getOrElse { SportsKnowledge() }
     }
@@ -110,6 +112,8 @@ class SportsKnowledgeStore(context: Context) {
             },
         )
         put("teamAliases", JSONObject().apply { k.teamAliases.forEach { (a, n) -> put(a, n) } })
+        put("presetRights", k.presetRights)
+        put("disabledPresets", JSONArray(k.disabledPresets.toList()))
     }.toString()
 
     private fun JSONObject?.setMap(): Map<String, Set<String>> =

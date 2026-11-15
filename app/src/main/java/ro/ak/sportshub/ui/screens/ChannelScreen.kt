@@ -43,6 +43,7 @@ import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
+import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
@@ -123,7 +124,7 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = first.name, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             first.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-            QualityBadge(first.quality)
+            VariantQualityBadge(first.playlistId, first.name, first.quality)
         }
         Text(
             text = "${list.size} " + (if (list.size == 1) "variantă" else "variante") +
@@ -167,7 +168,7 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
                         modifier = if (index == 0) Modifier.focusRequester(listFocus) else Modifier,
                         trailing = {
                             v.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
-                            QualityBadge(v.quality)
+                            VariantQualityBadge(v.playlistId, v.name, v.quality)
                         },
                     )
                 }
@@ -316,7 +317,7 @@ private fun VariantOptions(
             )
         }
         item {
-            ListRow(title = "Calitate", subtitle = "dacă eticheta din playlist e greșită", onClick = onQuality, trailing = { QualityBadge(v.quality) })
+            ListRow(title = "Calitate", subtitle = "dacă eticheta din playlist e greșită", onClick = onQuality, trailing = { VariantQualityBadge(v.playlistId, v.name, v.quality) })
         }
         item {
             ListRow(
@@ -392,7 +393,7 @@ private fun MergePicker(query: String, excludeKey: String, onPick: (ChannelWithP
                     subtitle = listOf(c.groupName, c.playlistName).joinToString(" · "),
                     onClick = { onPick(c) },
                     modifier = if (c == list.first()) Modifier.focusRequester(focus) else Modifier,
-                    trailing = { QualityBadge(c.quality) },
+                    trailing = { VariantQualityBadge(c.playlistId, c.name, c.quality) },
                 )
             }
         }

@@ -34,6 +34,12 @@ data class SportsSettings(
     val sofascoreTv: Boolean = true,
     /** FutbolEnLaTV (neoficial, opțional): ~18 sporturi pe zi, cu posturile din Spania. */
     val futbolEnLaTvEnabled: Boolean = true,
+    /** LiveOnSat (neoficial, opțional): fotbal, zeci de posturi pe meci din toată lumea. */
+    val liveOnSatEnabled: Boolean = true,
+    /** FotMob TV guide (neoficial, opțional): fotbal, posturile din țările canalelor tale (inclusiv România). */
+    val fotMobEnabled: Boolean = true,
+    /** ESPN, NHL și MLB (JSON public): posturile din SUA și Canada, doar dacă ai canale de acolo. */
+    val usLeaguesEnabled: Boolean = true,
     /** Canalele EVENT / PPV din playlisturi: meciul citit din numele canalului. */
     val eventChannels: Boolean = true,
     /** Fusul orelor scrise fără fus în numele canalelor EVENT („20:00”); gol = fusul televizorului. */
@@ -124,6 +130,9 @@ class SportsSettingsStore(context: Context) {
                 sofascoreEnabled = if (o.optInt("version", 1) < VERSION) true else o.optBoolean("sofascore", d.sofascoreEnabled),
                 sofascoreTv = o.optBoolean("sofascoreTv", d.sofascoreTv),
                 futbolEnLaTvEnabled = o.optBoolean("futbolEnLaTv", d.futbolEnLaTvEnabled),
+                liveOnSatEnabled = o.optBoolean("liveOnSat", d.liveOnSatEnabled),
+                fotMobEnabled = o.optBoolean("fotMob", d.fotMobEnabled),
+                usLeaguesEnabled = o.optBoolean("usLeagues", d.usLeaguesEnabled),
                 eventChannels = o.optBoolean("eventChannels", d.eventChannels),
                 eventZone = o.optString("eventZone", d.eventZone),
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
@@ -161,6 +170,9 @@ class SportsSettingsStore(context: Context) {
         put("sofascore", s.sofascoreEnabled)
         put("sofascoreTv", s.sofascoreTv)
         put("futbolEnLaTv", s.futbolEnLaTvEnabled)
+        put("liveOnSat", s.liveOnSatEnabled)
+        put("fotMob", s.fotMobEnabled)
+        put("usLeagues", s.usLeaguesEnabled)
         put("eventChannels", s.eventChannels)
         put("eventZone", s.eventZone)
         put("sports", JSONArray(s.sports.map { it.name }))

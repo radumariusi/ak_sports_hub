@@ -12,6 +12,7 @@ import ro.ak.sportshub.DeepLinks
 import ro.ak.sportshub.data.bestSource
 import ro.ak.sportshub.player.Archive
 import ro.ak.sportshub.ui.screens.BackupScreen
+import ro.ak.sportshub.ui.screens.QrSetupScreen
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,6 +41,7 @@ private const val EPG = "epg"
 private const val SPORTS_SETTINGS = "sports-settings"
 private const val SPORTS_KNOWLEDGE = "sports-knowledge"
 private const val BACKUP = "backup"
+private const val QR_SETUP = "qr-setup"
 
 /** Playerul pe arhiva canalului (catch-up), de la [start] la [end] (ms UTC). */
 private fun archiveRoute(channelId: Long, start: Long, end: Long, matchId: String? = null) =
@@ -86,9 +88,12 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                 onOpenChannel = { id -> nav.navigate("channel/$id") },
                 onOpenSportsSettings = { nav.navigate(SPORTS_SETTINGS) },
                 onOpenBackup = { nav.navigate(BACKUP) },
+                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
+                onOpenQrSetup = { nav.navigate(QR_SETUP) },
             )
         }
         composable(BACKUP) { BackupScreen() }
+        composable(QR_SETUP) { QrSetupScreen(onDone = { nav.popBackStack() }) }
         composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
             ChannelScreen(
                 channelId = entry.arguments?.getLong("channelId") ?: 0L,

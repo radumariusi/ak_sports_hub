@@ -36,6 +36,8 @@ fun HomeScreen(
     onOpenChannel: (Long) -> Unit,
     onOpenSportsSettings: () -> Unit,
     onOpenBackup: () -> Unit = {},
+    onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
+    onOpenQrSetup: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
@@ -66,6 +68,7 @@ fun HomeScreen(
                     onOpenMatch = onOpenMatch,
                     onOpenSettings = onOpenSportsSettings,
                     onPlay = { id -> onPlayChannel(id, 0L) },
+                    onPlayArchive = onPlayArchive,
                 )
                 1 -> LiveTvScreen(onOpenPlaylists = onOpenPlaylists, onPlayChannel = onPlayChannel, onOpenChannel = onOpenChannel)
                 else -> SettingsScreen(
@@ -73,6 +76,7 @@ fun HomeScreen(
                     onOpenEpg = onOpenEpg,
                     onOpenSportsSettings = onOpenSportsSettings,
                     onOpenBackup = onOpenBackup,
+                    onOpenQrSetup = onOpenQrSetup,
                 )
             }
         }

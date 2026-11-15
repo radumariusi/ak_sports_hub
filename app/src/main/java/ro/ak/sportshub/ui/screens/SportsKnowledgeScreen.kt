@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.sports.DefaultRights
+import ro.ak.sportshub.core.sports.PresetRights
 import ro.ak.sportshub.core.sports.RightsRule
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ChoiceDialog
@@ -122,6 +123,32 @@ fun SportsKnowledgeScreen() {
                                 onClick = { dialog = KDialog.RuleMenu(i) },
                                 trailing = { Text(text = if (r.enabled) "Da" else "Nu", fontSize = 14.sp) },
                             )
+                        }
+                    }
+                    item { SectionLabel("Drepturi TV preumplute (livrate cu aplicația)") }
+                    item {
+                        ListRow(
+                            title = "Folosește drepturile TV preumplute",
+                            subtitle = "${PresetRights.rules.size} reguli pe țări (UK, RO, SUA, Canada, DE, ES, IT, FR, PT, NL), sezonul 2026/27; presupuneri",
+                            onClick = { store.update { it.copy(presetRights = !it.presetRights) } },
+                            trailing = { Text(text = if (k.presetRights) "Da" else "Nu", fontSize = 14.sp) },
+                        )
+                    }
+                    if (k.presetRights) {
+                        PresetRights.rules.forEach { r ->
+                            item(key = "p:${r.id}") {
+                                val on = r.id !in k.disabledPresets
+                                ListRow(
+                                    title = r.label,
+                                    subtitle = "OK pornește / oprește regula",
+                                    onClick = {
+                                        store.update { st ->
+                                            st.copy(disabledPresets = if (on) st.disabledPresets + r.id else st.disabledPresets - r.id)
+                                        }
+                                    },
+                                    trailing = { Text(text = if (on) "Da" else "Nu", fontSize = 14.sp) },
+                                )
+                            }
                         }
                     }
                     item {
