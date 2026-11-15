@@ -41,10 +41,16 @@ object MatchAssembler {
 
         val attached = HashMap<Int, MutableList<MatchBroadcast>>()
         val loose = ArrayList<MatchBroadcast>()
+        // [merged] e în ordinea orei: pentru fiecare emisiune se verifică doar meciurile din fereastra ei de timp
+        // (căutare binară), nu toate meciurile; cu zeci de mii de emisiuni comparația completă dura minute.
+        val starts = LongArray(merged.size) { merged[it].start }
         for (mb in broadcasts) {
             val b = mb.broadcast
             val x = mb.extracted
-            val best = merged.indices
+            val first = lowerBound(starts, b.start - BROADCAST_LATE_MS)
+            var last = first
+            while (last < starts.size && starts[last] <= b.start + BROADCAST_LEAD_MS) last++
+            val best = (first until last)
                 .filter { i ->
                     val e = merged[i]
                     b.start >= e.start - BROADCAST_LEAD_MS && b.start <= e.start + BROADCAST_LATE_MS && b.stop > e.start &&
@@ -161,8 +167,12 @@ object MatchAssembler {
     /** Aceleași echipe și ora ± 15 minute: același meci (de la furnizori diferiți sau dublat). */
     fun dedupe(events: List<SportEvent>): List<SportEvent> {
         val out = ArrayList<SportEvent>()
+        // [out] rămâne în ordinea orei (o unire păstrează ora primului): se caută doar în ultimele 15 minute.
+        val outStarts = ArrayList<Long>()
         for (e in events.sortedBy { it.start }) {
-            val i = out.indexOfFirst { o ->
+            val from = lowerBound(outStarts, e.start - DEDUP_WINDOW_MS)
+            val i = (from until out.size).firstOrNull { idx ->
+                val o = out[idx]
                 abs(o.start - e.start) <= DEDUP_WINDOW_MS && (
                     (o.provider == e.provider && o.providerId == e.providerId) ||
                         (o.away.isNotBlank() && e.away.isNotBlank() && TeamNames.samePair(o.home, o.away, e.home, e.away)) ||
@@ -170,7 +180,12 @@ object MatchAssembler {
                             sameEvent(o.home, sportOf(o), o.start, e.home, sportOf(e), e.start, DEDUP_WINDOW_MS))
                     )
             }
-            if (i < 0) out += e else out[i] = mergeEvents(out[i], e)
+            if (i == null) {
+                out += e
+                outStarts += e.start
+            } else {
+                out[i] = mergeEvents(out[i], e)
+            }
         }
         return out
     }
@@ -220,8 +235,11 @@ object MatchAssembler {
 
     private fun cluster(loose: List<MatchBroadcast>): List<List<MatchBroadcast>> {
         val groups = ArrayList<MutableList<MatchBroadcast>>()
+        // Grupurile se creează în ordinea orei primei emisiuni: se caută doar printre cele din ultimele 3 ore.
+        val groupStarts = ArrayList<Long>()
         for (mb in loose.sortedBy { it.broadcast.start }) {
-            val g = groups.firstOrNull { g ->
+            val from = lowerBound(groupStarts, mb.broadcast.start - EPG_CLUSTER_MS)
+            val g = (from until groups.size).asSequence().map { groups[it] }.firstOrNull { g ->
                 val first = g.first()
                 val a = first.extracted
                 val b = mb.extracted
@@ -232,9 +250,35 @@ object MatchAssembler {
                     else -> TeamNames.samePair(a.home, a.away, b.home, b.away)
                 }
             }
-            if (g == null) groups += mutableListOf(mb) else g += mb
+            if (g == null) {
+                groups += mutableListOf(mb)
+                groupStarts += mb.broadcast.start
+            } else {
+                g += mb
+            }
         }
         return groups
+    }
+
+    /** Primul index cu valoarea ≥ [value] dintr-un șir crescător. */
+    private fun lowerBound(sorted: LongArray, value: Long): Int {
+        var lo = 0
+        var hi = sorted.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sorted[mid] < value) lo = mid + 1 else hi = mid
+        }
+        return lo
+    }
+
+    private fun lowerBound(sorted: List<Long>, value: Long): Int {
+        var lo = 0
+        var hi = sorted.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sorted[mid] < value) lo = mid + 1 else hi = mid
+        }
+        return lo
     }
 
     private fun fromBroadcasts(mbs: List<MatchBroadcast>, now: Long): Match {

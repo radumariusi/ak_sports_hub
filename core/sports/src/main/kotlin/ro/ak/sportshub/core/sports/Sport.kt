@@ -67,7 +67,9 @@ enum class Sport(
             return entries.firstOrNull { s -> s.keywords.any { k -> padded.contains(" $k ") } }
         }
 
+        private val nonAlnum = Regex("""[^a-z0-9]+""")
+
         fun fold(text: String): String =
-            ChannelNameParser.fold(text).replace(Regex("""[^a-z0-9]+"""), " ").trim()
+            ChannelNameParser.fold(text).replace(nonAlnum, " ").trim()
     }
 }

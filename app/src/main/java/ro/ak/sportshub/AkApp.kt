@@ -81,7 +81,7 @@ class AppContainer(app: Application) {
     val playlists = PlaylistRepository(
         context = app,
         db = database,
-        importer = PlaylistImporter(downloader, gate, File(app.cacheDir, "import")),
+        importer = PlaylistImporter(downloader, gate, File(app.cacheDir, "import"), File(app.noBackupFilesDir, "amprente-playlist")),
         scope = scope,
         corrections = variantStore::correctionsFor,
         onServerZone = catchup::setZone,
@@ -142,10 +142,11 @@ open class AkApp : Application() {
     /** Actualizările, notificările și rândul de pe ecranul principal (în testele de capturi nu pornesc). */
     protected open fun startBackgroundWork() {
         PlaylistUpdateWorker.schedule(this)
-        // La pornire, ce a rămas în urmă (de exemplu televizorul a stat oprit).
+        // La pornire (și după o actualizare a aplicației) nu se reîncarcă nimic din ce există deja: doar playlisturile
+        // și sursele EPG încărcate niciodată. Restul rămâne pentru actualizarea programată (la 2 ore, după intervale).
         container.scope.launch {
-            container.playlists.refreshDue()
-            container.epg.refreshDue()
+            container.playlists.refreshMissing()
+            container.epg.refreshMissing()
         }
         // Sports Hub: lista se recalculează la orice schimbare; programul meciurilor se cere doar dacă e vechi.
         container.sports.start()

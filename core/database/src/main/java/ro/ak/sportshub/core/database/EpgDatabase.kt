@@ -198,6 +198,10 @@ interface EpgDao {
     @Query("SELECT COUNT(*) FROM epg_map")
     fun observeMappedCount(): Flow<Int>
 
+    /** Toate potrivirile (pentru a scrie doar ce s-a schimbat). */
+    @Query("SELECT channelId, playlistId, epgChannelId FROM epg_map")
+    suspend fun allMap(): List<EpgMapEntity>
+
     @Query("SELECT COUNT(*) FROM epg_map WHERE epgChannelId IN (SELECT id FROM epg_channels WHERE sourceKey = :key)")
     suspend fun mappedCount(key: String): Int
 

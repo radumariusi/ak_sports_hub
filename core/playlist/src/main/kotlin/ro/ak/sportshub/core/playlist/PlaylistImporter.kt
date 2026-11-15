@@ -3,6 +3,7 @@ package ro.ak.sportshub.core.playlist
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -60,6 +61,12 @@ sealed interface ImportOutcome {
     /** Serverul spune că fișierul nu s-a schimbat de la ultima descărcare. */
     data object NotModified : ImportOutcome
 
+    /**
+     * Fișierul descărcat e identic cu cel importat ultima oară (aceeași amprentă): canalele rămân cele din bază,
+     * fără să le rescriem și fără să refacem potrivirea EPG (id-urile canalelor nu se schimbă).
+     */
+    data class Unchanged(val tag: CacheTag?, val account: XtreamAccount? = null) : ImportOutcome
+
     data class Imported(
         val channels: Int,
         val skipped: Int,
@@ -79,6 +86,11 @@ class PlaylistImporter(
     private val downloader: PlaylistDownloader,
     private val gate: ConnectionGate,
     private val workDir: File,
+    /**
+     * Unde se țin amprentele ultimelor fișiere importate; null = fără comparare (se reimportă mereu).
+     * Un fișier identic cu cel de data trecută nu mai rescrie canalele.
+     */
+    private val printDir: File? = null,
 ) {
 
     /**
@@ -111,8 +123,15 @@ class PlaylistImporter(
                     } ?: return@withContext ImportOutcome.Busy
                     when (result) {
                         PlaylistDownloader.Result.NotModified -> ImportOutcome.NotModified
-                        is PlaylistDownloader.Result.Saved ->
-                            importM3u(source.playlistId, file.inputStream(), sink, result.tag, report)
+                        is PlaylistDownloader.Result.Saved -> {
+                            val print = if (printDir == null) "" else fingerprint("m3u", listOf(file))
+                            if (previous != null && print == storedPrint(source.playlistId)) {
+                                ImportOutcome.Unchanged(result.tag)
+                            } else {
+                                importM3u(source.playlistId, file.inputStream(), sink, result.tag, report)
+                                    .also { storePrint(source.playlistId, print) }
+                            }
+                        }
                     }
                 }
 
@@ -134,6 +153,15 @@ class PlaylistImporter(
                         )
                         account
                     } ?: return@withContext ImportOutcome.Busy
+
+                    // Contul intră în amprentă (adresele stream-urilor depind de el), dar doar ca rezumat SHA.
+                    val print = if (printDir == null) "" else fingerprint(
+                        "xtream|${source.format}|${source.server}|${source.username}|${source.password}",
+                        listOf(categoriesFile, streamsFile),
+                    )
+                    if (previous != null && print == storedPrint(source.playlistId)) {
+                        return@withContext ImportOutcome.Unchanged(tag = null, account = account)
+                    }
                     report.phase("se citesc canalele")
 
                     val categories = categoriesFile.inputStream().use { XtreamParser.categories(it) }
@@ -147,6 +175,7 @@ class PlaylistImporter(
                         report.count("grupuri", categories.size.toLong())
                         count = sink.replaceChannels(source.playlistId, PlaylistHeader(), counted(enrich(channels.asSequence()), report))
                     }
+                    storePrint(source.playlistId, print)
                     ImportOutcome.Imported(count, skipped = 0, tag = null, epgUrls = listOf(endpoints.xmltv()), account = account)
                 }
             }
@@ -161,6 +190,38 @@ class PlaylistImporter(
         return gate.withConnection(source.playlistId) {
             XtreamParser.account(downloader.fetchText(endpoints.account(), source.userAgent))
         }
+    }
+
+    private fun printFile(playlistId: String): File? =
+        printDir?.let { File(it, "pl-${playlistId.filter(Char::isLetterOrDigit)}.sha") }
+
+    private fun storedPrint(playlistId: String): String? =
+        printFile(playlistId)?.let { f -> runCatching { f.readText() }.getOrNull() }
+
+    private fun storePrint(playlistId: String, print: String) {
+        val f = printFile(playlistId) ?: return
+        runCatching {
+            f.parentFile?.mkdirs()
+            f.writeText(print)
+        }
+    }
+
+    /** Amprenta SHA-256 a fișierelor descărcate (plus versiunea importului, ca o schimbare de cod să reimporte). */
+    private fun fingerprint(extra: String, files: List<File>): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        md.update("v$IMPORT_VERSION|$extra".toByteArray())
+        val buffer = ByteArray(64 * 1024)
+        for (f in files) {
+            f.inputStream().use { input ->
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    md.update(buffer, 0, n)
+                }
+            }
+            md.update(0)
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
     }
 
     private suspend fun <T> network(source: ImportSource, wait: Boolean, block: suspend () -> T): T? =
@@ -209,6 +270,9 @@ class PlaylistImporter(
     }
 
     companion object {
+        /** Se mărește când se schimbă felul în care se citesc canalele, ca playlisturile neschimbate să fie reimportate. */
+        const val IMPORT_VERSION = 1
+
         fun enrich(channels: Sequence<ParsedChannel>): Sequence<ImportedChannel> =
             channels.mapIndexed { index, c -> enrich(c, index) }
 

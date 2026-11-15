@@ -25,13 +25,29 @@ object EventNames {
         "masculin", "feminin", "barbati", "femei", "2025", "2026", "2027",
     )
 
+    private val digits = Regex("""\d+""")
+
+    /** Cuvintele și numerele fiecărui nume, ținute minte: la asamblare același nume se compară de mii de ori. */
+    private class Words(val significant: List<String>, val numbers: Set<String>)
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Words>()
+    private const val CACHE_MAX = 50_000
+
+    private fun words(name: String): Words {
+        cache[name]?.let { return it }
+        if (cache.size > CACHE_MAX) cache.clear()
+        val folded = Sport.fold(name)
+        return Words(
+            significant = folded.split(' ').filter { it.length >= 2 && it !in common && !it.all(Char::isDigit) },
+            numbers = digits.findAll(folded).map { it.value.trimStart('0') }.filter { it.isNotEmpty() && it.length <= 3 }.toSet(),
+        ).also { cache[name] = it }
+    }
+
     /** Cuvintele care deosebesc evenimentul (fără diacritice, litere mici). */
-    fun significant(name: String): List<String> =
-        Sport.fold(name).split(' ').filter { it.length >= 2 && it !in common && !it.all(Char::isDigit) }
+    fun significant(name: String): List<String> = words(name).significant
 
     /** Numerele din nume („UFC 310”, „Etapa 12”): dacă ambele nume au numere, trebuie să aibă unul comun. */
-    private fun numbers(name: String): Set<String> =
-        Regex("""\d+""").findAll(Sport.fold(name)).map { it.value.trimStart('0') }.filter { it.isNotEmpty() && it.length <= 3 }.toSet()
+    private fun numbers(name: String): Set<String> = words(name).numbers
 
     private fun sameWord(a: String, b: String): Boolean =
         a == b || (minOf(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))

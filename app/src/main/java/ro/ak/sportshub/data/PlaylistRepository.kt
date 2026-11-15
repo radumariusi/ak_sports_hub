@@ -156,6 +156,13 @@ class PlaylistRepository(
         }
     }
 
+    /** La pornirea aplicației: doar playlisturile active care n-au fost încărcate niciodată. */
+    suspend fun refreshMissing() {
+        for (p in db.playlists().all()) {
+            if (p.enabled && p.lastUpdated == null && p.channelCount == 0) refresh(p.id, manual = false)
+        }
+    }
+
     suspend fun refresh(id: Long, manual: Boolean, force: Boolean = false): RefreshResult {
         val lock = locks.getOrPut(id) { Mutex() }
         if (!manual && lock.isLocked) return RefreshResult.Busy
@@ -196,6 +203,20 @@ class PlaylistRepository(
             ImportOutcome.Busy -> RefreshResult.Busy
             ImportOutcome.NotModified -> {
                 dao.update(fresh.copy(lastUpdated = now, lastAttempt = now, lastError = null))
+                RefreshResult.Unchanged
+            }
+            is ImportOutcome.Unchanged -> {
+                outcome.account?.let { onServerZone(id, it.timezone) }
+                dao.update(
+                    fresh.copy(
+                        lastUpdated = now,
+                        lastAttempt = now,
+                        lastError = null,
+                        etag = outcome.tag?.etag ?: fresh.etag,
+                        lastModified = outcome.tag?.lastModified ?: fresh.lastModified,
+                        expiresAt = outcome.account?.expiresAt ?: fresh.expiresAt,
+                    ),
+                )
                 RefreshResult.Unchanged
             }
             is ImportOutcome.Imported -> {
