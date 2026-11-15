@@ -66,6 +66,19 @@ class StandingsRepository(context: Context, private val http: OkHttpClient, priv
         }
     }
 
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<TableGroup>>>()
+
+    /** Clasamentul salvat al ligii (fără cerere), pentru Pre-meci; citit din nou doar dacă fișierul s-a schimbat. */
+    fun cached(league: Espn.League): List<TableGroup> {
+        val file = File(dir, "${league.key}.json")
+        if (!file.exists()) return emptyList()
+        val stamp = file.lastModified()
+        cache[league.key]?.let { (at, groups) -> if (at == stamp) return groups }
+        val groups = runCatching { Standings.parse(file.readText(), league.sport) }.getOrDefault(emptyList())
+        cache[league.key] = stamp to groups
+        return groups
+    }
+
     private fun read(league: Espn.League, file: File): StandingsState {
         if (!file.exists()) return StandingsState()
         val groups = runCatching { Standings.parse(file.readText(), league.sport) }.getOrDefault(emptyList())

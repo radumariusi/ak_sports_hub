@@ -173,6 +173,63 @@ object Espn {
 
     fun league(key: String): League? = byKey[key]
 
+    /** Primul cuvânt care poate lipsi din numele competiției la alți furnizori („Italian Serie A” → „Serie A”). */
+    private val droppable = setOf(
+        "english", "spanish", "italian", "german", "french", "portuguese", "dutch", "belgian", "scottish", "turkish",
+        "greek", "austrian", "swiss", "danish", "swedish", "norwegian", "romanian", "russian", "polish", "czech",
+        "american", "mexican", "brazilian", "argentine", "saudi", "japanese", "chinese", "australian", "uefa", "fifa",
+    )
+
+    /** Alte nume folosite de furnizori și de EPG-uri pentru aceleași ligi. */
+    private val extraNames: Map<String, List<String>> = mapOf(
+        "LALIGA" to listOf("la liga", "laliga ea sports", "primera division", "liga espanola"),
+        "LALIGA2" to listOf("laliga 2", "la liga 2", "laliga2", "laliga hypermotion", "la liga hypermotion", "segunda division", "liga hypermotion"),
+        "SERIEA" to listOf("serie a enilive", "serie a tim", "italy serie a"),
+        "SERIEB" to listOf("serie bkt", "italy serie b"),
+        "BUNDESLIGA2" to listOf("2 bundesliga", "zweite bundesliga"),
+        "PORTUGAL" to listOf("liga portugal", "primeira liga", "liga portugal betclic"),
+        "PORTUGAL2" to listOf("liga portugal 2", "segunda liga"),
+        "BRAZIL" to listOf("brasileirao", "campeonato brasileiro"),
+        "ROMANIA" to listOf("superliga romania", "romania superliga", "liga 1 romania"),
+        "TURKEY" to listOf("super lig", "trendyol super lig"),
+        "BELGIUM" to listOf("jupiler pro league"),
+        "SCOTLAND" to listOf("scottish premiership", "spfl premiership"),
+        "ENG2" to listOf("efl championship", "sky bet championship"),
+        "ENG3" to listOf("efl league one"),
+        "ENG4" to listOf("efl league two"),
+        "UCL" to listOf("champions league"),
+        "UEL" to listOf("europa league"),
+        "UECL" to listOf("conference league"),
+        "SAUDI" to listOf("roshn saudi league", "saudi professional league"),
+        "LIGAMX" to listOf("liga mx"),
+        "ARGENTINA" to listOf("liga profesional argentina"),
+    )
+
+    private val names: List<Pair<String, League>> by lazy {
+        leagues.filter { it.kind == Kind.TEAM }.flatMap { l ->
+            val full = Sport.fold(l.competition)
+            val words = full.split(' ')
+            val short = if (words.size >= 2 && words[0] in droppable) words.drop(1).joinToString(" ") else null
+            (listOfNotNull(full, short) + extraNames[l.key].orEmpty().map(Sport::fold)).distinct().map { it to l }
+        }
+    }
+
+    /**
+     * Ligile ESPN probabile pentru o competiție scrisă de alt furnizor („Serie A”, „LaLiga Hypermotion”): cel mai lung
+     * nume cuprins în text, cu sportul potrivit; cel mult [limit]. Echipele se verifică apoi în programul ligii.
+     */
+    fun leaguesFor(sport: Sport?, competition: String?, limit: Int = 2): List<League> {
+        val text = competition?.let { " " + Sport.fold(it) + " " } ?: return emptyList()
+        if (text.isBlank()) return emptyList()
+        return names.asSequence()
+            .filter { (n, l) -> (sport == null || l.sport == sport) && text.contains(" $n ") }
+            .sortedByDescending { it.first.length }
+            .map { it.second }
+            .distinct()
+            .take(limit)
+            .toList()
+    }
+
     /** Ligile de cerut, după sporturile alese în setări. */
     fun leaguesFor(sports: Collection<Sport>): List<League> = leagues.filter { it.sport in sports }
 
@@ -479,9 +536,15 @@ object Espn {
     /** Pre-meci și Live din `summary`: starea, scorul, formațiile, fazele, statisticile, clasamentul, forma, directele. */
     fun parseSummary(body: String, eventId: String): MatchDetails? {
         val root = parse(body) ?: return null
+        val box = root.obj("boxscore")
+        // Înainte de meci, ESPN dă uneori un `summary` fără `header` și cu unele părți mutate în `boxscore`.
+        fun part(key: String): JsonElement? = root[key] ?: box?.get(key)
+        fun partObj(key: String): JsonObject? = part(key) as? JsonObject
+        fun partArr(key: String): List<JsonObject> = (part(key) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val header = root.obj("header")
         val comp = header?.arr("competitions")?.firstOrNull() as? JsonObject
-        val competitors = comp?.arr("competitors")?.filterIsInstance<JsonObject>().orEmpty()
+        val boxTeams = box?.arr("teams")?.filterIsInstance<JsonObject>().orEmpty()
+        val competitors = comp?.arr("competitors")?.filterIsInstance<JsonObject>()?.takeIf { it.isNotEmpty() } ?: boxTeams
         val home = competitors.firstOrNull { it.text("homeAway") == "home" } ?: competitors.getOrNull(0)
         val away = competitors.firstOrNull { it.text("homeAway") == "away" } ?: competitors.getOrNull(1)
         val homeId = home?.obj("team")?.text("id") ?: home?.text("id")
@@ -490,16 +553,16 @@ object Espn {
         val awayName = away?.let(::teamName).orEmpty()
         val st = comp?.obj("status")
         val status = comp?.let(::status)
-        val info = root.obj("gameInfo")
-        val event = if (comp == null) null else EventDetails(
+        val info = partObj("gameInfo")
+        val event = if (homeName.isEmpty() || awayName.isEmpty()) null else EventDetails(
             eventId = eventId,
             home = homeName,
             away = awayName,
             homeTeamId = homeId,
             awayTeamId = awayId,
-            league = header.obj("league")?.let { it.text("name") ?: it.text("abbreviation") },
-            season = header.obj("season")?.text("year"),
-            start = comp.text("date")?.let(::isoMillis),
+            league = header?.obj("league")?.let { it.text("name") ?: it.text("abbreviation") },
+            season = header?.obj("season")?.text("year"),
+            start = comp?.text("date")?.let(::isoMillis),
             status = status,
             statusCode = statusCode(st),
             progress = st?.text("displayClock")?.takeIf { status == MatchStatus.LIVE }?.trimEnd('\'')?.takeIf { it != "0" && it != "0:00" },
@@ -513,7 +576,7 @@ object Espn {
         fun isHome(teamId: String?, homeAway: String?): Boolean =
             if (homeAway != null) homeAway == "home" else teamId != null && teamId == homeId
 
-        val lineup = root.arr("rosters").filterIsInstance<JsonObject>().flatMap { r ->
+        val lineup = partArr("rosters").flatMap { r ->
             val h = isHome(r.obj("team")?.text("id"), r.text("homeAway"))
             r.arr("roster").filterIsInstance<JsonObject>().mapNotNull { p ->
                 val name = p.obj("athlete")?.let { it.text("displayName") ?: it.text("fullName") } ?: return@mapNotNull null
@@ -527,7 +590,7 @@ object Espn {
             }
         }
 
-        val timeline = root.arr("keyEvents").filterIsInstance<JsonObject>().mapNotNull { e ->
+        val timeline = partArr("keyEvents").mapNotNull { e ->
             val type = (e.obj("type")?.let { it.text("text") ?: it.text("type") } ?: "").lowercase()
             val kind = when {
                 "own goal" in type -> TimelineKind.OWN_GOAL
@@ -552,9 +615,8 @@ object Espn {
         }.sortedBy { it.minute ?: Int.MAX_VALUE }
 
         val stats = run {
-            val teams = root.obj("boxscore")?.arr("teams")?.filterIsInstance<JsonObject>().orEmpty()
-            val h = teams.firstOrNull { isHome(it.obj("team")?.text("id"), it.text("homeAway")) }
-            val a = teams.firstOrNull { it !== h }
+            val h = boxTeams.firstOrNull { isHome(it.obj("team")?.text("id"), it.text("homeAway")) }
+            val a = boxTeams.firstOrNull { it !== h }
             if (h == null || a == null) emptyList() else {
                 val away = a.arr("statistics").filterIsInstance<JsonObject>().associateBy { it.text("name") ?: it.text("label") }
                 h.arr("statistics").filterIsInstance<JsonObject>().mapNotNull { s ->
@@ -565,29 +627,61 @@ object Espn {
             }
         }
 
-        val table = root.obj("standings")?.arr("groups")?.filterIsInstance<JsonObject>().orEmpty()
+        val table = partObj("standings")?.arr("groups")?.filterIsInstance<JsonObject>().orEmpty()
             // Grupa cu una din echipe (la cupe sunt mai multe grupe), altfel prima.
             .let { groups ->
                 groups.firstOrNull { g -> entries(g).any { r -> r.teamId != null && (r.teamId == homeId || r.teamId == awayId) } }
                     ?: groups.firstOrNull()
             }?.let(::entries).orEmpty()
 
-        val forms = root.obj("boxscore")?.arr("form")?.filterIsInstance<JsonObject>().orEmpty()
-            .ifEmpty { root.arr("lastFiveGames").filterIsInstance<JsonObject>() }
+        val forms = box?.arr("form")?.filterIsInstance<JsonObject>().orEmpty()
+            .ifEmpty { partArr("lastFiveGames") }
         val homeForm = forms.firstOrNull { it.obj("team")?.text("id") == homeId } ?: forms.getOrNull(0)
         val awayForm = forms.firstOrNull { it.obj("team")?.text("id") == awayId } ?: forms.getOrNull(1)
-        val h2h = root.arr("headToHeadGames").filterIsInstance<JsonObject>().flatMap { g -> pastGames(g) }
+        val h2h = partArr("headToHeadGames").flatMap { g -> pastGames(g) }
+
+        // Fără meci început, `boxscore` are statisticile sezonului (goluri marcate, primite…), nu ale meciului.
+        val season = status == null || status == MatchStatus.SCHEDULED
+        val leaders = partArr("leaders").let { groups ->
+            val h = groups.firstOrNull { isHome(it.obj("team")?.text("id"), it.text("homeAway")) }
+            val a = groups.firstOrNull { it !== h }
+            if (h == null || a == null) emptyList() else leaderLines(h, a)
+        }
 
         return MatchDetails(
             event = event,
+            seasonStats = if (season) stats + leaders else leaders,
             homeRecent = homeForm?.let(::pastGames).orEmpty(),
             awayRecent = awayForm?.let(::pastGames).orEmpty(),
             headToHead = h2h.distinctBy { it.providerId },
             table = table,
             lineup = lineup,
             timeline = timeline,
-            stats = stats,
+            stats = if (season) emptyList() else stats,
         )
+    }
+
+    /** Cei mai buni jucători ai sezonului (`leaders`): „Goluri: Panichelli 9 – Ely 4”. */
+    private fun leaderLines(home: JsonObject, away: JsonObject): List<StatLine> {
+        fun best(group: JsonObject): Map<String, Pair<String, String>> =
+            group.arr("leaders").filterIsInstance<JsonObject>().mapNotNull { cat ->
+                val key = cat.text("name") ?: cat.text("displayName") ?: return@mapNotNull null
+                val top = cat.arr("leaders").firstOrNull() as? JsonObject ?: return@mapNotNull null
+                val who = top.obj("athlete")?.let { it.text("shortName") ?: it.text("displayName") } ?: return@mapNotNull null
+                val value = top.text("displayValue")?.substringBefore(',')?.trim() ?: top.text("value") ?: return@mapNotNull null
+                key to ((cat.text("displayName") ?: key) to "$who ($value)")
+            }.toMap()
+        val h = best(home)
+        val a = best(away)
+        return h.keys.filter { it in a }.map { k -> StatLine(leaderLabel(k, h.getValue(k).first), h.getValue(k).second, a.getValue(k).second) }
+    }
+
+    private fun leaderLabel(name: String, label: String): String = when (name.lowercase()) {
+        "goals", "goalsleaders" -> "Golgheter"
+        "assists", "assistsleaders" -> "Pase decisive"
+        "points", "pointsleaders" -> "Cele mai multe puncte"
+        "rebounds", "reboundsleaders" -> "Cele mai multe recuperări"
+        else -> label
     }
 
     /** Codul stării, în forma înțeleasă de [MatchInsights.liveLabel]. */
@@ -706,6 +800,11 @@ object Espn {
         "shotstotal" to "Șuturi",
         "powerplaygoals" to "Goluri în powerplay",
         "faceoffpercent" to "Face-off-uri câștigate (%)",
+        "totalgoals" to "Goluri marcate",
+        "goalsconceded" to "Goluri primite",
+        "goaldifference" to "Golaveraj",
+        "goalassists" to "Pase de gol",
+        "cleansheet" to "Meciuri fără gol primit",
     )
 
     private fun statLabel(name: String, label: String?): String =

@@ -198,3 +198,54 @@ class Stage16FeaturesTest {
         assertEquals(ufc, AutoSwitch.due(listOf(talk, ufc), f, kickoff, emptySet(), null))
     }
 }
+
+class EspnPreMatchTest {
+
+    @Test
+    fun `summary fara header - echipele, forma, sezonul si golgheterii`() {
+        // Forma reală a unui `summary` ESPN înainte de meci (LaLiga 2): fără `header`, totul în `boxscore`.
+        val body = """
+            {"boxscore":{
+              "teams":[
+                {"team":{"id":"245","displayName":"Tenerife"},"homeAway":"home","statistics":[
+                  {"name":"totalGoals","label":"Goals","displayValue":"21"},{"name":"goalsConceded","displayValue":"9"}]},
+                {"team":{"id":"97","displayName":"Racing Santander"},"homeAway":"away","statistics":[
+                  {"name":"totalGoals","label":"Goals","displayValue":"25"},{"name":"goalsConceded","displayValue":"14"}]}],
+              "gameInfo":{"venue":{"fullName":"Heliodoro Rodríguez López","address":{"city":"Santa Cruz de Tenerife"}}},
+              "lastFiveGames":[
+                {"team":{"id":"245","displayName":"Tenerife"},"events":[
+                  {"id":"1","gameDate":"2026-11-08T15:00Z","score":"2-0","homeTeamId":"245","awayTeamId":"9",
+                   "homeTeamScore":"2","awayTeamScore":"0","gameResult":"W","opponent":{"displayName":"Cadiz"},"atVs":"vs"}]},
+                {"team":{"id":"97","displayName":"Racing Santander"},"events":[
+                  {"id":"2","gameDate":"2026-11-09T15:00Z","score":"1-1","homeTeamId":"8","awayTeamId":"97",
+                   "homeTeamScore":"1","awayTeamScore":"1","gameResult":"D","opponent":{"displayName":"Malaga"},"atVs":"@"}]}],
+              "leaders":[
+                {"team":{"id":"245"},"leaders":[{"name":"goals","displayName":"Goals","leaders":[{"displayValue":"9","athlete":{"displayName":"Enric Gallego"}}]}]},
+                {"team":{"id":"97"},"leaders":[{"name":"goals","displayName":"Goals","leaders":[{"displayValue":"7, 1 A","athlete":{"displayName":"Andrés Martín"}}]}]}]
+            }}
+        """.trimIndent()
+        val d = Espn.parseSummary(body, "x")!!
+        val ev = d.event!!
+        assertEquals("Tenerife", ev.home)
+        assertEquals("Racing Santander", ev.away)
+        assertEquals("Heliodoro Rodríguez López", ev.venue)
+        assertTrue(d.stats.isEmpty())
+        assertEquals(StatLine("Goluri marcate", "21", "25"), d.seasonStats[0])
+        assertEquals(StatLine("Golgheter", "Enric Gallego (9)", "Andrés Martín (7)"), d.seasonStats.last())
+        assertEquals("Tenerife", d.homeRecent.single().home)
+        assertEquals("Malaga", d.awayRecent.single().home)
+        assertEquals(1, d.awayRecent.single().awayScore)
+    }
+
+    @Test
+    fun `liga ESPN dupa numele competitiei`() {
+        assertEquals("LALIGA2", Espn.leaguesFor(Sport.FOOTBALL, "LaLiga Hypermotion").first().key)
+        assertEquals("LALIGA2", Espn.leaguesFor(Sport.FOOTBALL, "Spain - LaLiga 2").first().key)
+        assertEquals("SERIEA", Espn.leaguesFor(Sport.FOOTBALL, "Serie A").first().key)
+        assertEquals("BRAZIL", Espn.leaguesFor(Sport.FOOTBALL, "Brasileirão Série A").first().key)
+        assertEquals("SERIEA", Espn.leaguesFor(null, "Italian Serie A").first().key)
+        assertEquals("AUSTRIA", Espn.leaguesFor(Sport.FOOTBALL, "Austrian Bundesliga").first().key)
+        assertTrue(Espn.leaguesFor(Sport.BASKETBALL, "Serie A").isEmpty())
+        assertTrue(Espn.leaguesFor(Sport.FOOTBALL, null).isEmpty())
+    }
+}

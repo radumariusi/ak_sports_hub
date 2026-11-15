@@ -146,10 +146,10 @@ class AppContainer(app: Application) {
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */
-    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor)
-
-    /** Clasamentele (tabul „Clasamente”), cerute doar cât e deschis tabul. */
+    /** Clasamentele (tabul „Clasamente” și Pre-meci), cerute doar cât e deschis tabul sau meciul. */
     val standings = StandingsRepository(app, http, diagnosticLog)
+
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor, standings)
 
     /** Meciul la care te uiți acum în player (pentru alertele de gol: nu pentru meciul de pe ecran). */
     val watchingMatch = MutableStateFlow<String?>(null)

@@ -78,6 +78,13 @@ fun PreMatchTab(
             item(key = "form-away") { FormRow(match.away, d.awayRecent, zone, lookForm = !hideSpoilers) }
         }
 
+        if (d.seasonStats.isNotEmpty() && match.away.isNotBlank()) {
+            item { SectionLabel("Sezonul  (${match.home} – ${match.away})") }
+            items(d.seasonStats, key = { "ss:" + it.name }) { s ->
+                ListRow(title = s.name, onClick = {}, trailing = { Text(text = "${s.home}  –  ${s.away}", fontSize = 16.sp) })
+            }
+        }
+
         if (d.headToHead.isNotEmpty()) {
             val (w, dr, l) = MatchInsights.headToHeadSummary(d.headToHead, match.home)
             item { SectionLabel("Meciuri directe") }

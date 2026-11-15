@@ -69,6 +69,7 @@ import ro.ak.sportshub.core.sports.TheSportsDb
 import ro.ak.sportshub.core.sports.Verdict
 import ro.ak.sportshub.core.sports.ProviderPolicy
 import ro.ak.sportshub.core.common.DiagnosticText
+import ro.ak.sportshub.core.common.ChannelNameParser
 
 /** Un meci cu sursele găsite în playlisturile tale. */
 data class MatchEntry(
@@ -391,6 +392,7 @@ class SportsRepository(
         var ok = 0
         var failed = 0
         var sinceRecompute = 0
+        var lastRecompute = 0L
         jobs.forEachIndexed { i, job ->
             val provider = providerOf(job.url)
             // După un 429 repetat, furnizorul nu mai e întrebat în runda asta: rămân datele salvate.
@@ -425,9 +427,13 @@ class SportsRepository(
             val next = jobs.getOrNull(i + 1)?.let { providerOf(it.url) }
             // ESPN are zeci de ligi mici: lista se reface mai rar pe parcurs (fiecare calcul costă câteva secunde).
             val every = if (provider == Espn.PROVIDER) ESPN_RECOMPUTE_EVERY else RECOMPUTE_EVERY
-            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= every)) {
+            // Și cel mult o dată la [MID_ROUND_GAP_MS] (jurnalul arăta calcule la 10 s, de câte 5–12 s fiecare),
+            // în afară de prima listă, care apare cât mai repede.
+            val gapOk = System.currentTimeMillis() - lastRecompute >= MID_ROUND_GAP_MS || _snapshot.value.entries.isEmpty()
+            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= every) && gapOk) {
                 recompute()
                 sinceRecompute = 0
+                lastRecompute = System.currentTimeMillis()
             }
             if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
@@ -1186,6 +1192,8 @@ class SportsRepository(
         val entries = matches.map { m ->
             val sources = ArrayList<MatchSource<ChannelWithPlaylist>>()
             for (f in foundByMatch.getValue(m.id)) variants[f.groupKey].orEmpty().forEach { c ->
+                // „#### DAZN LALIGA VIP SD ####”: un separator din lista furnizorului, nu un canal.
+                if (ChannelNameParser.isSeparator(c.name)) return@forEach
                 // Calitatea: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist.
                 val quality = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
                 sources += MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin)
@@ -1510,6 +1518,7 @@ class SportsRepository(
         val BROADCAST_BACK_MS = TimeUnit.HOURS.toMillis(30)
         const val RECOMPUTE_EVERY = 8
         const val ESPN_RECOMPUTE_EVERY = 30
+        const val MID_ROUND_GAP_MS = 45_000L
         val NEAR_AHEAD_MS = TimeUnit.HOURS.toMillis(36)
         val NEAR_RELOAD_MS = TimeUnit.HOURS.toMillis(1)
         val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
@@ -1517,7 +1526,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 3
+        const val INPUTS_VERSION = 4
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
