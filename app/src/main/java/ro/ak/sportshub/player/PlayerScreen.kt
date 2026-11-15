@@ -58,6 +58,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import ro.ak.sportshub.core.common.player.DropAdapter
 import ro.ak.sportshub.R
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -162,7 +163,37 @@ fun PlayerScreen(
     val state by controller.state.collectAsStateWithLifecycle()
     // Frecvența ecranului după cadrele stream-ului (setare, oprită implicit).
     val variantSettings by container.variantStore.state.collectAsStateWithLifecycle()
-    FrameRateMatch(state.frameRate, variantSettings.matchFrameRate)
+    // Adaptarea la sacadare: dacă stream-ul pierde cadre mereu (nu doar la pornire), playerul încearcă singur
+    // potrivirea frecvenței și imaginea fluidă, păstrează ce ajută și ține minte pentru canal (cât rulează aplicația).
+    val adaptKey = state.channel?.let { it.playlistId.toString() + "\u0000" + it.name }
+    val adapter = remember(adaptKey) { DropAdapter() }
+    var adaptActive by remember(adaptKey) { mutableStateOf(adaptKey?.let { AdaptMemory.steps[it] }.orEmpty()) }
+    var adaptNote by remember { mutableStateOf<String?>(null) }
+    val currentSettings by rememberUpdatedState(variantSettings)
+    LaunchedEffect(adaptKey) {
+        if (adaptKey == null) return@LaunchedEffect
+        val remembered = AdaptMemory.steps[adaptKey].orEmpty()
+        while (true) {
+            delay(2_500)
+            val s = controller.state.value
+            if (s.videoSize == null || s.status != PlaybackStatus.Playing) continue
+            val v = currentSettings
+            val available = buildSet {
+                if (s.frameRate != null && !v.matchFrameRate) add(DropAdapter.Step.MATCH_RATE)
+                if (!v.smoothVideo) add(DropAdapter.Step.SURFACE_VIEW)
+            } - remembered
+            if (adapter.sample(s.droppedFrames, available)) adaptActive = remembered + adapter.active
+            if (adapter.kept.isNotEmpty()) AdaptMemory.steps[adaptKey] = remembered + adapter.kept
+            adapter.takeNote()?.let { adaptNote = it }
+        }
+    }
+    LaunchedEffect(adaptNote) {
+        if (adaptNote != null) {
+            delay(6_000)
+            adaptNote = null
+        }
+    }
+    FrameRateMatch(state.frameRate, variantSettings.matchFrameRate || DropAdapter.Step.MATCH_RATE in adaptActive)
     var panel by remember { mutableStateOf(Panel.None) }
     var infoVisible by remember { mutableStateOf(true) }
     var infoToken by remember { mutableIntStateOf(0) }
@@ -435,7 +466,7 @@ fun PlayerScreen(
     ) {
         // TextureView (implicit): imaginea apare sigur sub straturile Compose; SurfaceView („Imagine fluidă”):
         // decodorul scrie direct pe ecran, mai fluid la 4K. Vezi player_view.xml și player_view_surface.xml.
-        val layout = if (variantSettings.smoothVideo) R.layout.player_view_surface else R.layout.player_view
+        val layout = if (variantSettings.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive) R.layout.player_view_surface else R.layout.player_view
         androidx.compose.runtime.key(layout) { AndroidView(
             factory = { ctx ->
                 (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
@@ -454,6 +485,19 @@ fun PlayerScreen(
         ) }
 
         StatusOverlay(state.status, Modifier.align(Alignment.Center))
+
+        adaptNote?.let { note ->
+            Text(
+                text = note,
+                fontSize = 15.sp,
+                color = AkColors.Accent,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 28.dp)
+                    .background(Overlay, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
 
         // Tabela de scor din stânga sus (cu informațiile sau cu panoul meciului): coduri, scor (după întârzierea
         // stream-ului, ascuns la „fără spoilere”), minutul; la reluare marcată „RELUARE”, niciodată „LIVE”.
@@ -1096,4 +1140,9 @@ internal object PlaybackCheck {
         val ratio = hz / fps
         return kotlin.math.abs(ratio - Math.round(ratio)) > 0.05f
     }
+}
+
+/** Ce a ajutat la sacadare, pe canal (playlist + nume), cât rulează aplicația: la revenire se aplică din prima. */
+private object AdaptMemory {
+    val steps = java.util.concurrent.ConcurrentHashMap<String, Set<DropAdapter.Step>>()
 }
