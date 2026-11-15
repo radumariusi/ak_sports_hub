@@ -142,6 +142,11 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private var stoppedInBackground = false
     /** Arhiva cerută (catch-up) sau null pentru live. Zapping-ul și canalul anterior revin la live. */
     private var archive: Archive? = null
+    /**
+     * Arhiva Xtream pornește la minut fix: secundele rămase până la ora cerută se sar după pornire
+     * (doar dacă stream-ul permite derularea; altfel pornește de la minutul întreg).
+     */
+    private var pendingSeekMs = 0L
 
     init {
         player.addListener(object : Player.Listener {
@@ -172,6 +177,34 @@ class PlayerController(context: Context, private val container: AppContainer) {
         this.archive = archive
         cancelJobs()
         playJob = scope.launch { start(channelId, zapGroup, failoverStep = false) }
+    }
+
+    /**
+     * Salt în arhiva canalului curent: oprește stream-ul (live sau arhiva veche), apoi pornește arhiva
+     * de la [start] la [end]. Tot o singură conexiune, ca la schimbarea canalului.
+     */
+    fun jumpTo(start: Long, end: Long) {
+        val c = _state.value.channel ?: return
+        play(c.id, archive = Archive(start, end.coerceAtLeast(start + MIN_ARCHIVE_MS)))
+    }
+
+    /** Înapoi la live pe canalul curent (din reluare). */
+    fun goLive() {
+        val c = _state.value.channel ?: return
+        play(c.id, archive = null)
+    }
+
+    /** Arhiva care rulează acum (null = live). */
+    val currentArchive: Archive? get() = archive
+
+    /**
+     * Ora (ms UTC) care se vede acum în arhivă: începutul cererii (minutul întreg) plus poziția redată.
+     * Null la live sau înainte de pornire.
+     */
+    fun watchedAt(): Long? {
+        val a = archive ?: return null
+        if (player.playbackState == Player.STATE_IDLE) return null
+        return floorMinute(a.start) + player.currentPosition.coerceAtLeast(0)
     }
 
     /** Reîncearcă canalul curent de la zero (după o eroare sau la cerere). */
@@ -397,6 +430,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             .apply { if (forceHls || isHls(url)) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
         _state.update { it.copy(status = PlaybackStatus.Connecting) }
+        pendingSeekMs = archive?.let { it.start - floorMinute(it.start) } ?: 0L
         player.setMediaItem(item)
         player.playWhenReady = true
         player.prepare()
@@ -430,6 +464,10 @@ class PlayerController(context: Context, private val container: AppContainer) {
             Player.STATE_READY -> {
                 _state.update { it.copy(status = PlaybackStatus.Playing) }
                 _state.value.channel?.let(variants::markWorked)
+                if (pendingSeekMs > 0) {
+                    if (player.isCurrentMediaItemSeekable) player.seekTo(pendingSeekMs)
+                    pendingSeekMs = 0
+                }
                 stableJob = scope.launch {
                     delay(STABLE_AFTER_MS)
                     backoff.reset()
@@ -568,6 +606,9 @@ class PlayerController(context: Context, private val container: AppContainer) {
         const val STALL_TIMEOUT_MS = 20_000L
         const val STABLE_AFTER_MS = 30_000L
         const val DEFAULT_USER_AGENT = "AKSportsHub/1.0 (Android TV)"
+        const val MIN_ARCHIVE_MS = 10 * 60_000L
+
+        fun floorMinute(ms: Long): Long = ms - Math.floorMod(ms, 60_000L)
 
         fun isHls(url: String): Boolean {
             val path = url.substringBefore('?').lowercase()

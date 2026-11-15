@@ -33,7 +33,7 @@ private const val HOME = "home"
 private const val MATCH = "match/{matchId}"
 private const val PLAYLISTS = "playlists"
 private const val PLAYLIST_EDIT = "playlist/{id}?type={type}"
-private const val PLAYER = "player/{channelId}?zapGroup={zapGroup}&archiveStart={archiveStart}&archiveEnd={archiveEnd}"
+private const val PLAYER = "player/{channelId}?zapGroup={zapGroup}&archiveStart={archiveStart}&archiveEnd={archiveEnd}&matchId={matchId}"
 private const val CHANNEL = "channel/{channelId}"
 private const val SCHEDULE = "schedule/{channelId}"
 private const val EPG = "epg"
@@ -42,7 +42,13 @@ private const val SPORTS_KNOWLEDGE = "sports-knowledge"
 private const val BACKUP = "backup"
 
 /** Playerul pe arhiva canalului (catch-up), de la [start] la [end] (ms UTC). */
-private fun archiveRoute(channelId: Long, start: Long, end: Long) = "player/$channelId?archiveStart=$start&archiveEnd=$end"
+private fun archiveRoute(channelId: Long, start: Long, end: Long, matchId: String? = null) =
+    "player/$channelId?archiveStart=$start&archiveEnd=$end" + matchId.matchArg("&")
+
+/** Playerul pornit pentru un meci: panoul meciului știe din prima ce meci e. */
+private fun matchPlayerRoute(channelId: Long, matchId: String) = "player/$channelId" + matchId.matchArg("?")
+
+private fun String?.matchArg(sep: String): String = if (this.isNullOrEmpty()) "" else "${sep}matchId=" + Uri.encode(this)
 
 @Composable
 fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFlow(null)) {
@@ -60,7 +66,7 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                 val best = snapshot?.matches?.firstOrNull { it.match.id == target.matchId }
                     ?.bestSource(container.sportsSettings.current)
                 if (best != null) {
-                    nav.navigate("player/${best.id}") { launchSingleTop = true }
+                    nav.navigate(matchPlayerRoute(best.id, target.matchId)) { launchSingleTop = true }
                 } else {
                     nav.navigate("match/" + Uri.encode(target.matchId)) { launchSingleTop = true }
                 }
@@ -121,6 +127,11 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                     type = NavType.LongType
                     defaultValue = 0L
                 },
+                navArgument("matchId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { entry ->
             val archiveStart = entry.arguments?.getLong("archiveStart") ?: 0L
@@ -129,14 +140,16 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                 channelId = entry.arguments?.getLong("channelId") ?: 0L,
                 zapGroup = entry.arguments?.getLong("zapGroup") ?: 0L,
                 archive = if (archiveStart > 0 && archiveEnd > archiveStart) Archive(archiveStart, archiveEnd) else null,
+                matchId = entry.arguments?.getString("matchId"),
                 onExit = { nav.popBackStack() },
             )
         }
         composable(MATCH) { entry ->
+            val matchId = entry.arguments?.getString("matchId").orEmpty()
             MatchScreen(
-                matchId = entry.arguments?.getString("matchId").orEmpty(),
-                onPlay = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
-                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
+                matchId = matchId,
+                onPlay = { id -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } },
+                onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end, matchId)) { launchSingleTop = true } },
             )
         }
         composable(PLAYLISTS) {

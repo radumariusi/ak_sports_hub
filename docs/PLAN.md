@@ -155,7 +155,7 @@ Normalizarea echipelor: fără diacritice, fără `FC`, `CF`, `AFC`, `SC`, `CS`,
 | **8** | Sports Hub II: LiveSoccerTV (și opțional Sofascore), dicționar de posturi și alias-uri, reguli de drepturi TV, învățare din confirmări | mai multe meciuri cu surse găsite |
 | **9** | Favorite, notificări înainte de meci, rândul de pe ecranul principal Android TV, catch-up, backup/restore setări, finisare | aplicația de zi cu zi |
 | **10** | Mai multe meciuri și surse: canale EVENT / PPV din playlist (tab și sursă sigură), canale dedicate, posturi pe țară din Sofascore (toate sporturile), FutbolEnLaTV, evenimente fără două echipe (F1, ciclism, gale), „De ce nu are sursă?”, raport „canale de sport fără EPG” | mai multe meciuri cu surse, și la alte sporturi decât fotbalul |
-| **11** | Meciul în player și în arhivă: panou lateral cu detaliile meciului, salt la eveniment în arhivă, reluări din Sports Hub, spoilere sincronizate, meniu rapid, anunț pentru meciul favorit | |
+| **11** | Meciul în player și în arhivă: panou lateral cu detaliile meciului, salt la eveniment în arhivă, reluări din Sports Hub, spoilere sincronizate, meniu rapid, anunț pentru meciul favorit, formațiile pe teren | în player, panoul arată scorul cu întârzierea stream-ului, iar OK pe un gol pornește arhiva cu un minut înainte |
 | **12** | Restul: LiveOnSat, FotMob, API-urile ligilor americane, drepturi TV preumplute, „Acum pe canalele tale”, rezumate în catch-up, potrivirea cadrelor, configurare prin QR, rezoluția reală văzută la redare (fără verificări separate) | |
 
 Etapele 2–5 pot fi reordonate dacă vrei Sports Hub mai devreme: minimul pentru etapa 6 este 2 + 3 + 4.

@@ -43,6 +43,11 @@ data class SportsSettings(
     val favorites: SportsFavorites = SportsFavorites(),
     /** „Fără spoilere”: scorul, evenimentele și statisticile meciurilor începute rămân ascunse până le ceri. */
     val noSpoilers: Boolean = false,
+    /**
+     * Cu cât e în urmă stream-ul live față de realitate (secunde): în panoul meciului din player,
+     * scorul și evenimentele noi apar abia după atât, ca să nu le afli înainte să le vezi.
+     */
+    val streamDelaySeconds: Int = DEFAULT_STREAM_DELAY,
     /** Ultimele filtre folosite (rămân după repornire). */
     val filter: MatchFilter = MatchFilter(),
     /** Notificare înainte de meciurile favorite. */
@@ -52,6 +57,11 @@ data class SportsSettings(
     /** Rândul „Meciurile tale de azi” pe ecranul principal Android TV. */
     val homeRow: Boolean = true,
 )
+
+const val DEFAULT_STREAM_DELAY = 30
+
+/** Valorile din care alegi întârzierea stream-ului (secunde). */
+val StreamDelays: List<Int> = listOf(0, 10, 20, 30, 45, 60, 90, 120, 180)
 
 /** Fusurile din care poți alege pentru orele din numele canalelor EVENT (gol = fusul televizorului). */
 val EventZones: List<Pair<String, String>> = listOf(
@@ -119,6 +129,7 @@ class SportsSettingsStore(context: Context) {
                 sports = if (o.has("sports")) o.optJSONArray("sports").strings().mapNotNull(Sport::fromName) else d.sports,
                 daysAhead = o.optInt("daysAhead", d.daysAhead).coerceIn(1, 7),
                 noSpoilers = o.optBoolean("noSpoilers", d.noSpoilers),
+                streamDelaySeconds = o.optInt("streamDelay", d.streamDelaySeconds).coerceIn(0, 600),
                 reminders = o.optBoolean("reminders", d.reminders),
                 reminderMinutes = o.optInt("reminderMinutes", d.reminderMinutes).coerceIn(1, 120),
                 homeRow = o.optBoolean("homeRow", d.homeRow),
@@ -155,6 +166,7 @@ class SportsSettingsStore(context: Context) {
         put("sports", JSONArray(s.sports.map { it.name }))
         put("daysAhead", s.daysAhead)
         put("noSpoilers", s.noSpoilers)
+        put("streamDelay", s.streamDelaySeconds)
         put("reminders", s.reminders)
         put("reminderMinutes", s.reminderMinutes)
         put("homeRow", s.homeRow)

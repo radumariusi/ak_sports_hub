@@ -58,6 +58,27 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import ro.ak.sportshub.R
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import kotlinx.coroutines.launch
+import ro.ak.sportshub.core.playlist.Catchup
+import ro.ak.sportshub.core.sports.DetailsSchedule
+import ro.ak.sportshub.core.sports.KickoffNotices
+import ro.ak.sportshub.core.sports.Match
+import ro.ak.sportshub.core.sports.MatchClock
+import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.core.sports.PanelView
+import ro.ak.sportshub.core.sports.ReplayView
+import ro.ak.sportshub.core.sports.Spoilers
+import ro.ak.sportshub.data.CatchupStore
+import ro.ak.sportshub.data.MatchDetailsState
+import ro.ak.sportshub.data.MatchEntry
+import ro.ak.sportshub.data.StreamDelays
+import ro.ak.sportshub.data.bestSource
+import ro.ak.sportshub.data.hasSource
+import ro.ak.sportshub.data.matchOn
+import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.core.common.player.NumberInput
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.epg.NowNext
@@ -73,11 +94,18 @@ import ro.ak.sportshub.ui.epg.formatRange
 import ro.ak.sportshub.ui.epg.formatTime
 import ro.ak.sportshub.ui.theme.AkColors
 
-private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants }
+private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants, Match, Quick }
+
+/** Ferestrele de alegere din panoul meciului. */
+private enum class PanelDialog { DELAY, OFFSET }
+
+private val OkKeys = setOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)
+private const val KICKOFF_NOTICE_MS = 15_000L
+private const val KICKOFF_CHECK_MS = 30_000L
 
 private const val INFO_MS = 5_000L
 private const val NUMBER_COMMIT_MS = 1_500L
-private val Overlay = Color(0xE6101318)
+internal val Overlay = Color(0xE6101318)
 private val NavigationKeys = setOf(
     AndroidKeyEvent.KEYCODE_DPAD_UP,
     AndroidKeyEvent.KEYCODE_DPAD_DOWN,
@@ -94,9 +122,17 @@ private val NavigationKeys = setOf(
  * ▶ / Meniu pistele audio, subtitrările și restul opțiunilor, OK informații (sau reîncearcă după o eroare),
  * Ghid / EPG programul canalului,
  * cifrele numărul canalului, butonul „ultimul canal” comută între ultimele două canale, Back iese.
+ * OK ținut apăsat: meniul rapid (meciurile tale de acum, alte meciuri live, canalul anterior).
+ * Când pe canal e un meci ([matchId] sau găsit după sursele lui), meniul are și panoul meciului.
  */
 @Composable
-fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null, onExit: () -> Unit) {
+fun PlayerScreen(
+    channelId: Long,
+    zapGroup: Long = 0L,
+    archive: Archive? = null,
+    matchId: String? = null,
+    onExit: () -> Unit,
+) {
     val container = appContainer()
     val context = LocalContext.current
     val controller = remember { PlayerController(context.applicationContext, container) }
@@ -113,6 +149,92 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
     var numberText by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf<String?>(null) }
     val rootFocus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+
+    // ---------- meciul de pe ecran ----------
+    val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
+    val sportsSettings by container.sportsSettings.settings.collectAsStateWithLifecycle()
+    val details = container.matchDetails
+    val detailsStates by details.states.collectAsStateWithLifecycle()
+    val revealed by details.revealed.collectAsStateWithLifecycle()
+    /** Meciul ales (din fereastra meciului sau din meniul rapid); rămâne cât canalul e una din sursele lui. */
+    var requestedMatch by remember { mutableStateOf(matchId) }
+    var panelDialog by remember { mutableStateOf<PanelDialog?>(null) }
+    var kickoff by remember { mutableStateOf<MatchEntry?>(null) }
+    /** OK apăsat pe player (fără panou): scurt = informații, ținut = meniul rapid. */
+    var okHeld by remember { mutableStateOf(false) }
+    var okLong by remember { mutableStateOf(false) }
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(2_000)
+        }
+    }
+    val minute = now / 60_000
+    val linked: MatchEntry? = remember(snapshot, state.channel?.groupKey, requestedMatch, state.archiveFrom, minute) {
+        val key = state.channel?.groupKey ?: return@remember null
+        requestedMatch?.let { id -> snapshot.matches.firstOrNull { it.match.id == id && it.hasSource(key) } }
+            ?: snapshot.matchOn(key, state.archiveFrom ?: System.currentTimeMillis())
+    }
+    val linkedMatch = linked?.match
+    val replay = state.archiveFrom != null
+    val detailsState = linkedMatch?.let { detailsStates[it.id] } ?: MatchDetailsState()
+    val spoilerHidden = linkedMatch != null &&
+        Spoilers.hide(sportsSettings.noSpoilers, linkedMatch.id in revealed, if (replay) MatchStatus.LIVE else linkedMatch.status)
+    val panelView: PanelView? = remember(linkedMatch, detailsState, now, replay, sportsSettings.streamDelaySeconds) {
+        val m = linkedMatch ?: return@remember null
+        if (replay) {
+            ReplayView.at(m, detailsState.details, controller.watchedAt() ?: state.archiveFrom ?: m.start)
+        } else {
+            details.delayedView(m, now, sportsSettings.streamDelaySeconds * 1_000L)
+        }
+    }
+
+    // Datele meciului se cer doar cât e deschis panoul: pre-meci o dată, live la un minut (cât se joacă).
+    LaunchedEffect(linkedMatch?.id, panel == Panel.Match) {
+        val m = linkedMatch ?: return@LaunchedEffect
+        if (panel != Panel.Match) return@LaunchedEffect
+        details.refreshPreMatch(m)
+        while (true) {
+            val current = container.sports.snapshot.value.matches.firstOrNull { it.match.id == m.id }?.match ?: m
+            if (current.status == MatchStatus.SCHEDULED) break
+            details.refreshLive(current)
+            if (current.status != MatchStatus.LIVE) break
+            delay(DetailsSchedule.LIVE_REFRESH_MS)
+        }
+    }
+
+    // „A început meciul favorit X”: o dată pe meci, doar dacă are o sursă de pornit.
+    val linkedId by rememberUpdatedState(linkedMatch?.id)
+    LaunchedEffect(Unit) {
+        while (true) {
+            val snap = container.sports.snapshot.value
+            val s = container.sportsSettings.current
+            val t = System.currentTimeMillis()
+            val due = KickoffNotices.due(snap.matches.map { it.match }, s.favorites, t, AnnouncedKickoffs, linkedId)
+            val entry = due.firstNotNullOfOrNull { m -> snap.matches.firstOrNull { it.match.id == m.id && it.bestSource(s) != null } }
+            due.forEach { AnnouncedKickoffs += it.id }
+            if (entry != null) {
+                kickoff = entry
+                delay(KICKOFF_NOTICE_MS)
+                kickoff = null
+            }
+            delay(KICKOFF_CHECK_MS)
+        }
+    }
+
+    /** Pornește sursa recomandată a unui meci (stream-ul curent se oprește întâi, ca la orice schimbare). */
+    fun playMatch(entry: MatchEntry) {
+        val best = entry.bestSource(container.sportsSettings.current)
+        panel = Panel.None
+        if (best == null) {
+            toast = "Meciul nu are surse în playlisturile tale."
+            return
+        }
+        requestedMatch = entry.match.id
+        kickoff = null
+        if (best.id != state.channel?.id || replay) controller.play(best.id, zapGroup = 0) else Unit
+    }
 
     fun showInfo() {
         infoVisible = true
@@ -148,6 +270,7 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
     LaunchedEffect(panel) { if (panel == Panel.None) runCatching { rootFocus.requestFocus() } }
 
     BackHandler(enabled = panel != Panel.None || numberText.isNotEmpty()) {
+        panelDialog = null
         if (numberText.isNotEmpty()) {
             numberInput.clear()
             numberText = ""
@@ -171,12 +294,8 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
                 panel = Panel.Menu
             AndroidKeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> panel = Panel.Audio
             AndroidKeyEvent.KEYCODE_CAPTIONS -> panel = Panel.Subtitles
-            AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> when {
-                numberInput.isActive -> commitNumber()
-                state.status is PlaybackStatus.Failed -> controller.retry()
-                infoVisible -> infoVisible = false
-                else -> showInfo()
-            }
+            AndroidKeyEvent.KEYCODE_PROG_RED -> panel = Panel.Quick
+            AndroidKeyEvent.KEYCODE_PROG_BLUE -> if (linkedMatch != null) panel = Panel.Match
             AndroidKeyEvent.KEYCODE_INFO -> showInfo()
             AndroidKeyEvent.KEYCODE_GUIDE, AndroidKeyEvent.KEYCODE_TV_DATA_SERVICE -> panel = Panel.Schedule
             AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS ->
@@ -190,12 +309,48 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
         return true
     }
 
+    fun shortOk() {
+        when {
+            numberInput.isActive -> commitNumber()
+            state.status is PlaybackStatus.Failed -> controller.retry()
+            infoVisible -> infoVisible = false
+            else -> showInfo()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(rootFocus)
             .focusable()
+            // OK scurt / ținut: decis înaintea panourilor, ca ridicarea tastei să nu apese rândul abia focalizat.
+            .onPreviewKeyEvent { event ->
+                val code = event.key.nativeKeyCode
+                when {
+                    code !in OkKeys -> false
+                    event.type == KeyEventType.KeyDown && panel == Panel.None && !okHeld -> {
+                        okHeld = true
+                        okLong = false
+                        true
+                    }
+                    !okHeld -> false
+                    event.type == KeyEventType.KeyDown -> {
+                        if (event.nativeKeyEvent.repeatCount > 0 && !okLong) {
+                            okLong = true
+                            panel = Panel.Quick
+                        }
+                        true
+                    }
+                    else -> {
+                        val wasLong = okLong
+                        okHeld = false
+                        okLong = false
+                        if (!wasLong) shortOk()
+                        true
+                    }
+                }
+            }
             .onKeyEvent { event ->
                 val code = event.key.nativeKeyCode
                 when {
@@ -251,6 +406,23 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
             )
         }
 
+        kickoff?.let { k ->
+            if (panel != Panel.Quick) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 32.dp, end = 32.dp)
+                        .width(420.dp)
+                        .background(Overlay, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                ) {
+                    Text(text = "★ A început meciul favorit", fontSize = 13.sp, color = AkColors.Accent)
+                    Text(text = k.match.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text(text = "OK ținut apăsat: mută pe meci", fontSize = 13.sp, color = AkColors.TextDim)
+                }
+            }
+        }
+
         toast?.let {
             Text(
                 text = it,
@@ -264,7 +436,11 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
         }
 
         if ((infoVisible || state.status !is PlaybackStatus.Playing) && panel == Panel.None) {
-            InfoBar(state, Modifier.align(Alignment.BottomCenter))
+            InfoBar(
+                state = state,
+                matchLine = linkedMatch?.let { m -> matchLine(m, panelView, spoilerHidden) },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         when (panel) {
@@ -279,6 +455,9 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
             )
             Panel.Menu -> MenuPanel(
                 state = state,
+                matchTitle = linkedMatch?.title,
+                onMatch = { panel = Panel.Match },
+                onQuick = { panel = Panel.Quick },
                 previousName = controller.previousName,
                 onAudio = { panel = Panel.Audio },
                 onSubtitles = { panel = Panel.Subtitles },
@@ -334,9 +513,131 @@ fun PlayerScreen(channelId: Long, zapGroup: Long = 0L, archive: Archive? = null,
                 },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
+            Panel.Match -> linked?.let { entry ->
+                val m = entry.match
+                val channel = state.channel
+                val nowMs = System.currentTimeMillis()
+                val kickoffAt = detailsState.details.event?.start ?: m.start
+                val hasArchive = channel != null && Catchup.isAvailable(channel.catchupDays, kickoffAt, nowMs) &&
+                    Catchup.parse(channel.streamUrl) != null
+                val offset = channel?.let { container.catchup.offsetSeconds(it.playlistId) } ?: 0
+                val end = maxOf(m.end, nowMs)
+                MatchPanelContent(
+                    match = m,
+                    view = panelView,
+                    hidden = spoilerHidden,
+                    replay = replay,
+                    lineup = detailsState.details.lineup,
+                    loading = detailsState.loading,
+                    status = detailsState.status,
+                    delaySeconds = sportsSettings.streamDelaySeconds,
+                    offsetSeconds = offset,
+                    actions = MatchPanelActions(
+                        onJump = if (hasArchive && MatchClock.supports(m.sport)) {
+                            { t ->
+                                MatchClock.jumpStart(kickoffAt, t.minute, m.sport, offset)?.let { start ->
+                                    panel = Panel.None
+                                    toast = "Arhiva de la ${t.minute}' (cu un minut înainte)…"
+                                    controller.jumpTo(start, end)
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        onFromStart = if (hasArchive) {
+                            {
+                                panel = Panel.None
+                                controller.jumpTo(kickoffAt - FROM_START_LEAD_MS, end)
+                            }
+                        } else {
+                            null
+                        },
+                        onLive = if (replay && m.status != MatchStatus.FINISHED) {
+                            {
+                                panel = Panel.None
+                                controller.goLive()
+                            }
+                        } else {
+                            null
+                        },
+                        onReveal = { details.reveal(m.id) },
+                        onRefresh = { scope.launch { if (replay) details.refreshLive(m, force = true) else details.refreshLive(m) } },
+                        onDelay = if (!replay) ({ panelDialog = PanelDialog.DELAY }) else null,
+                        onOffset = if (hasArchive && channel != null) ({ panelDialog = PanelDialog.OFFSET }) else null,
+                    ),
+                    modifier = Modifier.align(Alignment.CenterEnd).width(600.dp),
+                )
+            } ?: LaunchedEffect(Unit) { panel = Panel.None }
+            Panel.Quick -> {
+                val s = sportsSettings
+                val t = System.currentTimeMillis()
+                val live = remember(snapshot, minute) {
+                    snapshot.matches.filter { e ->
+                        e.match.status != MatchStatus.FINISHED && e.match.start <= t && t <= e.match.end && e.bestSource(s) != null
+                    }.sortedBy { it.match.start }
+                }
+                val (fav, other) = live.partition { s.favorites.isFavorite(it.match) }
+                QuickMenuContent(
+                    previousName = controller.previousName,
+                    current = linked,
+                    announced = kickoff,
+                    favorites = fav,
+                    others = other.take(QUICK_OTHERS),
+                    onPrevious = {
+                        panel = Panel.None
+                        if (!controller.playPrevious()) toast = "Nu există un canal anterior."
+                    },
+                    onMatchPanel = if (linked != null) ({ panel = Panel.Match }) else null,
+                    onPlayMatch = { playMatch(it) },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
+            }
             Panel.None -> Unit
         }
     }
+
+    when (panelDialog) {
+        PanelDialog.DELAY -> ChoiceDialog(
+            title = "Întârzierea stream-ului live",
+            hint = "Cât e în urmă imaginea față de realitate. Dacă afli golul din panou înainte să-l vezi, mărește valoarea.",
+            options = StreamDelays.map { if (it == 0) "Fără întârziere" else "$it secunde" },
+            selectedIndex = StreamDelays.indexOf(sportsSettings.streamDelaySeconds),
+            onDismiss = { panelDialog = null },
+            onSelect = { i ->
+                container.sportsSettings.update { it.copy(streamDelaySeconds = StreamDelays[i]) }
+                panelDialog = null
+            },
+        )
+        PanelDialog.OFFSET -> state.channel?.let { c ->
+            val current = container.catchup.offsetSeconds(c.playlistId)
+            val options = (CatchupStore.OFFSETS + current).distinct().sorted()
+            ChoiceDialog(
+                title = "Corecția saltului · ${c.playlistName}",
+                hint = "Saltul la o fază pornește cu un minut înainte. Dacă ajunge constant prea devreme, alege o valoare pozitivă; " +
+                    "dacă ratezi faza, una negativă. Se ține minte pentru playlist.",
+                options = options.map { if (it == 0) "Fără corecție" else (if (it > 0) "+" else "") + "$it secunde" },
+                selectedIndex = options.indexOf(current),
+                onDismiss = { panelDialog = null },
+                onSelect = { i ->
+                    container.catchup.setOffsetSeconds(c.playlistId, options[i])
+                    panelDialog = null
+                },
+            )
+        }
+        null -> Unit
+    }
+}
+
+/** „De la început” în panou: arhiva pornește cu două minute înainte de start. */
+private const val FROM_START_LEAD_MS = 120_000L
+private const val QUICK_OTHERS = 40
+
+/** Rândul meciului din bara de informații: scorul (cu întârzierea stream-ului sau până unde ai ajuns în reluare). */
+private fun matchLine(m: Match, view: PanelView?, hidden: Boolean): String = when {
+    hidden -> "${m.title} · scor ascuns"
+    view?.homeScore != null && view.awayScore != null ->
+        "${m.home} ${view.homeScore}–${view.awayScore} ${m.away}" + view.label.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
+    else -> m.title
 }
 
 @Composable
@@ -364,7 +665,7 @@ private fun StatusOverlay(status: PlaybackStatus, modifier: Modifier) {
 }
 
 @Composable
-private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
+private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier) {
     val channel = state.channel ?: return
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
@@ -391,6 +692,8 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(text = channel.name, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    // O reluare nu apare niciodată drept live.
+                    if (state.archiveFrom != null) Badge(text = "RELUARE", color = AkColors.Focus)
                     channel.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                     QualityBadge(channel.quality)
                 }
@@ -406,6 +709,9 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                matchLine?.let {
+                    Text(text = "⚽ $it", fontSize = 17.sp, color = AkColors.Accent, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+                }
                 nowNext?.now?.let { p ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
                         Text(text = formatRange(p), fontSize = 15.sp, color = AkColors.Accent)
@@ -425,7 +731,7 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
                     )
                 }
                 Text(
-                    text = "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde",
+                    text = "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK ținut: meniu rapid",
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 8.dp),
@@ -445,7 +751,7 @@ private fun InfoBar(state: PlayerUiState, modifier: Modifier) {
 }
 
 @Composable
-private fun SidePanel(modifier: Modifier, content: @Composable () -> Unit) {
+internal fun SidePanel(modifier: Modifier, content: @Composable () -> Unit) {
     Box(
         modifier = modifier
             .width(440.dp)
@@ -493,6 +799,9 @@ private fun ChannelsPanel(
 @Composable
 private fun MenuPanel(
     state: PlayerUiState,
+    matchTitle: String?,
+    onMatch: () -> Unit,
+    onQuick: () -> Unit,
     previousName: String?,
     onAudio: () -> Unit,
     onSubtitles: () -> Unit,
@@ -510,6 +819,14 @@ private fun MenuPanel(
     SidePanel(modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             SectionLabel(state.channel?.name ?: "Player")
+            if (matchTitle != null) {
+                ListRow(
+                    title = "Meciul: $matchTitle",
+                    subtitle = "Scor, evenimente, statistici, echipe; salt la faze în arhivă",
+                    onClick = onMatch,
+                )
+            }
+            ListRow(title = "Meniu rapid", subtitle = "Meciurile de acum (și cu OK ținut apăsat)", onClick = onQuick)
             ListRow(
                 title = "Pistă audio",
                 subtitle = if (state.audioTracks > 1) "${state.audioTracks} piste" else "o singură pistă",

@@ -33,6 +33,7 @@ import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.TeamCalendar
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.data.MatchEntry
+import ro.ak.sportshub.data.hasReplay
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
@@ -266,6 +267,8 @@ private fun MatchRow(entry: MatchEntry, favorite: Boolean, hideScore: Boolean, s
         trailing = {
             if (favorite) Text(text = "★", fontSize = 16.sp, color = AkColors.Accent)
             if (m.isLive) Badge(text = "LIVE", color = AkColors.Live)
+            // Meci terminat cu arhivă pe o sursă: se poate vedea ca reluare (niciodată marcat drept live).
+            if (m.status == MatchStatus.FINISHED && entry.hasReplay(System.currentTimeMillis())) Badge(text = "RELUARE", color = AkColors.Focus)
             if (count > 0) QualityBadge(entry.summary.best)
             Text(
                 text = when (count) {
