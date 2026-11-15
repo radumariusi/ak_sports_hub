@@ -30,6 +30,8 @@ object EpgMatchExtractor {
         Regex("""\s+@\s+"""),
         // Portugheză și braziliană: „Liga Portugal 2 - Leixoes x Chaves”.
         Regex("""(?<=\p{L}|\.)\s+[xX]\s+(?=\p{L})"""),
+        // „×” și araba „ضد” (contra), rusa „против”.
+        Regex("""\s+(?:×|ضد|против)\s+"""),
     )
     private val dashSeparator = Regex("""\s+[-–—]\s+""")
     private val contextSplit = Regex("""\s*[:|]\s+|\s*[:|]\s*(?=\p{Lu})""")
@@ -252,7 +254,7 @@ object EpgMatchExtractor {
         t = t.trim('-', '–', '—', ':', '|', '.', ' ')
         if (t.length < 2 || t.length > 40) return null
         if (t.none { it.isLetter() }) return null
-        val words = t.split(Regex("""\s+"""))
+        val words = t.split(spaces)
         if (words.size > 5) return null
         val f = " ${Sport.fold(t)} "
         if (nonTeamWords.any { f.contains(" $it ") }) return null

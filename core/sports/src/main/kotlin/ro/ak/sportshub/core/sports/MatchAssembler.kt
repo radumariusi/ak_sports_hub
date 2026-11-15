@@ -21,6 +21,8 @@ object MatchAssembler {
     val DEDUP_WINDOW_MS: Long = TimeUnit.MINUTES.toMillis(15)
     private val BROADCAST_LEAD_MS = TimeUnit.HOURS.toMillis(3)
     private val BROADCAST_LATE_MS = TimeUnit.MINUTES.toMillis(30)
+    /** O emisiune cu o singură echipă recunoscută se leagă doar dacă începe la ± 15 minute de ora meciului. */
+    private val ONE_TEAM_MS = TimeUnit.MINUTES.toMillis(15)
     private val EPG_CLUSTER_MS = TimeUnit.HOURS.toMillis(3)
 
     /** Cât timp credem o stare „LIVE” veche din cache, după ora de start. */
@@ -101,6 +103,20 @@ object MatchAssembler {
                     consider(i) { TeamNames.samePair(homeParts[i], ap, xh, xa) }
                 }
             }
+            // O singură echipă recunoscută („Portugal x Arménia”, adversarul scris altfel): emisiunea e a meciului dacă
+            // e la ora lui (± [ONE_TEAM_MS]), e singurul meci al echipei atunci, iar sportul și competiția nu se contrazic.
+            if (best < 0 && xh != null && xa != null) {
+                var found = -1
+                var many = false
+                for (p in arrayOf(xh, xa)) {
+                    for (i in byToken.oneCandidates(p, { starts[it] }, b.start - ONE_TEAM_MS, b.start + ONE_TEAM_MS)) {
+                        val ap = awayParts[i] ?: continue
+                        if (i == found || !(TeamNames.same(homeParts[i], p) || TeamNames.same(ap, p))) continue
+                        if (found >= 0) many = true else found = i
+                    }
+                }
+                if (found >= 0 && !many && b.stop > merged[found].start && agrees(merged[found], x)) best = found
+            }
             if (best >= 0) {
                 attached.getOrPut(best) { ArrayList() } += mb
                 continue
@@ -133,6 +149,19 @@ object MatchAssembler {
             if (n == 1) m else m.copy(id = "${m.id}#$n")
         }
     }
+
+    /** Sportul și competiția emisiunii nu contrazic meciul (lipsa lor nu contrazice nimic). */
+    private fun agrees(e: SportEvent, x: ExtractedMatch): Boolean {
+        val es = sportOf(e)
+        if (es != null && x.sport != null && es != x.sport) return false
+        val xc = x.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() } ?: return true
+        val ec = e.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() } ?: return true
+        val ew = ec.split(' ').filter { it.length >= 4 && it !in GENERIC_COMPETITION_WORDS }.toSet()
+        val xw = xc.split(' ').filter { it.length >= 4 && it !in GENERIC_COMPETITION_WORDS }
+        return ew.isEmpty() || xw.isEmpty() || xw.any { it in ew }
+    }
+
+    private val GENERIC_COMPETITION_WORDS = setOf("league", "liga", "cup", "cupa", "copa", "football", "fotbal", "soccer", "live", "match", "group", "round", "stage")
 
     private fun sportOf(e: SportEvent): Sport? = Sport.fromSportsDb(e.sport) ?: Sport.detect(e.competition, e.home)
 
@@ -456,7 +485,14 @@ object MatchAssembler {
         fun pairCandidates(a: TeamNames.Parts, b: TeamNames.Parts, starts: (Int) -> Long, from: Long, to: Long): IntArray {
             val la = listsFor(a)
             val lb = listsFor(b)
-            val lists = if (la.sumOf { it.size } <= lb.sumOf { it.size }) la else lb
+            return collect(if (la.sumOf { it.size } <= lb.sumOf { it.size }) la else lb, starts, from, to)
+        }
+
+        /** Pozițiile care pot avea echipa [p] (gazdă sau oaspete), cu ora în [from, to]. */
+        fun oneCandidates(p: TeamNames.Parts, starts: (Int) -> Long, from: Long, to: Long): IntArray =
+            collect(listsFor(p), starts, from, to)
+
+        private fun collect(lists: List<List<Int>>, starts: (Int) -> Long, from: Long, to: Long): IntArray {
             val stamp = ++round
             var out = IntArray(8)
             var n = 0

@@ -162,6 +162,24 @@ class MatchAssemblerTest {
     }
 
     @Test
+    fun `o echipa la ora meciului, alte alfabete`() {
+        val pt = SportEvent(Espn.PROVIDER, "uefa.nations-1", "Soccer", "UEFA Nations League", "Portugal", "Armenia", kickoff)
+        val matches = MatchAssembler.assemble(
+            events = listOf(pt),
+            broadcasts = listOf(
+                br(20, "UEFA Nations League - Portugal x Arm.", kickoff - 5 * 60_000L, kickoff + 2 * h),
+                br(21, "Футбол. Лига наций. Португалия — Армения", kickoff, kickoff + 2 * h),
+                br(22, "البرتغال ضد أرمينيا", kickoff, kickoff + 2 * h),
+                // Aceeași echipă, dar cu o oră mai târziu: nu e meciul.
+                br(23, "Portugal x Arm.", kickoff + h, kickoff + 3 * h),
+            ),
+            now = kickoff - 5 * h,
+        )
+        val m = matches.first { it.id.startsWith(Espn.PROVIDER) }
+        assertEquals(listOf(20L, 21L, 22L), m.broadcasts.map { it.programmeId }.sorted())
+    }
+
+    @Test
     fun `starea după oră și după furnizor`() {
         fun status(now: Long, s: MatchStatus? = null) =
             MatchAssembler.assemble(listOf(ev("1", "A Team", "B Team", status = s)), emptyList(), now).single().status
