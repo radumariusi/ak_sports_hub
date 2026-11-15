@@ -37,6 +37,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -80,10 +82,15 @@ fun TabStrip(
     firstTabModifier: Modifier = Modifier,
     fontSize: TextUnit = 20.sp,
 ) {
-    // focusRestorer: când revii din listă în rândul de taburi, focusul se întoarce pe tabul curent.
+    // Când intri în rândul de taburi (din listă sau din bara de sus), focusul vine pe tabul curent, nu pe cel aflat
+    // dedesubt: focusRestorer ține minte ultimul tab, iar dacă ecranul a fost refăcut, merge pe tabul selectat.
+    val requesters = remember(tabs.size) { List(tabs.size) { FocusRequester() } }
     Row(
         // Defilează orizontal când taburile nu încap (focusul aduce tabul în vedere).
-        modifier = modifier.focusRestorer().focusGroup().horizontalScroll(rememberScrollState()),
+        modifier = modifier
+            .focusRestorer(requesters.getOrElse(selectedIndex) { requesters.firstOrNull() ?: FocusRequester.Default })
+            .focusGroup()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         tabs.forEachIndexed { index, title ->
@@ -91,6 +98,7 @@ fun TabStrip(
             Surface(
                 onClick = { onSelect(index) },
                 modifier = (if (index == 0) firstTabModifier else Modifier)
+                    .focusRequester(requesters[index])
                     .onFocusChanged { if (it.isFocused) onSelect(index) },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
@@ -366,4 +374,39 @@ fun ActionButton(
     ) {
         Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp))
     }
+}
+
+/**
+ * Întoarcerea pe rândul de unde ai plecat: la Back de pe alt ecran (canal, meci, player), focusul revine pe
+ * rândul apăsat, nu pe primul element (care, în bara de sus, ar schimba secțiunea). Cheia rândului se ține în
+ * starea salvată a ecranului, deci rezistă și când Android refăcea ecranul.
+ */
+class ReturnFocus internal constructor(private val saved: androidx.compose.runtime.MutableState<String?>) {
+    internal val requester = FocusRequester()
+
+    /** Adevărat după întoarcerea pe ecran, dacă un rând a fost apăsat (focusul inițial al ecranului se sare). */
+    val returning: Boolean get() = saved.value != null
+
+    /** Se cheamă la apăsarea rândului, înainte de a pleca pe alt ecran. */
+    fun clicked(key: String) {
+        saved.value = key
+    }
+
+    /** Modificatorul rândului cu cheia [key] (doar rândul ținut minte primește cererea de focus). */
+    fun on(key: String): Modifier = if (saved.value == key) Modifier.focusRequester(requester) else Modifier
+}
+
+@Composable
+fun rememberReturnFocus(): ReturnFocus {
+    val saved = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val rf = remember { ReturnFocus(saved) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (saved.value == null) return@LaunchedEffect
+        // Lista apare după câteva cadre (datele vin din bază): încearcă până la ~1,5 s.
+        repeat(90) {
+            androidx.compose.runtime.withFrameNanos { }
+            if (runCatching { rf.requester.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+    }
+    return rf
 }

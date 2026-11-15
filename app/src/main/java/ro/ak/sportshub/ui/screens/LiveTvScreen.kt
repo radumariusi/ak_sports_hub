@@ -26,6 +26,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,6 +47,8 @@ import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
 import ro.ak.sportshub.ui.components.EmptyState
 import ro.ak.sportshub.ui.components.ListRow
+import ro.ak.sportshub.ui.components.ReturnFocus
+import ro.ak.sportshub.ui.components.rememberReturnFocus
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.SectionLabel
@@ -88,6 +95,8 @@ fun LiveTvScreen(
     var editingQuery by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val mode = SearchMode.entries[modeIndex]
+    // La Back de pe canal / player, focusul revine pe rândul de unde ai plecat (și căutarea rămâne).
+    val returnFocus = rememberReturnFocus()
 
     val ftsQuery = SearchText.ftsQuery(query)
     val searching = ftsQuery != null
@@ -159,7 +168,7 @@ fun LiveTvScreen(
                 item {
                     ListRow(
                         title = "★ Canale favorite",
-                        subtitle = if (favoriteKeys.isEmpty()) "OK ținut apăsat pe un canal → Adaugă la favorite" else null,
+                        subtitle = if (favoriteKeys.isEmpty()) "OK ținut apăsat pe un canal îl adaugă la favorite" else null,
                         selected = selectedGroup == FAVORITES && !(searching && mode.channels),
                         onClick = {
                             selectedGroup = FAVORITES
@@ -260,19 +269,25 @@ fun LiveTvScreen(
                         showGroup = showingSearch,
                         // Din căutare, CH+/CH− rămân în grupul canalului; din grup, în grupul ales.
                         onClick = { c -> onPlayChannel(c.id, if (showingSearch || selectedGroup == FAVORITES) 0L else selectedGroup) },
-                        onLongClick = { c -> onOpenChannel(c.id) },
+                        returnFocus = returnFocus,
+                        onLongClick = { c ->
+                            val added = !container.channelFavorites.contains(c.groupKey)
+                            container.channelFavorites.toggle(c.groupKey)
+                            message = if (added) "★ ${c.name} adăugat la favorite." else "${c.name} scos din favorite."
+                        },
+                        onOpenChannel = { c -> onOpenChannel(c.id) },
                     )
                     showingSearch -> EmptyState(title = "Niciun canal găsit", hint = "Încearcă alt cuvânt sau doar începutul lui.")
                     selectedGroup == 0L -> EmptyState(title = "Alege un grup", hint = "Sau caută un canal după nume.")
                     selectedGroup == FAVORITES -> EmptyState(
                         title = "Niciun canal favorit",
-                        hint = "Ține apăsat OK pe un canal și alege „Adaugă la favorite”.",
+                        hint = "Ține apăsat OK pe un canal ca să-l adaugi la favorite.",
                     )
                     else -> EmptyState(title = "Grupul e gol", hint = "Actualizează playlistul din Setări.")
                 }
             }
             Text(
-                text = message ?: "Ține apăsat OK pe un canal pentru variante, varianta preferată, corecții și program. " +
+                text = message ?: "OK ținut apăsat: favorit. Săgeata dreapta: variante, varianta preferată, corecții și program. " +
                     "Calitatea și limba sunt cele declarate de playlist.",
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
@@ -309,6 +324,8 @@ private fun ChannelList(
     showGroup: Boolean,
     onClick: (ChannelWithPlaylist) -> Unit,
     onLongClick: (ChannelWithPlaylist) -> Unit,
+    onOpenChannel: (ChannelWithPlaylist) -> Unit,
+    returnFocus: ReturnFocus,
 ) {
     val container = appContainer()
     val epg = container.epg
@@ -348,7 +365,17 @@ private fun ChannelList(
                 title = (c.number?.let { "$it  " } ?: "") + c.name,
                 subtitle = nowNextLine(nn)?.let { if (showGroup) "$it · ${c.groupName}" else it } ?: meta,
                 progress = nn?.now?.progress(now),
-                onClick = { onClick(c) },
+                modifier = returnFocus.on(row.key).onPreviewKeyEvent { e ->
+                    // Săgeata dreapta (lista e ultima coloană): ecranul canalului.
+                    if (e.key == Key.DirectionRight && e.type == KeyEventType.KeyDown) {
+                        returnFocus.clicked(row.key)
+                        onOpenChannel(c)
+                        true
+                    } else {
+                        false
+                    }
+                },
+                onClick = { returnFocus.clicked(row.key); onClick(c) },
                 onLongClick = { onLongClick(c) },
                 trailing = {
                     if (row.variants.size > 1) {

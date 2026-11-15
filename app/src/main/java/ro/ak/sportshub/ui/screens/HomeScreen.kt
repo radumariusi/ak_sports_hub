@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import ro.ak.sportshub.ui.components.AkLogo
+import ro.ak.sportshub.ui.components.ChoiceDialog
 import ro.ak.sportshub.ui.components.TabStrip
 import ro.ak.sportshub.ui.theme.AkFonts
 import ro.ak.sportshub.ui.theme.AkColors
@@ -45,6 +50,13 @@ fun HomeScreen(
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
+    // Fiecare secțiune își păstrează starea (căutarea din Live TV, tabul din Sports Hub) când treci prin celelalte.
+    val sectionStates = rememberSaveableStateHolder()
+    var confirmExit by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // Back pe ecranul principal: ieșirea se confirmă.
+    BackHandler { confirmExit = true }
 
     // Focus inițial pe meniu, o singură dată (nu și la întoarcerea de pe ecranul unui meci).
     LaunchedEffect(Unit) {
@@ -70,7 +82,7 @@ fun HomeScreen(
             HeaderClock()
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
-            when (section) {
+            sectionStates.SaveableStateProvider(section) { when (section) {
                 0 -> SportsHubScreen(
                     onOpenMatch = onOpenMatch,
                     onOpenSettings = onOpenSportsSettings,
@@ -85,9 +97,31 @@ fun HomeScreen(
                     onOpenBackup = onOpenBackup,
                     onOpenQrSetup = onOpenQrSetup,
                 )
-            }
+            } }
         }
     }
+
+    if (confirmExit) {
+        ChoiceDialog(
+            title = "Ieși din aplicație?",
+            options = listOf("Rămân", "Ieși"),
+            selectedIndex = 0,
+            onDismiss = { confirmExit = false },
+            onSelect = { i ->
+                confirmExit = false
+                if (i == 1) context.findActivity()?.finish()
+            },
+        )
+    }
+}
+
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var c: android.content.Context? = this
+    while (c is android.content.ContextWrapper) {
+        if (c is android.app.Activity) return c
+        c = c.baseContext
+    }
+    return null
 }
 
 private val ClockFormat = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", java.util.Locale.forLanguageTag("ro"))

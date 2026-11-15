@@ -44,6 +44,7 @@ import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.QualityBadge
 import ro.ak.sportshub.ui.components.VariantQualityBadge
 import ro.ak.sportshub.ui.components.TabStrip
+import ro.ak.sportshub.ui.components.rememberReturnFocus
 import ro.ak.sportshub.ui.components.TextInputDialog
 import ro.ak.sportshub.ui.theme.AkColors
 import ro.ak.sportshub.ui.theme.AkFonts
@@ -89,7 +90,9 @@ fun SportsHubScreen(
     val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
-    var focusedId by remember { mutableStateOf<String?>(null) }
+    var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // La Back de pe meci, focusul revine pe meciul de unde ai plecat.
+    val returnFocus = rememberReturnFocus()
 
     val filter = settings.filter
     val zone = remember { ZoneId.systemDefault() }
@@ -214,8 +217,9 @@ fun SportsHubScreen(
                                 hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
                                 showDay = true,
                                 zone = zone,
-                                onClick = { onOpenMatch(entry.match.id) },
+                                onClick = { returnFocus.clicked("team:$team:" + entry.match.id); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
+                                modifier = returnFocus.on("team:$team:" + entry.match.id),
                             )
                         }
                     }
@@ -229,8 +233,9 @@ fun SportsHubScreen(
                             hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
                             showDay = currentTab == MatchTab.WEEK || currentTab == MatchTab.FAVORITES,
                             zone = zone,
-                            onClick = { onOpenMatch(entry.match.id) },
+                            onClick = { returnFocus.clicked(entry.match.id); onOpenMatch(entry.match.id) },
                             onFocused = { focusedId = entry.match.id },
+                            modifier = returnFocus.on(entry.match.id),
                         )
                     }
                 }
@@ -317,6 +322,7 @@ private fun MatchRow(
     zone: ZoneId,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val m = entry.match
     val start = Instant.ofEpochMilli(m.start).atZone(zone)
@@ -337,7 +343,7 @@ private fun MatchRow(
             if (m.status == MatchStatus.FINISHED) "încheiat" else null,
         ).joinToString(" · "),
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         leading = {
             // Ora (sau LIVE), cu cifre înguste, ca pe o tabelă.
             if (m.isLive) {
@@ -502,8 +508,10 @@ private fun EventChannelsList(
         )
         return
     }
+    val returnFocus = rememberReturnFocus()
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(events, key = { "ev:" + it.channel.id }) { e ->
+            val rowKey = "ev:" + e.channel.id
             val time = e.slot.start?.let { val z = Instant.ofEpochMilli(it).atZone(zone); "${z.format(DayFormat)} ${z.format(TimeFormat)}" } ?: "oră necunoscută"
             ListRow(
                 title = "$time   ${e.slot.title ?: e.channel.name}",
@@ -513,8 +521,9 @@ private fun EventChannelsList(
                     e.slot.sport?.label,
                     if (e.matchId != null) "legat de un meci" else null,
                 ).joinToString(" · "),
-                onClick = { if (e.matchId != null) onOpenMatch(e.matchId) else onPlay(e.channel.id) },
-                onLongClick = { onPlay(e.channel.id) },
+                modifier = returnFocus.on(rowKey),
+                onClick = { returnFocus.clicked(rowKey); if (e.matchId != null) onOpenMatch(e.matchId) else onPlay(e.channel.id) },
+                onLongClick = { returnFocus.clicked(rowKey); onPlay(e.channel.id) },
                 trailing = { VariantQualityBadge(e.channel.playlistId, e.channel.name, e.channel.quality) },
             )
         }
@@ -552,8 +561,10 @@ private fun NowOnChannelsList(
         )
         return
     }
+    val returnFocus = rememberReturnFocus()
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(rows, key = { "now:" + it.groupKey }) { row ->
+            val rowKey = "now:" + row.groupKey
             val m = row.match
             // Varianta care pornește: cea preferată sau cea mai bună (cu rezoluția văzută la redare).
             val best = remember(row, seen) { container.variants.order(row.sources.map { it.channel }).first() }
@@ -565,8 +576,9 @@ private fun NowOnChannelsList(
             ListRow(
                 title = best.name,
                 subtitle = listOfNotNull(m.title + score, m.competition, row.confidence.label, best.playlistName).joinToString(" · "),
-                onClick = { onPlay(best.id) },
-                onLongClick = { onOpenMatch(m.id) },
+                modifier = returnFocus.on(rowKey),
+                onClick = { returnFocus.clicked(rowKey); onPlay(best.id) },
+                onLongClick = { returnFocus.clicked(rowKey); onOpenMatch(m.id) },
                 trailing = {
                     if (m.isLive) Badge(text = "LIVE", color = AkColors.Live)
                     if (row.sources.size > 1) Text(text = "${row.sources.size} var.", fontSize = 13.sp, color = AkColors.TextDim)
@@ -607,13 +619,16 @@ private fun HighlightsList(zone: ZoneId, onPlayArchive: (Long, Long, Long) -> Un
         )
         return
     }
+    val returnFocus = rememberReturnFocus()
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(items, key = { "hl:" + it.channel.id + ":" + it.start }) { h ->
+            val rowKey = "hl:" + h.channel.id + ":" + h.start
             val start = Instant.ofEpochMilli(h.start).atZone(zone)
             ListRow(
                 title = "${start.format(DayFormat)} ${start.format(TimeFormat)}   ${h.title}",
                 subtitle = listOfNotNull(h.subtitle, h.channel.name, h.channel.playlistName).joinToString(" · "),
-                onClick = { onPlayArchive(h.channel.id, h.start, h.stop) },
+                modifier = returnFocus.on(rowKey),
+                onClick = { returnFocus.clicked(rowKey); onPlayArchive(h.channel.id, h.start, h.stop) },
                 trailing = {
                     if (h.favorite) Text(text = "★", fontSize = 18.sp, color = accentText())
                     Badge(text = "ARHIVĂ", color = AkColors.Focus)
