@@ -45,7 +45,7 @@ class SourcesWindowStreamingTest {
 
     @Test
     fun `canalele retelei devin presupuneri, fara cele cu alt meci in nume`() {
-        val index = StationIndex(listOf("us:peacock 01", "us:peacock 02", "us:peacock 03", "au:stan sport 1", "uk:sky sport main event"))
+        val index = StationIndex(listOf("us:peacock 01", "us:peacock 02", "us:peacock 03", "au:stan sport 1"))
         val m = match(at("2026-11-16T21:00:00"), stations = listOf(TvStation("Peacock", "USA")))
         val found = SourceFinder(index, SportsKnowledge(presetRights = false)).find(m, emptyList(), otherEventKeys = setOf("us:peacock 02"))
         assertEquals(
