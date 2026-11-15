@@ -275,7 +275,7 @@ class SportsRepository(
     private fun fetchKey(s: SportsSettings): String =
         "${s.sports.joinToString(",") { it.name }}|${s.sportsDbEnabled}|${s.sportsDbTv}|${s.daysAhead}|" +
             "${s.liveSoccerTvEnabled}|${s.sofascoreEnabled}|${s.sofascoreTv}|${s.futbolEnLaTvEnabled}|${s.eventChannels}|${s.eventZone}|" +
-            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}|${s.channelOnlyMatches}|" +
+            "${s.liveOnSatEnabled}|${s.fotMobEnabled}|${s.usLeaguesEnabled}|${s.euroLeagueEnabled}|${s.topCompetitionsOnly}|" +
             s.favorites.names.joinToString(",") + "|" + s.favorites.teams.joinToString(",") + "|" + s.favorites.competitions.joinToString(",")
 
     fun refreshInBackground(force: Boolean = true) {
@@ -1229,9 +1229,10 @@ class SportsRepository(
         val assembled = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
             .filter { m ->
-                // Lista vine din furnizorii de program; EPG-ul și canalele EVENT doar găsesc sursele. Meciurile fără
-                // niciun furnizor (de exemplu „UEFA Nations League in 60” din EPG) apar doar cu setarea pornită.
-                s.channelOnlyMatches || m.providers.any { it != MatchAssembler.EPG_PROVIDER && it != MatchAssembler.EVENT_PROVIDER }
+                // Lista vine doar din furnizorii de program (Radu): EPG-ul și canalele EVENT / PPV doar găsesc sursele.
+                // Un meci fără niciun furnizor (de exemplu „UEFA Nations League in 60” din EPG) nu intră; reluările și
+                // rezumatele sunt în tabul Rezumate, canalele EVENT în tabul Evenimente.
+                m.providers.any { it != MatchAssembler.EPG_PROVIDER && it != MatchAssembler.EVENT_PROVIDER }
             }
             .filter { m ->
                 // Meciurile doar din EPG sau din canale EVENT: după competiție, dacă se știe, altfel după echipe.
@@ -1673,7 +1674,7 @@ class SportsRepository(
         const val HOUR_MS = 3_600_000L
 
         /** Se mărește când se schimbă calculul: lista salvată se recalculează la prima pornire. */
-        const val INPUTS_VERSION = 5
+        const val INPUTS_VERSION = 6
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1

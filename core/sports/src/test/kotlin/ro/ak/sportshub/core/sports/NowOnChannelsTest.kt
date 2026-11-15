@@ -47,6 +47,7 @@ class NowOnChannelsTest {
         assertTrue(Highlights.isHighlights("Match of the Day"))
         assertTrue(Highlights.isHighlights("Liga 1: Rezumatul etapei"))
         assertTrue(Highlights.isHighlights("LaLiga", "Resumen de la jornada"))
+        assertTrue(Highlights.isHighlights("UEFA Nations League in 60"))
         assertFalse(Highlights.isHighlights("Live: Arsenal v Chelsea highlights"))
         assertFalse(Highlights.isHighlights("Arsenal v Chelsea"))
         assertTrue(Highlights.mentions("Highlights: Arsenal v Chelsea", null, listOf("Arsenal")))
