@@ -243,3 +243,27 @@ class MatchListsTest {
         assertEquals(SourceSummary(4, setOf("de", "en", "ro"), Quality.UHD), MatchSources.summary(sources))
     }
 }
+
+class Stage13Test {
+    private val h = 3_600_000L
+    private val now = java.time.LocalDateTime.of(2026, 11, 15, 12, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+
+    @org.junit.Test
+    fun `un titlu cu data de ieri e o reluare, nu un meci live`() {
+        val b = EpgBroadcast(1, 1, now, now + 2 * h, "NORWAY - WALES 14/11/26", category = "Football")
+        org.junit.Assert.assertNull(EpgMatchExtractor.extract(b, true))
+        val today = EpgBroadcast(2, 1, now, now + 2 * h, "Norway - Wales 15.11.2026", category = "Football")
+        val x = EpgMatchExtractor.extract(today, true)!!
+        org.junit.Assert.assertEquals("Wales", x.away)
+    }
+
+    @org.junit.Test
+    fun `meciurile au id-uri unice`() {
+        val a = EpgBroadcast(1, 1, now - h, now + h, "Live: Alpha v Beta", category = "Football")
+        val b = EpgBroadcast(2, 2, now + 5 * h, now + 7 * h, "Alpha v Beta (women)", category = "Football")
+        val c = EpgBroadcast(3, 3, now + 9 * h, now + 11 * h, "Alpha v Beta", category = "Football")
+        val list = listOf(a, b, c).mapNotNull { x -> EpgMatchExtractor.extract(x, true)?.let { MatchBroadcast(x, it) } }
+        val matches = MatchAssembler.assemble(emptyList(), list, now)
+        org.junit.Assert.assertEquals(matches.size, matches.map { it.id }.toSet().size)
+    }
+}

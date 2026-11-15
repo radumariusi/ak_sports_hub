@@ -116,7 +116,19 @@ object MatchAssembler {
 
         val fromEvents = merged.mapIndexed { i, e -> fromEvent(e, attached[i].orEmpty(), now) }
         val fromEpg = joinReruns(cluster(loose)).map { fromBroadcasts(it, now) }
-        return attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
+        return uniqueIds(attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title }))
+    }
+
+    /**
+     * Fiecare meci cu id-ul lui: două grupuri doar din EPG sau din playlist cu aceleași echipe în aceeași zi aveau
+     * același id, iar lista arăta în tabul LIVE un meci care nu era live (al doilea cu același id).
+     */
+    private fun uniqueIds(matches: List<Match>): List<Match> {
+        val seen = HashMap<String, Int>()
+        return matches.map { m ->
+            val n = seen.merge(m.id, 1, Int::plus)!!
+            if (n == 1) m else m.copy(id = "${m.id}#$n")
+        }
     }
 
     private fun sportOf(e: SportEvent): Sport? = Sport.fromSportsDb(e.sport) ?: Sport.detect(e.competition, e.home)

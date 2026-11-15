@@ -186,6 +186,7 @@ object CompetitionFilter {
             "masters", "the masters", "us open", "open championship", "the open", "pga championship", "ryder cup",
             "pga tour", "dp world tour", "solheim cup", "presidents cup",
         ),
+        Sport.WINTER to phrases("isu", "grand prix", "world cup", "cupa mondiala", "four hills", "world championships", "european championships"),
         Sport.CRICKET to phrases("ipl", "test", "test match", "ashes", "t20 world cup", "champions trophy", "world cup"),
     )
 

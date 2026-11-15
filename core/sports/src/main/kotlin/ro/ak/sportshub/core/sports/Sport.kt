@@ -32,6 +32,8 @@ enum class Sport(
     RUGBY("Rugby", "Rugby", 120, listOf("rugby", "six nations", "premiership rugby", "top 14", "urc")),
     AMERICAN_FOOTBALL("Fotbal american", "American Football", 210, listOf("nfl", "american football", "fotbal american", "ncaaf", "super bowl")),
     BASEBALL("Baseball", "Baseball", 180, listOf("baseball", "mlb")),
+    // Înaintea Motorsportului: „ISU Grand Prix of Figure Skating” nu e o cursă.
+    WINTER("Sporturi de iarnă", "Winter Sports", 180, listOf("figure skating", "skating", "skate", "patinaj", "isu", "biathlon", "biatlon", "ski", "schi", "ski jumping", "sarituri cu schiurile", "bobsleigh", "luge", "curling")),
     MOTORSPORT("Motorsport", "Motorsport", 120, listOf("formula 1", "formula1", "f1", "motogp", "moto gp", "nascar", "indycar", "wrc", "formula e", "grand prix")),
     FIGHTING("Lupte", "Fighting", 240, listOf("ufc", "box", "boxing", "mma", "kickbox", "kickboxing", "glory", "bellator", "lupte")),
     DARTS("Darts", "Darts", 240, listOf("darts", "pdc")),
