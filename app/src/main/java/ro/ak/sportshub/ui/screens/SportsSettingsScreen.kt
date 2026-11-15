@@ -46,6 +46,8 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
     val health by sports.health.collectAsStateWithLifecycle()
     val reporter = container.diagnosticReporter
     val report by reporter.state.collectAsStateWithLifecycle()
+    // Catalogul de nume (echipe, sportivi, competiții) învățat din programul furnizorilor: sugestii la favorite.
+    val catalog by container.teamLooks.catalog.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<SportsDialog?>(null) }
 
     // Schimbările care privesc TheSportsDB cer din nou doar ce lipsește (fără să forțeze descărcarea).
@@ -413,8 +415,9 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         SportsDialog.TEAMS -> TextInputDialog(
             title = "Echipe favorite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.teams.joinToString(", "),
-            hint = "Separate prin virgulă (de exemplu: FCSB, Arsenal, Man Utd)",
+            hint = "Separate prin virgulă. Scrie începutul numelui (de exemplu „man u”) și alege din sugestii: forma întreagă e recunoscută și scrisă altfel (Man Utd, Man. United).",
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -424,6 +427,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         )
         SportsDialog.COMPETITIONS -> TextInputDialog(
             title = "Competiții favorite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.COMPETITION)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.competitions.joinToString(", "),
             hint = "Numele ca în listă, separate prin virgulă (de exemplu: Premier League, Liga 1)",
             onDismiss = { dialog = null },
@@ -435,6 +439,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         )
         SportsDialog.NAMES -> TextInputDialog(
             title = "Nume urmărite",
+            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
             initial = s.favorites.names.joinToString(", "),
             hint = "Separate prin virgulă (de exemplu: Djokovic, Max Verstappen, Simona Halep). Se caută în titlul și descrierea emisiunilor de sport",
             onDismiss = { dialog = null },

@@ -332,7 +332,7 @@ fun SportsHubScreen(
                     }
                 }
                 preview?.let { entry ->
-                    Column(modifier = Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp)) {
+                    Column(modifier = Modifier.width(260.dp).fillMaxHeight().padding(bottom = 8.dp)) {
                         val channel = videoChannel
                         if (channel != null && videoMatchId == entry.match.id) {
                             ro.ak.sportshub.player.VideoPreview(channelId = channel, modifier = Modifier.padding(bottom = 8.dp))
@@ -448,6 +448,37 @@ private fun MatchRow(
         onLongClick = onLongClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         icon = { MatchIcon(m.home, m.away, m.competition, looks) },
+        // Echipele pe două rânduri, scorul în dreptul fiecăreia; numele prea lungi se taie cu „…”.
+        titleContent = if (m.away.isBlank()) null else {
+            {
+                Column {
+                    listOf(m.home to m.homeScore, m.away to m.awayScore).forEach { (team, goals) ->
+                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = team,
+                                fontSize = 16.sp,
+                                lineHeight = 18.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (score != null) {
+                                Text(
+                                    text = goals?.toString().orEmpty(),
+                                    fontSize = 17.sp,
+                                    lineHeight = 18.sp,
+                                    fontFamily = AkFonts.Condensed,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.padding(start = 8.dp).width(30.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
         leadingWidth = 84.dp,
         leading = {
             // Ora (sau LIVE), cu cifre înguste, ca pe o tabelă.
