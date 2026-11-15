@@ -385,7 +385,7 @@ private fun MatchPreviewPanel(
     entry: MatchEntry,
     favorite: Boolean,
     hideScore: Boolean,
-    prefs: ro.ak.sportshub.core.sports.SourcePreferences,
+    prefs: ro.ak.sportshub.core.model.SourcePreferences,
     zone: ZoneId,
     modifier: Modifier = Modifier,
 ) {
