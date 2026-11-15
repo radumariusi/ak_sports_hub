@@ -1,5 +1,6 @@
 package ro.ak.sportshub.player
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -136,7 +137,7 @@ fun MatchPanelContent(
                 fontSize = 17.sp,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                 when (tab) {
                     0 -> liveTab(match, view, hidden, replay, loading, status, delaySeconds, offsetSeconds, actions, onMenu)
                     1 -> statsTab(match, view, hidden, details)

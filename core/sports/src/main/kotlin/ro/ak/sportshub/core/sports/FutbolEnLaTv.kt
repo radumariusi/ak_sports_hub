@@ -143,6 +143,9 @@ object FutbolEnLaTv {
         return runCatching { LocalDate.of(m.groupValues[3].toInt(), mo, d) }.getOrNull()
     }
 
+    /** „Nov 15 - ” în fața echipelor (site-ul din SUA): nu e o echipă. */
+    private val leadingDate = Regex("""^(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}|\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?|\d{1,2}[/.]\d{1,2})\s*[-–:]?\s*""", RegexOption.IGNORE_CASE)
+
     private val exactTime = Regex("""^\s*([01]?\d|2[0-3]):([0-5]\d)\s*h?\s*$""")
 
     /**
@@ -234,6 +237,7 @@ object FutbolEnLaTv {
                     (details != null && c.allElements.contains(details)) || c.hasClass("hora") || c.className().contains("canal") || time.containsMatchIn(c.text()) ||
                         c.tagName() in setOf("ul", "ol") || c.selectFirst("ul, ol") != null
                 }.joinToString(" ") { it.text() }).trim()
+                .replace(leadingDate, "").trim()
             if (title.isEmpty()) return null
             val parts = doubledTeams(title)?.toList() ?: title.split(teamsSplit, limit = 2).map { it.trim() }
             if (parts.size == 2 && parts.all { it.isNotEmpty() } && sport != Sport.MOTORSPORT && sport != Sport.CYCLING && sport != Sport.GOLF) {

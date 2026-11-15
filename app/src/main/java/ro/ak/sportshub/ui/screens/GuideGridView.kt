@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,7 +117,7 @@ internal fun ChannelGrid(
             }
             Text(text = "▶", fontSize = 13.sp, color = AkColors.TextDim)
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(rows, key = { it.key }) { row ->
                 val list = row.variants.take(GRID_EPG_VARIANTS).firstNotNullOfOrNull { programmes[it.id]?.takeIf { p -> p.isNotEmpty() } }.orEmpty()
                 GridChannelRow(

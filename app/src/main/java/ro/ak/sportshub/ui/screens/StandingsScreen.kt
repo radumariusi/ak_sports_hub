@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -96,7 +97,7 @@ fun StandingsTab(onOpenMatch: (String) -> Unit) {
     LaunchedEffect(selected?.key) { selected?.let { container.standings.load(it) } }
 
     Row(modifier = Modifier.fillMaxSize().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        LazyColumn(modifier = Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(leagues, key = { it.key }) { l ->
                 ListRow(
                     title = l.competition,
@@ -135,7 +136,7 @@ fun StandingsTab(onOpenMatch: (String) -> Unit) {
                 )
                 return@Column
             }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 groups.forEach { g ->
                     if (groups.size > 1) item(key = "g:" + g.name) { SectionLabel(g.name, modifier = Modifier.padding(top = 6.dp)) }
                     items(g.rows, key = { "r:" + g.name + ":" + (it.teamId ?: it.team) }) { r ->
@@ -308,7 +309,7 @@ private fun TeamCard(row: TableEntry, group: TableGroup, look: TeamLook, onOpenM
                 }
             }
             SectionLabel("Următoarele meciuri", modifier = Modifier.padding(top = 14.dp))
-            LazyColumn(modifier = Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, modifier = Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 item(key = "follow") {
                     ListRow(
                         title = if (following) "★ Urmărești echipa (OK: nu mai urmări)" else "☆ Urmărește echipa",

@@ -48,7 +48,7 @@ fun ChoiceDialog(
             if (hint != null) {
                 Text(text = hint, fontSize = 13.sp, color = AkColors.TextDim, modifier = Modifier.padding(top = 4.dp))
             }
-            LazyColumn(
+            LazyColumn(contentPadding = ListPadding, 
                 state = listState,
                 modifier = Modifier.padding(top = 12.dp).heightIn(max = 420.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),

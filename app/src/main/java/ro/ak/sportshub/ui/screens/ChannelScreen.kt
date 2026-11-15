@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -150,7 +151,7 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
         }
 
         Row(modifier = Modifier.weight(1f)) {
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, v -> v.id }) { index, v ->
                     val corrected = repo.correctionOf(v) != null
                     ListRow(
@@ -306,7 +307,7 @@ private fun VariantOptions(
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(v.id) { runCatching { focus.requestFocus() } }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item { SectionLabel(v.name) }
         item { ListRow(title = "Pornește această variantă", subtitle = v.playlistName, onClick = onPlay, modifier = Modifier.focusRequester(focus)) }
         item {
@@ -346,7 +347,7 @@ private fun <T> ChoiceList(
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(title) { runCatching { focus.requestFocus() } }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item { SectionLabel(title) }
         itemsIndexed(choices) { index, choice ->
             ListRow(
@@ -379,7 +380,7 @@ private fun MergePicker(query: String, excludeKey: String, onPick: (ChannelWithP
         }
     }
     val focus = remember { FocusRequester() }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item { SectionLabel("Unește cu: „$query”") }
         val list = results
         if (list != null && list.isEmpty()) {

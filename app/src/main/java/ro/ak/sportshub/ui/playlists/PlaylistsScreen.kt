@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.playlists
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,7 +48,7 @@ fun PlaylistsScreen(onEdit: (Long) -> Unit, onAdd: (PlaylistType) -> Unit) {
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         LoadsPanel()
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item { SectionLabel("Adaugă") }
             item {
                 ListRow(

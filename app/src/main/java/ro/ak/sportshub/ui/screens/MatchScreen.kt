@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
@@ -448,7 +449,7 @@ private fun WhyNoSource(
     val diagnosis by produceState<SourceDiagnosis?>(null, entry, knowledge) { value = container.sports.diagnose(entry.match.id) }
     val firstRow = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
-    LazyColumn(modifier = modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, modifier = modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item { ListRow(title = "← Înapoi la surse", onClick = onBack, modifier = Modifier.focusRequester(firstRow)) }
         val d = diagnosis
         if (d == null) {
@@ -544,7 +545,7 @@ private fun SourcesList(
     val container = appContainer()
     val variantState by container.variantStore.state.collectAsStateWithLifecycle()
     val (groups, rejected) = remember(families, preferred) { LanguageGroups.split(families, preferred) }
-    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    LazyColumn(contentPadding = ListPadding, modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
         item(key = "header") { header() }
         if (families.isEmpty()) {
             item(key = "empty") {

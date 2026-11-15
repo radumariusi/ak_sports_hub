@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.playlists
 
+import ro.ak.sportshub.ui.components.ListPadding
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -151,7 +152,7 @@ fun PlaylistEditScreen(playlistId: Long, newType: PlaylistType, onClose: () -> U
 
         if (!loaded) return@Column
 
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item { SectionLabel("Sursa") }
             when (draft.type) {
                 PlaylistType.M3U_URL -> item {

@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,8 +86,8 @@ fun TwoColumns(
         modifier = modifier.padding(top = 10.dp).fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
     ) {
-        LazyColumn(modifier = Modifier.weight(1f).widthIn(max = ColumnMax), verticalArrangement = Arrangement.spacedBy(2.dp), content = left)
-        LazyColumn(modifier = Modifier.weight(1f).widthIn(max = ColumnMax), verticalArrangement = Arrangement.spacedBy(2.dp), content = right)
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(1f).widthIn(max = ColumnMax), verticalArrangement = Arrangement.spacedBy(2.dp), content = left)
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(1f).widthIn(max = ColumnMax), verticalArrangement = Arrangement.spacedBy(2.dp), content = right)
     }
 }
 
@@ -146,7 +147,7 @@ fun LineupsTab(match: Match, state: MatchDetailsState, modifier: Modifier = Modi
     val d = state.details
     val e = d.event
     if (d.lineup.isEmpty()) {
-        LazyColumn(modifier = modifier.padding(top = 10.dp)) {
+        LazyColumn(contentPadding = ListPadding, modifier = modifier.padding(top = 10.dp)) {
             item(key = "lineup-later") {
                 ListRow(
                     title = if (match.status == MatchStatus.SCHEDULED) "Echipele de start nu sunt încă anunțate" else "Fără echipe de start",
@@ -177,10 +178,10 @@ fun LineupsTab(match: Match, state: MatchDetailsState, modifier: Modifier = Modi
             }
         }
         // Listele înguste și mărunte (număr, nume, postul prescurtat), ca terenul să aibă loc și rezervele să se vadă.
-        LazyColumn(modifier = Modifier.weight(0.8f)) {
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(0.8f)) {
             lineupList(match.home, d.lineup.filter { it.home }, "h")
         }
-        LazyColumn(modifier = Modifier.weight(0.8f)) {
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.weight(0.8f)) {
             lineupList(match.away, d.lineup.filter { !it.home }, "a")
         }
     }
@@ -205,7 +206,7 @@ fun LiveTab(
     val homeScore = e?.homeScore ?: match.homeScore
     val awayScore = e?.awayScore ?: match.awayScore
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(modifier = Modifier.padding(top = 10.dp).widthIn(max = 880.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(contentPadding = ListPadding, modifier = Modifier.padding(top = 10.dp).widthIn(max = 880.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (notStartedItem(match, status, onRefresh)) return@LazyColumn
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 4.dp)) {
@@ -259,7 +260,7 @@ fun StatsTab(
     val live = d.stats.isNotEmpty()
     val stats = if (live) d.stats else d.seasonStats
     if (stats.isEmpty() || (live && hideSpoilers)) {
-        LazyColumn(modifier = modifier.padding(top = 10.dp)) {
+        LazyColumn(contentPadding = ListPadding, modifier = modifier.padding(top = 10.dp)) {
             if (live && hideSpoilers) {
                 hiddenItem(MatchInsights.liveLabel(status, d.event?.statusCode, d.event?.progress), onReveal)
             } else {

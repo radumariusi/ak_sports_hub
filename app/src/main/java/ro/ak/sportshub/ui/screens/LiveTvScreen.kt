@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -146,7 +147,7 @@ fun LiveTvScreen(
                 .background(AkColors.Panel, RoundedCornerShape(8.dp))
                 .padding(vertical = 8.dp),
         ) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 lastChannel?.let { ref ->
                     item {
                         ListRow(
@@ -373,7 +374,7 @@ private fun ChannelList(
     val nowNext by produceState(emptyMap<Long, NowNext>(), rows, now) {
         value = epg.nowNext(rows.flatMap { r -> r.variants.take(EPG_VARIANTS).map { it.id } }, now)
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(rows, key = { it.key }) { row ->
             val c = row.shown
             val nn = row.variants.take(EPG_VARIANTS).firstNotNullOfOrNull { nowNext[it.id] }

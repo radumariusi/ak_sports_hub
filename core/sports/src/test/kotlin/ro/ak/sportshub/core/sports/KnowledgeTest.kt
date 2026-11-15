@@ -291,4 +291,17 @@ class PresetRightsTest {
         assertFalse(off.appliesTo("UEFA Champions League"))
         assertEquals(PresetRights.rules.size, PresetRights.rules.map { it.id }.distinct().size)
     }
+
+    @Test
+    fun `NBA - fara presupuneri SUA cand ESPN da posturile, Canada doar pentru Raptors`() {
+        fun nba(home: String, away: String, providers: Set<String>) =
+            Match("m", Sport.BASKETBALL, "NBA", home, away, 0L, 1L, MatchStatus.SCHEDULED, providers = providers)
+        val us = PresetRights.rules.first { it.country == "USA" && it.appliesTo("NBA") }
+        val ca = PresetRights.rules.first { it.country == "Canada" && it.appliesTo("NBA") }
+        val espn = nba("Philadelphia 76ers", "Indiana Pacers", setOf(Espn.PROVIDER))
+        assertFalse(us.appliesToMatch(espn))
+        assertTrue(us.appliesToMatch(nba("Philadelphia 76ers", "Indiana Pacers", setOf("thesportsdb"))))
+        assertFalse(ca.appliesToMatch(espn))
+        assertTrue(ca.appliesToMatch(nba("Toronto Raptors", "Indiana Pacers", setOf(Espn.PROVIDER))))
+    }
 }

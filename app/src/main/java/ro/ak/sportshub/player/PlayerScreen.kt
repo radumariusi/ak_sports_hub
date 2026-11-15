@@ -1,5 +1,6 @@
 package ro.ak.sportshub.player
 
+import ro.ak.sportshub.ui.components.ListPadding
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -44,6 +45,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -580,6 +582,8 @@ fun PlayerScreen(
             InfoBar(
                 state = state,
                 matchLine = linkedMatch?.let { m -> matchLine(m, panelView, spoilerHidden) },
+                rateMatchOn = variantSettings.matchFrameRate || DropAdapter.Step.MATCH_RATE in adaptActive,
+                smoothOn = variantSettings.smoothVideo || DropAdapter.Step.SURFACE_VIEW in adaptActive,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -817,7 +821,7 @@ private fun StatusOverlay(status: PlaybackStatus, modifier: Modifier) {
 }
 
 @Composable
-private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier) {
+private fun InfoBar(state: PlayerUiState, matchLine: String?, rateMatchOn: Boolean, smoothOn: Boolean, modifier: Modifier) {
     val channel = state.channel ?: return
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
@@ -843,7 +847,16 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
             }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = channel.name, fontSize = 30.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(
+                        text = channel.name,
+                        fontSize = 30.sp,
+                        fontFamily = AkFonts.Condensed,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        // Numele lung nu mai împinge etichetele (scrise altfel literă cu literă, pe verticală).
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
                     // O reluare nu apare niciodată drept live.
                     if (state.archiveFrom != null) Badge(text = "RELUARE", color = AkColors.Focus)
                     channel.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
@@ -889,7 +902,8 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Spacer(Modifier.width(24.dp))
+            Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 560.dp)) {
                 Text(text = clock, fontSize = 30.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
                 val details = listOfNotNull(
                     listOfNotNull(state.videoSize, state.frameRate?.let { "${"%.2f".format(Locale.US, it).trimEnd('0').trimEnd('.')} fps" }).joinToString(" ").ifEmpty { null },
@@ -906,11 +920,18 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, modifier: Modifier
                 ).joinToString(" · ")
                 if (check.isNotEmpty()) Text(text = check, fontSize = 12.sp, color = AkColors.TextDim)
                 val fps = state.frameRate
-                if (fps != null && hz != null && PlaybackCheck.mismatch(fps, hz)) {
-                    Text(text = "Cadrele nu se potrivesc cu ecranul: pornește „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
-                } else if (state.droppedFrames >= PlaybackCheck.MANY_DROPPED) {
-                    Text(text = "Multe cadre pierdute: pornește „Imagine fluidă” și „Potrivește frecvența” în Setări", fontSize = 12.sp, color = AkColors.Accent)
+                // Sfatul apare doar pentru ce nu e deja pornit (din Setări sau de adaptarea automată).
+                val mismatch = fps != null && hz != null && PlaybackCheck.mismatch(fps, hz)
+                val manyDropped = state.droppedFrames >= PlaybackCheck.MANY_DROPPED
+                val advice = when {
+                    mismatch && !rateMatchOn -> "Cadrele nu se potrivesc cu ecranul: pornește „Potrivește frecvența” în Setări"
+                    mismatch && fps != null -> "Televizorul nu are un mod potrivit pentru ${Math.round(fps)} fps"
+                    manyDropped && !smoothOn && !rateMatchOn -> "Multe cadre pierdute: pornește „Imagine fluidă” și „Potrivește frecvența” în Setări"
+                    manyDropped && !smoothOn -> "Multe cadre pierdute: pornește „Imagine fluidă” în Setări"
+                    manyDropped && !rateMatchOn && fps != null -> "Multe cadre pierdute: pornește „Potrivește frecvența” în Setări"
+                    else -> null
                 }
+                advice?.let { Text(text = it, fontSize = 12.sp, color = if (it.startsWith("Televizorul")) AkColors.TextDim else AkColors.Accent, textAlign = TextAlign.End) }
             }
         }
     }
@@ -943,7 +964,7 @@ private fun ChannelsPanel(
             val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
             val focus = remember { FocusRequester() }
             LaunchedEffect(list) { runCatching { focus.requestFocus() } }
-            LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, c -> c.id }) { index, c ->
                     ListRow(
                         title = (c.number?.let { "$it  " } ?: "") + c.name,
@@ -1105,7 +1126,7 @@ private fun VariantsPanel(controller: PlayerController, currentId: Long?, onPick
             val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 4).coerceAtLeast(0))
             val focus = remember { FocusRequester() }
             LaunchedEffect(list) { runCatching { focus.requestFocus() } }
-            LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(contentPadding = ListPadding, state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, c -> c.id }) { index, c ->
                     ListRow(
                         title = c.name,
