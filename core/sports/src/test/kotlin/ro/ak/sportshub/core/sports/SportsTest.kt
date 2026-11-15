@@ -166,7 +166,9 @@ class MatchAssemblerTest {
         assertEquals(MatchStatus.SCHEDULED, status(kickoff - h))
         assertEquals(MatchStatus.LIVE, status(kickoff + h, MatchStatus.SCHEDULED))
         assertEquals(MatchStatus.FINISHED, status(kickoff + 3 * h))
-        assertEquals(MatchStatus.LIVE, status(kickoff + 3 * h, MatchStatus.LIVE)) // prelungiri
+        // Fotbal: 120 de minute plus 30. „LIVE” vechi din fișier: după asta, s-a terminat.
+        assertEquals(MatchStatus.LIVE, status(kickoff + 2 * h + 20 * 60_000L, MatchStatus.LIVE)) // prelungiri
+        assertEquals(MatchStatus.FINISHED, status(kickoff + 2 * h + 40 * 60_000L, MatchStatus.LIVE))
         assertEquals(MatchStatus.FINISHED, status(kickoff + h, MatchStatus.FINISHED))
     }
 }

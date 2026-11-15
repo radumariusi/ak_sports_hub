@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.style.TextDecoration
@@ -81,10 +82,15 @@ fun TabStrip(
     modifier: Modifier = Modifier,
     firstTabModifier: Modifier = Modifier,
     fontSize: TextUnit = 20.sp,
+    /** Crește-l ca focusul să sară pe tabul selectat (de exemplu după ◀ ▶ din conținutul tabului). */
+    focusSignal: Int = 0,
 ) {
     // Când intri în rândul de taburi (din listă sau din bara de sus), focusul vine pe tabul curent, nu pe cel aflat
     // dedesubt: focusRestorer ține minte ultimul tab, iar dacă ecranul a fost refăcut, merge pe tabul selectat.
     val requesters = remember(tabs.size) { List(tabs.size) { FocusRequester() } }
+    LaunchedEffect(focusSignal) {
+        if (focusSignal > 0) runCatching { requesters.getOrNull(selectedIndex)?.requestFocus() }
+    }
     Row(
         // Defilează orizontal când taburile nu încap (focusul aduce tabul în vedere).
         modifier = modifier

@@ -232,7 +232,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 item {
                     ListRow(
                         title = "Canale EVENT / PPV din playlisturi",
-                        subtitle = "Meciul citit din numele canalului („EVENT 03: UFC 310 20:00”), ca sursă sigură și în tabul Evenimente. Fără rețea",
+                        subtitle = "Meciul citit din numele canalului („EVENT 03: UFC 310 20:00”): sursă sigură pentru meciul din listă și în tabul Evenimente. Fără rețea",
                         onClick = { update(false) { it.copy(eventChannels = !it.eventChannels) } },
                         trailing = { SettingValue(if (s.eventChannels) "Da" else "Nu") },
                     )

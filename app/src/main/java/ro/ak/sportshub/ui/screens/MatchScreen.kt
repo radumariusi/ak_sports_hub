@@ -29,6 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,8 +99,14 @@ fun MatchScreen(
     val revealed by details.revealed.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    /** Sursa previzualizată în fereastra din dreapta (OK ținut apăsat pe o sursă); un singur stream odată. */
+    /** Sursa previzualizată în fereastra din dreapta (OK pe o sursă; încă un OK = tot ecranul); un singur stream odată. */
     var previewOf by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
+    /** Sursa pe care s-a ținut OK apăsat: alegerile ei (e meciul, nu e, alt canal în stream). */
+    var actionsFor by remember { mutableStateOf<MatchSource<ChannelWithPlaylist>?>(null) }
+    /** ◀ ▶ schimbă tabul de oriunde din fereastră, în afară de rândul de taburi și de rândul de butoane. */
+    var stripFocused by remember { mutableStateOf(false) }
+    var headerFocused by remember { mutableStateOf(false) }
+    var tabFocusSignal by remember { mutableIntStateOf(0) }
     /** Căutarea unui canal de adăugat ca sursă: null = închisă, "" = se cere textul. */
     var addQuery by remember { mutableStateOf<String?>(null) }
     /** „De ce nu are sursă?”: în locul listei de surse apar posturile anunțate și ce s-a găsit pentru ele. */
@@ -148,7 +158,25 @@ fun MatchScreen(
     LaunchedEffect(tab) { if (tab != 0) previewOf = null }
     BackHandler(enabled = previewOf != null) { previewOf = null }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { e ->
+                val code = e.nativeKeyEvent.keyCode
+                val arrow = code == android.view.KeyEvent.KEYCODE_DPAD_LEFT || code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                if (!arrow || stripFocused || headerFocused) return@onPreviewKeyEvent false
+                if (e.type == KeyEventType.KeyDown) {
+                    val next = (tab + if (code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1).coerceIn(0, Tabs.size - 1)
+                    if (next != tab) {
+                        tab = next
+                        showWhy = false
+                    }
+                    tabFocusSignal++
+                }
+                true
+            }
+            .padding(horizontal = 36.dp, vertical = 16.dp),
+    ) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             val hs = event?.homeScore ?: m.homeScore
             val aw = event?.awayScore ?: m.awayScore
@@ -176,6 +204,8 @@ fun MatchScreen(
             selectedIndex = tab,
             onSelect = { tab = it },
             firstTabModifier = Modifier.focusRequester(firstTab),
+            modifier = Modifier.onFocusChanged { stripFocused = it.hasFocus },
+            focusSignal = tabFocusSignal,
         )
         when (tab) {
             0 -> if (showWhy) {
@@ -196,7 +226,10 @@ fun MatchScreen(
                     header = {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(bottom = 4.dp).horizontalScroll(rememberScrollState()),
+                            modifier = Modifier
+                                .padding(bottom = 4.dp)
+                                .onFocusChanged { headerFocused = it.hasFocus }
+                                .horizontalScroll(rememberScrollState()),
                         ) {
                             families.firstOrNull { it.members.first().let { h -> !h.rejected && h.confidence != Confidence.ELSEWHERE } }?.members?.firstOrNull()?.let { best ->
                                 ActionButton(
@@ -246,16 +279,22 @@ fun MatchScreen(
                             }
                         }
                     },
-                    onPlay = { c -> returnFocus.clicked("s:" + c.id); previewOf = null; onPlay(c.id) },
-                    onPreview = { src -> previewOf = if (previewOf?.channel?.id == src.channel.id) null else src },
+                    // OK: previzualizare în dreapta; OK pe aceeași sursă: pe tot ecranul. OK ținut: alegerile sursei.
+                    onClick = { src ->
+                        if (previewOf?.channel?.id == src.channel.id) {
+                            returnFocus.clicked("s:" + src.channel.id)
+                            previewOf = null
+                            onPlay(src.channel.id)
+                        } else {
+                            previewOf = src
+                        }
+                    },
+                    onLongClick = { src -> actionsFor = src },
                     modifier = Modifier.weight(1f),
                 )
                 SourcePreviewPane(
-                    match = m,
                     source = previewOf?.let { p -> entry.sources.firstOrNull { it.channel.id == p.channel.id } ?: p },
-                    onFull = { c -> previewOf = null; onPlay(c.id) },
-                    onStop = { previewOf = null },
-                    modifier = Modifier.width(400.dp),
+                    modifier = Modifier.width(420.dp),
                 )
             }
             1 -> PreMatchTab(
@@ -288,6 +327,18 @@ fun MatchScreen(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+
+    actionsFor?.let { held ->
+        val src = entry.sources.firstOrNull { it.channel.id == held.channel.id } ?: held
+        SourceActions(
+            match = m,
+            source = src,
+            previewing = previewOf?.channel?.id == src.channel.id,
+            onDismiss = { actionsFor = null },
+            onFull = { returnFocus.clicked("s:" + src.channel.id); actionsFor = null; previewOf = null; onPlay(src.channel.id) },
+            onPreview = { actionsFor = null; previewOf = if (previewOf?.channel?.id == src.channel.id) null else src },
+        )
     }
 
     linkStation?.let { (station, query) ->
@@ -473,7 +524,7 @@ private fun WhyNoSource(
 /**
  * Lista surselor, pe grupuri de limbi (limbile tale, apoi spaniolă / italiană / germană / franceză, apoi restul), în
  * fiecare grup în ordinea preferințelor (găsite, presupuse, „EPG-ul arată altceva”); cele respinse la final.
- * OK pornește sursa pe tot ecranul; OK ținut apăsat o previzualizează în dreapta.
+ * OK o previzualizează în dreapta, încă un OK pe ea o pornește pe tot ecranul; OK ținut apăsat: alegerile sursei.
  */
 @Composable
 private fun SourcesList(
@@ -484,8 +535,8 @@ private fun SourcesList(
     previewId: Long?,
     returnFocus: ReturnFocus,
     header: @Composable () -> Unit,
-    onPlay: (ChannelWithPlaylist) -> Unit,
-    onPreview: (MatchSource<ChannelWithPlaylist>) -> Unit,
+    onClick: (MatchSource<ChannelWithPlaylist>) -> Unit,
+    onLongClick: (MatchSource<ChannelWithPlaylist>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = appContainer()
@@ -527,8 +578,8 @@ private fun SourcesList(
                     subtitle = listOfNotNull(c.playlistName, sourceReason(s), if (pref) "varianta preferată" else null).joinToString(" · "),
                     selected = c.id == previewId,
                     modifier = returnFocus.on("s:" + c.id),
-                    onClick = { onPlay(c) },
-                    onLongClick = { onPreview(s) },
+                    onClick = { onClick(s) },
+                    onLongClick = { onLongClick(s) },
                     trailing = {
                         if (c.id == previewId) Badge(text = "▶ PREVIZUALIZARE", color = AkColors.Accent)
                         c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
@@ -554,7 +605,7 @@ private fun SourcesList(
             Text(
                 text = "Calitatea și limba vin din playlist (✓ = rezoluția văzută la redare). În fiecare grup: întâi sursele găsite, apoi cele " +
                     "presupuse, apoi cele al căror EPG arată altceva" + (if (favorite) " (meci favorit: limbile preferate întâi)." else ".") +
-                    " OK ținut apăsat pe o sursă: previzualizare în dreapta.",
+                    " OK: previzualizare în dreapta, încă un OK: tot ecranul. OK ținut: e meciul / nu e / alt canal. ◀ ▶: taburile.",
                 fontSize = 12.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(14.dp),
@@ -572,24 +623,20 @@ private fun sourceReason(s: MatchSource<*>): String = when {
 
 /**
  * Previzualizarea unei surse, în dreapta listei: același player (un singur stream, permisul playlistului), mic.
- * Rezoluția văzută se notează singură pe etichetă; de aici spui dacă e meciul și dacă pe canal e alt post.
+ * Nu ia focusul: OK pe aceeași sursă din listă o trece pe tot ecranul, OK ținut deschide alegerile ei.
  */
 @Composable
 private fun SourcePreviewPane(
-    match: ro.ak.sportshub.core.sports.Match,
     source: MatchSource<ChannelWithPlaylist>?,
-    onFull: (ChannelWithPlaylist) -> Unit,
-    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val container = appContainer()
-    val suspect by container.suspectChannels.keys.collectAsStateWithLifecycle()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (source == null) {
             SectionLabel("Previzualizare")
             Text(
-                text = "OK ținut apăsat pe o sursă o pornește aici, mică, fără să intri pe tot ecranul: vezi dacă merge, ce e pe ea " +
-                    "și ce rezoluție are (se notează singură pe etichetă). Un singur stream odată, ca la player (o conexiune pe playlist).",
+                text = "OK pe o sursă o pornește aici, mică: vezi dacă merge, ce e pe ea și ce rezoluție are (se notează singură " +
+                    "pe etichetă). Încă un OK pe aceeași sursă: pe tot ecranul. OK ținut apăsat: e meciul / nu e / alt canal în " +
+                    "stream. Un singur stream odată (o conexiune pe playlist).",
                 fontSize = 14.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(horizontal = 4.dp),
@@ -603,46 +650,57 @@ private fun SourcePreviewPane(
             VariantQualityBadge(c.playlistId, c.name, c.quality)
         }
         Text(text = listOfNotNull(c.playlistName, sourceReason(source)).joinToString(" · "), fontSize = 13.sp, color = AkColors.TextDim, maxLines = 2)
-        val verdict = when {
-            source.rejected -> Verdict.REJECTED
-            source.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
-            else -> null
-        }
-        val isSuspect = ro.ak.sportshub.data.CorrectionKey(c.playlistId, c.name) in suspect
-        val decide = { v: Verdict? -> container.sports.decide(match, source.groupKey, v, source) }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.fillMaxWidth()) {
-            item(key = "full") { ListRow(title = "▶ Pe tot ecranul", titleSize = 16.sp, onClick = { onFull(c) }) }
-            item(key = "yes") {
-                ListRow(title = (if (verdict == Verdict.CONFIRMED) "✓ " else "") + "E meciul", titleSize = 16.sp, selected = verdict == Verdict.CONFIRMED, onClick = { decide(Verdict.CONFIRMED) })
-            }
-            item(key = "no") {
-                ListRow(title = (if (verdict == Verdict.REJECTED) "✓ " else "") + "Nu e meciul", titleSize = 16.sp, selected = verdict == Verdict.REJECTED, onClick = { decide(Verdict.REJECTED) })
-            }
-            if (verdict != null) item(key = "undo") { ListRow(title = "Anulează alegerea", titleSize = 16.sp, onClick = { decide(null) }) }
-            item(key = "suspect") {
-                ListRow(
-                    title = if (isSuspect) "✓ Alt canal în stream (scoate semnul)" else "Alt canal în stream",
-                    subtitle = "Canal posibil greșit: rămâne sursă, după celelalte variante",
-                    titleSize = 16.sp,
-                    selected = isSuspect,
-                    onClick = { container.suspectChannels.toggle(c.playlistId, c.name) },
-                )
-            }
-            item(key = "stop") { ListRow(title = "■ Oprește previzualizarea", titleSize = 16.sp, onClick = onStop) }
-            item(key = "hint") {
-                Text(
-                    text = when (source.origin) {
-                        Confidence.STATION, Confidence.ELSEWHERE -> "„E meciul” / „Nu e” leagă (sau nu) postul anunțat de canalul ăsta și la meciurile viitoare."
-                        Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->
-                            "Alegerea se ține minte pentru meciurile din ${match.competition ?: "aceeași competiție"}."
-                        Confidence.EPG -> "Alegerea e doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
-                        Confidence.EVENT -> "Alegerea e doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
-                    },
-                    fontSize = 12.sp,
-                    color = AkColors.TextDim,
-                    modifier = Modifier.padding(8.dp),
-                )
-            }
-        }
+        Text(
+            text = "OK din nou: pe tot ecranul · OK ținut: e meciul / nu e / alt canal · Back: oprește",
+            fontSize = 13.sp,
+            color = AkColors.Accent,
+        )
     }
+}
+
+/** Alegerile unei surse (OK ținut apăsat pe ea): tot ecranul, previzualizare, e meciul, nu e, alt canal în stream. */
+@Composable
+private fun SourceActions(
+    match: ro.ak.sportshub.core.sports.Match,
+    source: MatchSource<ChannelWithPlaylist>,
+    previewing: Boolean,
+    onDismiss: () -> Unit,
+    onFull: () -> Unit,
+    onPreview: () -> Unit,
+) {
+    val container = appContainer()
+    val suspect by container.suspectChannels.keys.collectAsStateWithLifecycle()
+    val c = source.channel
+    val verdict = when {
+        source.rejected -> Verdict.REJECTED
+        source.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
+        else -> null
+    }
+    val isSuspect = ro.ak.sportshub.data.CorrectionKey(c.playlistId, c.name) in suspect
+    val decide = { v: Verdict? -> container.sports.decide(match, source.groupKey, v, source) }
+    val actions = buildList<Pair<String, () -> Unit>> {
+        add("▶ Pe tot ecranul" to onFull)
+        add((if (previewing) "■ Oprește previzualizarea" else "Previzualizează în dreapta") to onPreview)
+        add(((if (verdict == Verdict.CONFIRMED) "✓ " else "") + "E meciul") to { decide(Verdict.CONFIRMED); onDismiss() })
+        add(((if (verdict == Verdict.REJECTED) "✓ " else "") + "Nu e meciul") to { decide(Verdict.REJECTED); onDismiss() })
+        if (verdict != null) add("Anulează alegerea" to { decide(null); onDismiss() })
+        add((if (isSuspect) "✓ Alt canal în stream (scoate semnul)" else "Alt canal în stream") to {
+            container.suspectChannels.toggle(c.playlistId, c.name)
+            onDismiss()
+        })
+    }
+    ChoiceDialog(
+        title = c.name,
+        options = actions.map { it.first },
+        selectedIndex = 0,
+        onDismiss = onDismiss,
+        onSelect = { i -> actions[i].second() },
+        hint = when (source.origin) {
+            Confidence.STATION, Confidence.ELSEWHERE -> "„E meciul” / „Nu e” leagă (sau nu) postul anunțat de canalul ăsta și la meciurile viitoare."
+            Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->
+                "Alegerea se ține minte pentru meciurile din ${match.competition ?: "aceeași competiție"}."
+            Confidence.EPG -> "Alegerea e doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
+            Confidence.EVENT -> "Alegerea e doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
+        } + " „Alt canal în stream”: rămâne sursă, după celelalte variante.",
+    )
 }

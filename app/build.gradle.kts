@@ -34,7 +34,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 (fără obfuscare, vezi proguard-rules.pro): Compose și listele sunt mult mai fluide decât fără.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Fără secrete (de exemplu local) se semnează cu cheia de debug, ca APK-ul să fie instalabil.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
@@ -95,6 +97,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.tv.material)
+    // Profilele de pornire ale bibliotecilor Compose se compilează și la instalarea APK-ului direct (fără Play).
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.core)
 

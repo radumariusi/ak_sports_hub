@@ -59,6 +59,9 @@ object Highlights {
         "recap", "resumen", "resumenes", "zusammenfassung", "sintesi", "gli highlights", "resume", "resumes",
         "extended highlights", "best of", "goals of the", "the goals", "golazo show", "rezumatul etapei", "goluri",
         "sportsnight", "inside the nfl", "nba tv highlights", "nhl tonight", "mlb tonight", "quick highlights",
+        // Reluări și meciuri comprimate („UEFA Nations League in 60”): în Rezumate, nu ca meciuri.
+        "reluare", "reluarea", "replay", "full match", "condensed", "mini match", "rewind",
+        "in 30", "in 45", "in 60", "in 90",
     )
 
     /** Emisiunea e un rezumat sau un magazin sportiv? */
