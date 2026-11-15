@@ -79,4 +79,17 @@ class NameCatalogTest {
         assertTrue(fav.isCompetition("Romanian Liga I"))
         assertTrue(!fav.isCompetition("UEFA Europa League"))
     }
+
+    @Test
+    fun cluburile_cu_formele_lor() {
+        for (form in listOf("U Craiova", "UCV", "Univ Craiova", "Univ Cr", "CSU Craiova", "Universitatea Craiova")) {
+            assertTrue(form, TeamNames.same(form, "Universitatea Craiova"))
+        }
+        assertTrue(TeamNames.same("Steaua", "FCSB"))
+        assertTrue(TeamNames.same("Inter", "Internazionale"))
+        assertTrue(TeamNames.same("Atleti", "Atlético Madrid"))
+        assertTrue(TeamNames.same("Gladbach", "Borussia Mönchengladbach"))
+        assertTrue(!TeamNames.same("U Cluj", "Universitatea Craiova"))
+        assertEquals("Universitatea Craiova", NameCatalog.EMPTY.search("ucv", setOf(NameCatalog.Kind.TEAM)).first().name)
+    }
 }

@@ -120,6 +120,8 @@ internal object NameSeeds {
         }
         for ((name, alt) in otherCompetitions) put(name, Kind.COMPETITION, alt)
         for ((name, alt) in athletes) put(name, Kind.ATHLETE, alt)
+        // Cluburile din primele ligi și din Liga 1, cu formele lor („U Craiova”, „UCV”).
+        for ((name, alt) in ClubNames.forms) put(name, Kind.TEAM, alt)
         // Cluburile cu prescurtări încorporate („man utd” → Manchester United).
         TeamNames.builtInClubAliases.entries.groupBy({ it.value }, { it.key }).forEach { (full, shorts) ->
             put(titleCase(full), Kind.TEAM, shorts.map(::titleCase))

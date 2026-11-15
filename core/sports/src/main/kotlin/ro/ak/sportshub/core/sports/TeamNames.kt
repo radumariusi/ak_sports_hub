@@ -41,7 +41,17 @@ object TeamNames {
         "sporting" to "sporting cp", "sporting lisbon" to "sporting cp", "benfica lisbon" to "benfica",
         "porto" to "fc porto", "ajax amsterdam" to "ajax", "psv eindhoven" to "psv",
     )
-    private val aliases = clubAliases + NationNames.aliases + NativeClubNames.aliases
+    private val aliases: Map<String, String> = run {
+        val known = clubAliases + NationNames.aliases + NativeClubNames.aliases
+        // Cheia clubului după alias-urile de mai sus, ca formele noi să ducă la aceeași cheie („Inter” = „Inter Milan”).
+        fun keyOf(name: String): String {
+            val folded = Sport.fold(name)
+            known[folded]?.let { return it }
+            val b = base(name)
+            return known[b] ?: b
+        }
+        known + ClubNames.aliases(::base, ::keyOf).filterKeys { it !in known }
+    }
 
     /** Prescurtările încorporate ale cluburilor (formă scurtă → nume complet normalizat), pentru catalogul de nume. */
     internal val builtInClubAliases: Map<String, String> get() = clubAliases
