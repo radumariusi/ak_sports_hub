@@ -21,9 +21,12 @@ data class RightsRule(
     fun appliesTo(competition: String?): Boolean {
         if (!enabled || competition.isNullOrBlank()) return false
         val c = " ${Sport.fold(competition)} "
-        fun has(p: String) = Sport.fold(p).takeIf { it.isNotEmpty() }?.let { c.contains(" $it ") } == true
-        return competitions.any(::has) && excludes.none(::has)
+        return foldedCompetitions.any { c.contains(it) } && foldedExcludes.none { c.contains(it) }
     }
+
+    // Formele fără diacritice, calculate o dată (regulile se verifică pentru fiecare meci).
+    private val foldedCompetitions by lazy { competitions.map { Sport.fold(it) }.filter { it.isNotEmpty() }.map { " $it " } }
+    private val foldedExcludes by lazy { excludes.map { Sport.fold(it) }.filter { it.isNotEmpty() }.map { " $it " } }
 
     /** Cheia unei reguli preumplute (pentru oprirea ei). */
     val id: String get() = (competitions.firstOrNull().orEmpty() + "|" + country.orEmpty()).lowercase()
@@ -192,6 +195,18 @@ data class FoundSource(
  */
 class SourceFinder(private val index: StationIndex, private val knowledge: SportsKnowledge) {
 
+    private val rules = knowledge.allRules
+
+    // Mii de meciuri, dar doar câteva sute de competiții: regulile se aplică o dată pe competiție.
+    private val rightsCache = HashMap<String, List<Pair<String, String>>>()
+
+    /** (post, cheia canalului) din regulile de drepturi care prind competiția. */
+    private fun rightsFor(competition: String): List<Pair<String, String>> = rightsCache.getOrPut(competition) {
+        rules.filter { it.appliesTo(competition) }.flatMap { rule ->
+            rule.stations.flatMap { station -> index.find(TvStation(station, rule.country)).map { station to it } }
+        }
+    }
+
     /**
      * @param epgKeys canalele al căror EPG arată meciul.
      * @param eventKeys canalele EVENT / PPV care au meciul în nume.
@@ -213,7 +228,7 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         eventKeys.forEach { add(it, Confidence.EVENT) }
 
         for (st in match.stations) {
-            val compact = StationIndex.compact(StationNames.splitCountry(st.name).first)
+            val compact = StationIndex.stationKey(st.name)
             val keys = knowledge.stationAliases[compact].orEmpty() + index.find(st)
             keys.filter { "$compact|$it" !in knowledge.stationBlocks }.forEach { add(it, Confidence.STATION, st.name) }
         }
@@ -222,13 +237,8 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         dedicatedKeys.filter { comp == null || "$comp|$it" !in knowledge.rightsBlocks }.forEach { add(it, Confidence.DEDICATED) }
         if (comp != null) {
             knowledge.learnedRights[comp].orEmpty().forEach { add(it, Confidence.LEARNED) }
-            for (rule in knowledge.allRules) {
-                if (!rule.appliesTo(match.competition)) continue
-                for (station in rule.stations) {
-                    index.find(TvStation(station, rule.country))
-                        .filter { "$comp|$it" !in knowledge.rightsBlocks }
-                        .forEach { add(it, Confidence.RIGHTS, station) }
-                }
+            for ((station, key) in rightsFor(match.competition.orEmpty())) {
+                if ("$comp|$key" !in knowledge.rightsBlocks) add(key, Confidence.RIGHTS, station)
             }
         }
 

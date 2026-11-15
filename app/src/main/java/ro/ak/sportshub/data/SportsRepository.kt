@@ -832,6 +832,9 @@ class SportsRepository(
 
     @Volatile private var farLoading = false
 
+    /** Canalele EVENT citite: id → (nume, grup, fus, ora din zi) și rezultatul. */
+    private val slotCache = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, EventSlot>>()
+
     private suspend fun compute(now: Long): SportsSnapshot {
         val s = settings.current
         val from = now - WINDOW_BACK_MS
@@ -867,7 +870,13 @@ class SportsRepository(
             }
         val broadcasts = if (far == null) near.list else (near.list + far.list).distinctBy { it.broadcast.programmeId }
         val zone = s.eventZoneId()
-        val slots = if (!s.eventChannels) emptyList() else scan.events.map { EventChannels.parse(it.id, it.name, it.groupName, now, zone) }
+        // Numele canalelor EVENT se citesc o dată pe oră (nu la fiecare minut, pentru mii de canale).
+        val hour = now / HOUR_MS
+        val slots = if (!s.eventChannels) emptyList() else scan.events.map { c ->
+            val key = "${c.name}\u0000${c.groupName}\u0000$zone\u0000$hour"
+            slotCache[c.id]?.takeIf { it.first == key }?.second
+                ?: EventChannels.parse(c.id, c.name, c.groupName, now, zone).also { slotCache[c.id] = key to it }
+        }
         val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
         val matches = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
@@ -897,7 +906,7 @@ class SportsRepository(
             found.forEach { allKeys += it.groupKey }
             if (m.status != MatchStatus.FINISHED) {
                 for (st in m.stations) {
-                    val compact = StationIndex.compact(StationNames.splitCountry(st.name).first)
+                    val compact = StationIndex.stationKey(st.name)
                     if (compact !in aliases && index.find(st).isEmpty()) unmatched.merge(st.name, 1, Int::plus)
                 }
             }
@@ -1153,6 +1162,7 @@ class SportsRepository(
         val NEAR_RELOAD_MS = TimeUnit.HOURS.toMillis(1)
         val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
         const val SLOW_COMPUTE_MS = 3_000L
+        const val HOUR_MS = 3_600_000L
         const val MAX_EXTRACT_CACHE = 300_000
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
         const val IN_CHUNK = 500

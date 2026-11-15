@@ -81,6 +81,10 @@ object EventChannels {
     private val countryPrefix = Regex("""^\s*[|\[(]?\s*[A-Za-z]{2,3}\s*[|\]):]\s*(?=\S)""")
     private val slotLabel = Regex("""^(.*?(?:\b\d{1,3}\b|\b[a-z]+\+))\s*[:|\-–—]\s*(.*\p{L}.*)$""", RegexOption.IGNORE_CASE)
     private val contextSplit = Regex("""\s*[:|]\s+""")
+    private val shortNumber = Regex("""\b\d{1,3}\b""")
+    private val spaces = Regex("""\s+""")
+    private val brackets = Regex("""[()\[\]{}]""")
+    private val markerLabel = Regex("""^\s*((?:\S+\s+){0,3}?(?:event|events|ppv|pass|ticket)\s*\d{0,3})\s+(.+)$""", RegexOption.IGNORE_CASE)
     private val leadingNumber = Regex("""^\s*(?:#|no\.?\s*)?\d{1,3}\s*[:|\-–—.]\s*""")
 
     /** Canalul pare unul de eveniment, după nume sau după grup. */
@@ -94,8 +98,11 @@ object EventChannels {
         return strongSeparator.containsMatchIn(name) && (colonTime.containsMatchIn(name) || ampmTime.containsMatchIn(name))
     }
 
+    /** Marcajele normalizate o singură dată (sunt verificate pentru fiecare canal). */
+    private val foldedMarkers by lazy { markers.associateWith { " ${Sport.fold(it)} " } }
+
     private fun markerIn(marker: String, folded: String, lower: String): Boolean =
-        if (marker.endsWith("+")) lower.contains(marker) else folded.contains(" ${Sport.fold(marker)} ")
+        if (marker.endsWith("+")) lower.contains(marker) else folded.contains(foldedMarkers.getValue(marker))
 
     /**
      * Citește numele canalului [name] (grupul [group]). Orele fără fus se citesc în [zone]; fără dată, ziua e
@@ -160,7 +167,7 @@ object EventChannels {
         }
         if (label == null) {
             // „EVENT 03 Arsenal vs Chelsea” (fără separator): eticheta e cuvântul-marcaj + numărul.
-            val m = Regex("""^\s*((?:\S+\s+){0,3}?(?:event|events|ppv|pass|ticket)\s*\d{0,3})\s+(.+)$""", RegexOption.IGNORE_CASE).find(text)
+            val m = markerLabel.find(text)
             if (m != null && isLabel(m.groupValues[1])) {
                 label = m.groupValues[1].trim()
                 text = m.groupValues[2]
@@ -212,7 +219,7 @@ object EventChannels {
 
     /** Eticheta canalului nu e un eveniment: doar marcajul, numărul și numele serviciului. */
     private fun isLabel(text: String): Boolean {
-        val f = " " + Sport.fold(text).replace(Regex("""\b\d{1,3}\b"""), " ").replace(Regex("""\s+"""), " ").trim() + " "
+        val f = " " + Sport.fold(text).replace(shortNumber, " ").replace(spaces, " ").trim() + " "
         if (f.isBlank()) return true
         val lower = text.lowercase()
         return markers.any { m -> markerIn(m, f, lower) } &&
@@ -234,8 +241,8 @@ object EventChannels {
     }
 
     private fun cleanup(text: String): String =
-        text.replace(Regex("""[()\[\]{}]"""), " ")
-            .replace(Regex("""\s+"""), " ")
+        text.replace(brackets, " ")
+            .replace(spaces, " ")
             .trim()
             .trim('-', '–', '—', ':', '|', '@', ',', '.', '/', ' ')
             .trim()
@@ -278,17 +285,23 @@ object DedicatedChannels {
         Series("pdc", listOf("pdc"), Sport.DARTS),
     )
 
-    private fun has(text: String, word: String): Boolean = " ${Sport.fold(text)} ".contains(" ${Sport.fold(word)} ")
+    private val foldedWords by lazy { series.associate { s -> s.key to s.words.map { " ${Sport.fold(it)} " } } }
+    private const val FORMULA_E = " formula e "
+
+    /** [text] deja normalizat și cu spații în jur. */
+    private fun hasFolded(text: String, s: Series): Boolean = foldedWords.getValue(s.key).any { text.contains(it) }
 
     /** Seria căreia îi e dedicat canalul (după nume), sau null. „Formula E” nu e „Formula 1”. */
-    fun seriesOfChannel(name: String): String? =
-        series.firstOrNull { s -> s.words.any { has(name, it) } && !(s.key == "f1" && has(name, "formula e")) }?.key
+    fun seriesOfChannel(name: String): String? {
+        val f = " ${Sport.fold(name)} "
+        return series.firstOrNull { s -> hasFolded(f, s) && !(s.key == "f1" && f.contains(FORMULA_E)) }?.key
+    }
 
     /** Seria meciului (după competiție și nume), sau null. */
     fun seriesOfMatch(m: Match): String? {
-        val text = listOfNotNull(m.competition, m.home, m.away.takeIf { it.isNotBlank() }).joinToString(" ")
+        val f = " " + Sport.fold(listOfNotNull(m.competition, m.home, m.away.takeIf { it.isNotBlank() }).joinToString(" ")) + " "
         return series.firstOrNull { s ->
-            (m.sport == null || m.sport == s.sport) && s.words.any { has(text, it) } && !(s.key == "f1" && has(text, "formula e"))
+            (m.sport == null || m.sport == s.sport) && hasFolded(f, s) && !(s.key == "f1" && f.contains(FORMULA_E))
         }?.key
     }
 }

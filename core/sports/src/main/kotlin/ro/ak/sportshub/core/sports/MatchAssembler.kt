@@ -100,24 +100,39 @@ object MatchAssembler {
      */
     private fun attachSlots(matches: List<Match>, slots: List<EventSlot>, now: Long): List<Match> {
         if (slots.isEmpty()) return matches
+        // Mii de canale EVENT × mii de meciuri: comparația completă dura minute pe TV. Canalele cu oră caută doar
+        // meciurile din fereastra lor (căutare binară), cele fără oră doar meciurile cu aceeași cheie de echipe.
+        val order = matches.indices.sortedBy { matches[it].start }
+        val starts = LongArray(order.size) { matches[order[it]].start }
+        val byKey = HashMap<String, MutableList<Int>>()
+        matches.forEachIndexed { i, m -> byKey.getOrPut(slotKey(m.home, m.away)) { ArrayList() } += i }
         val extra = HashMap<Int, MutableList<Long>>()
         val loose = ArrayList<EventSlot>()
         for (slot in slots) {
             val home = slot.home ?: continue
             val away = slot.away.orEmpty()
-            val candidates = matches.indices.filter { i ->
+            val start = slot.start
+            val pool: List<Int> = if (start != null) {
+                val from = lowerBound(starts, start - BROADCAST_LATE_MS)
+                var to = from
+                while (to < starts.size && starts[to] <= start + SLOT_LEAD_MS) to++
+                (from until to).map { order[it] }
+            } else {
+                byKey[slotKey(home, away)].orEmpty()
+            }
+            val candidates = pool.filter { i ->
                 val m = matches[i]
-                val timeOk = slot.start?.let { it >= m.start - SLOT_LEAD_MS && it <= m.start + BROADCAST_LATE_MS }
+                val timeOk = start?.let { it >= m.start - SLOT_LEAD_MS && it <= m.start + BROADCAST_LATE_MS }
                     ?: (m.end > now - SLOT_LEAD_MS && m.start < now + SLOT_UNTIMED_MS)
-                timeOk && sameAs(m, home, away, slot.sport, slot.start ?: m.start)
+                timeOk && sameAs(m, home, away, slot.sport, start ?: m.start)
             }
             val best = when {
                 candidates.isEmpty() -> null
-                slot.start != null -> candidates.minBy { abs(matches[it].start - slot.start) }
+                start != null -> candidates.minBy { abs(matches[it].start - start) }
                 candidates.size == 1 -> candidates.single()
                 else -> null
             }
-            if (best != null) extra.getOrPut(best) { ArrayList() } += slot.channelId else if (slot.start != null) loose += slot
+            if (best != null) extra.getOrPut(best) { ArrayList() } += slot.channelId else if (start != null) loose += slot
         }
         val updated = matches.mapIndexed { i, m ->
             val ids = extra[i] ?: return@mapIndexed m
@@ -125,6 +140,11 @@ object MatchAssembler {
         }
         return updated + clusterSlots(loose).map { fromSlots(it, now) }
     }
+
+    /** Cheia unui meci sau eveniment: echipele (în orice ordine) sau numele evenimentului. */
+    private fun slotKey(home: String, away: String): String =
+        if (away.isBlank()) "e:" + EventNames.key(home)
+        else listOf(TeamNames.key(home), TeamNames.key(away)).sorted().joinToString("|")
 
     private fun sameAs(m: Match, home: String, away: String, sport: Sport?, start: Long): Boolean =
         if (away.isBlank()) {
@@ -136,8 +156,12 @@ object MatchAssembler {
 
     private fun clusterSlots(slots: List<EventSlot>): List<List<EventSlot>> {
         val groups = ArrayList<MutableList<EventSlot>>()
+        // Se compară doar grupurile cu aceeași cheie (nu toate cu toate).
+        val byKey = HashMap<String, MutableList<MutableList<EventSlot>>>()
         for (s in slots.sortedBy { it.start }) {
-            val g = groups.firstOrNull { g ->
+            val key = slotKey(s.home.orEmpty(), s.away.orEmpty())
+            val same = byKey.getOrPut(key) { ArrayList() }
+            val g = same.firstOrNull { g ->
                 val f = g.first()
                 val fs = f.start ?: return@firstOrNull false
                 val ss = s.start ?: return@firstOrNull false
@@ -148,7 +172,7 @@ object MatchAssembler {
                     abs(fs - ss) <= DEDUP_WINDOW_MS && TeamNames.samePair(f.home.orEmpty(), f.away.orEmpty(), s.home.orEmpty(), s.away.orEmpty())
                 }
             }
-            if (g == null) groups += mutableListOf(s) else g += s
+            if (g == null) mutableListOf(s).also { groups += it; same += it } else g += s
         }
         return groups
     }

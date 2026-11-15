@@ -17,8 +17,11 @@ object SportChannels {
         "elevensports", "eleven sports", "sportdigital", "magenta sport", "servus",
     )
 
+    // Cuvintele, deja normalizate (cu spații în jur): nu se normalizează din nou pentru fiecare canal.
+    private val folded by lazy { words.map { " ${Sport.fold(it)} " } }
+
     fun isSport(name: String, group: String?): Boolean {
         val text = " " + Sport.fold(name + " " + group.orEmpty()) + " "
-        return words.any { w -> text.contains(" ${Sport.fold(w)} ") } || text.contains("sport")
+        return text.contains("sport") || folded.any { text.contains(it) }
     }
 }

@@ -28,8 +28,8 @@ data class SportsSettings(
     val sports: List<Sport> = Sport.DEFAULT_FETCH,
     /** LiveSoccerTV (neoficial, opțional): meciurile de fotbal de azi și mâine, cu posturile TV. */
     val liveSoccerTvEnabled: Boolean = true,
-    /** Sofascore (neoficial, opțional): programul complet și scorurile pentru sporturile alese. Implicit pornit (din v2). */
-    val sofascoreEnabled: Boolean = true,
+    /** Sofascore (neoficial, opțional): ne refuză (403) chiar și prin WebView, deci e oprit implicit (din v3). */
+    val sofascoreEnabled: Boolean = false,
     /** Posturile TV pe țară de la Sofascore (câteva meciuri pe rundă), când Sofascore e pornit. */
     val sofascoreTv: Boolean = true,
     /** FutbolEnLaTV (neoficial, opțional): ~18 sporturi pe zi, cu posturile din Spania. */
@@ -126,8 +126,8 @@ class SportsSettingsStore(context: Context) {
                 sportsDbKey = o.optString("sportsDbKey", d.sportsDbKey).ifBlank { d.sportsDbKey },
                 sportsDbTv = o.optBoolean("sportsDbTv", d.sportsDbTv),
                 liveSoccerTvEnabled = o.optBoolean("liveSoccerTv", d.liveSoccerTvEnabled),
-                // Versiunea 2: Sofascore pornit pentru toți (TheSportsDB gratuit dă prea puține meciuri).
-                sofascoreEnabled = if (o.optInt("version", 1) < VERSION) true else o.optBoolean("sofascore", d.sofascoreEnabled),
+                // Versiunea 3: Sofascore oprit pentru toți (refuză orice cerere: 403); se poate porni din nou din setări.
+                sofascoreEnabled = if (o.optInt("version", 1) < VERSION) false else o.optBoolean("sofascore", d.sofascoreEnabled),
                 sofascoreTv = o.optBoolean("sofascoreTv", d.sofascoreTv),
                 futbolEnLaTvEnabled = o.optBoolean("futbolEnLaTv", d.futbolEnLaTvEnabled),
                 liveOnSatEnabled = o.optBoolean("liveOnSat", d.liveOnSatEnabled),
@@ -214,6 +214,6 @@ class SportsSettingsStore(context: Context) {
         private const val KEY = "settings"
 
         /** Versiunea formatului; la o versiune mai veche se aplică schimbările de valori implicite. */
-        private const val VERSION = 2
+        private const val VERSION = 3
     }
 }
