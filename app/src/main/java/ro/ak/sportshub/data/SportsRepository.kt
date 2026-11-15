@@ -1440,6 +1440,24 @@ class SportsRepository(
             lap("verificare EPG ($moved surse arată altceva)")
         }
 
+        // EPG-ul găsit pe o variantă se dă tuturor variantelor canalului (același nume, alt playlist sau altă țară).
+        // O variantă cu EPG-ul ei, care la ora meciului arată altă emisiune, nu e sursa meciului (beIN Sports 3 AU
+        // arăta Spania–Anglia, cel din altă țară Belgia–Italia): coboară la „EPG-ul arată altceva”.
+        val ownEpg = HashMap<Long, MutableSet<Long>>()
+        val epgFamilyKeys = foundByMatch.values.flatten().filter { !it.rejected && it.confidence == Confidence.EPG }.map { it.groupKey }.toSet()
+        val epgFamilyChannels = epgFamilyKeys.flatMap { k -> variants[k].orEmpty().map { it.id } }
+        if (epgFamilyChannels.isNotEmpty() && airingByEpg.isNotEmpty()) {
+            epg.mapForChannels(epgFamilyChannels).forEach { (ch, e) -> ownEpg.getOrPut(ch) { HashSet() } += e }
+        }
+        fun elsewhere(m: Match, c: ChannelWithPlaylist): String? {
+            val ids = ownEpg[c.id] ?: return null
+            val matchEpg = m.broadcasts.map { it.epgChannelId }
+            if (ids.any { it in matchEpg }) return null
+            val at = m.start + AIRING_CHECK_AFTER_MS
+            val now = ids.flatMap { airingByEpg[it].orEmpty() }.filter { at >= it.start && at < it.stop }
+            if (now.isEmpty()) return null
+            return now.first().title
+        }
         val seen = observed.current
         val variantState = variantStore.current
         val entries = matches.map { m ->
@@ -1449,7 +1467,12 @@ class SportsRepository(
                 if (ChannelNameParser.isSeparator(c.name)) return@forEach
                 // Calitatea: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist.
                 val quality = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
-                sources += MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
+                val other = if (f.confidence == Confidence.EPG && !f.rejected) elsewhere(m, c) else null
+                sources += if (other != null) {
+                    MatchSource(c, c.groupKey, c.language, quality, Confidence.ELSEWHERE, f.station, f.rejected, f.origin, other)
+                } else {
+                    MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
+                }
             }
             val unique = sources.distinctBy { it.channel.id }
             MatchEntry(m, unique, MatchSources.summary(unique))
@@ -1784,6 +1807,9 @@ class SportsRepository(
 
         /** Cât de des se verifică scorurile care își așteaptă întârzierea. */
         const val DELAY_TICK_MS = 5_000L
+
+        /** Ce arată EPG-ul unei variante la 10 minute după start. */
+        val AIRING_CHECK_AFTER_MS: Long = TimeUnit.MINUTES.toMillis(10)
         /** O ligă care nu există la ESPN (404) se mai încearcă abia peste o lună. */
         val CAL_MISSING_MS = TimeUnit.DAYS.toMillis(30)
         const val CAL_MISSING = "missing"
@@ -1902,15 +1928,22 @@ fun providerLabel(provider: String): String = when (provider) {
  * Meciul care rulează pe canalul cu cheia [groupKey] la ora [at] (live sau, la reluare, ora din arhivă):
  * dintre meciurile care au canalul ca sursă (nerespinsă), cel cu sursa cea mai sigură.
  */
-fun SportsSnapshot.matchOn(groupKey: String, at: Long): MatchEntry? =
+fun SportsSnapshot.matchOn(groupKey: String, at: Long, channelId: Long? = null): MatchEntry? =
     matches.asSequence()
         .filter { at >= it.match.start - MATCH_LEAD_MS && at <= it.match.end }
-        .mapNotNull { e -> e.sources.filter { it.groupKey == groupKey && !it.rejected }.minOfOrNull { it.confidence.ordinal }?.let { e to it } }
+        .mapNotNull { e -> e.sourcesOn(groupKey, channelId).minOfOrNull { it.confidence.ordinal }?.let { e to it } }
         .minByOrNull { it.second }
         ?.first
 
-/** Meciul are canalul cu cheia [groupKey] printre sursele lui (nerespinse). */
-fun MatchEntry.hasSource(groupKey: String): Boolean = sources.any { it.groupKey == groupKey && !it.rejected }
+/** Meciul are canalul cu cheia [groupKey] (varianta [channelId]) printre sursele lui (nerespinse, nu „arată altceva”). */
+fun MatchEntry.hasSource(groupKey: String, channelId: Long? = null): Boolean = sourcesOn(groupKey, channelId).isNotEmpty()
+
+/** Sursele care sunt canalul acesta: varianta exactă, dacă e printre surse, altfel orice variantă cu aceeași cheie. */
+private fun MatchEntry.sourcesOn(groupKey: String, channelId: Long?): List<MatchSource<ChannelWithPlaylist>> {
+    val exact = if (channelId == null) emptyList() else sources.filter { it.channel.id == channelId && !it.rejected }
+    val list = exact.ifEmpty { sources.filter { it.groupKey == groupKey && !it.rejected } }
+    return list.filter { it.confidence != Confidence.ELSEWHERE }
+}
 
 /** Meciul a început și o sursă (nerespinsă) are încă arhiva lui: se poate vedea ca reluare. */
 fun MatchEntry.hasReplay(now: Long): Boolean =

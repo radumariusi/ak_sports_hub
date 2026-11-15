@@ -175,4 +175,13 @@ class MatchPlaybackTest {
         assertEquals(MatchStatus.LIVE, d.apply(end, t0 + sec(130), sec(30)).status)
         assertEquals(MatchStatus.FINISHED, d.apply(end, t0 + sec(151), sec(30)).status)
     }
+
+    @Test
+    fun emisiunea_de_acum_alege_meciul() {
+        val belgium = match.copy(id = "a", home = "Belgium", away = "Italy", status = MatchStatus.LIVE)
+        val spain = match.copy(id = "b", home = "Spain", away = "England", status = MatchStatus.LIVE)
+        val found = OnAirMatch.find("UEFA Nations League - Spain vs. England", null, null, kickoff + min(20), listOf(belgium, spain))
+        assertEquals("b", found?.id)
+        assertNull(OnAirMatch.find("LaLiga Goals Galore", null, null, kickoff + min(20), listOf(belgium, spain)))
+    }
 }

@@ -359,3 +359,21 @@ class ScoreDelay {
         const val MAX_ENTRIES = 12
     }
 }
+
+/**
+ * Meciul pe care îl arată acum EPG-ul canalului din player: dacă emisiunea curentă e un meci din listă (aceleași
+ * echipe, în desfășurare sau pe cale să înceapă), canalul se leagă de el, oricum ar fi fost găsit ca sursă.
+ */
+object OnAirMatch {
+
+    private val LEAD_MS = TimeUnit.MINUTES.toMillis(15)
+
+    fun find(title: String, subtitle: String?, category: String?, at: Long, matches: List<Match>): Match? {
+        val x = EpgMatchExtractor.extract(title, category, channelIsSport = true)?.takeIf { it.away.isNotBlank() }
+            ?: subtitle?.let { EpgMatchExtractor.extract(it, category, channelIsSport = true, context = title) }?.takeIf { it.away.isNotBlank() }
+            ?: return null
+        return matches.firstOrNull { m ->
+            m.away.isNotBlank() && at >= m.start - LEAD_MS && at <= m.end && TeamNames.samePair(x.home, x.away, m.home, m.away)
+        }
+    }
+}

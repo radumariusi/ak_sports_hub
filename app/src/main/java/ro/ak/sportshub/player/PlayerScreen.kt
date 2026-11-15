@@ -276,10 +276,20 @@ fun PlayerScreen(
         }
     }
     val minute = now / 60_000
-    val linked: MatchEntry? = remember(snapshot, state.channel?.groupKey, requestedMatch, state.archiveFrom, minute) {
+    // Ce arată acum EPG-ul canalului: dacă e un meci din listă, canalul se leagă de el (sursa „pleacă” la meciul real).
+    val onAir by produceState<Programme?>(null, state.channel?.id, minute) {
+        value = state.channel?.id?.let { id -> runCatching { container.epg.nowNext(listOf(id), System.currentTimeMillis())[id]?.now }.getOrNull() }
+    }
+    val linked: MatchEntry? = remember(snapshot, state.channel?.groupKey, state.channel?.id, requestedMatch, state.archiveFrom, minute, onAir) {
         val key = state.channel?.groupKey ?: return@remember null
-        requestedMatch?.let { id -> snapshot.matches.firstOrNull { it.match.id == id && it.hasSource(key) } }
-            ?: snapshot.matchOn(key, state.archiveFrom ?: System.currentTimeMillis())
+        val ch = state.channel?.id
+        if (state.archiveFrom == null) {
+            onAir?.let { p ->
+                ro.ak.sportshub.core.sports.OnAirMatch.find(p.title, p.subtitle, p.category, System.currentTimeMillis(), snapshot.matches.map { it.match })
+            }?.let { m -> snapshot.matches.firstOrNull { it.match.id == m.id } }?.let { return@remember it }
+        }
+        requestedMatch?.let { id -> snapshot.matches.firstOrNull { it.match.id == id && it.hasSource(key, ch) } }
+            ?: snapshot.matchOn(key, state.archiveFrom ?: System.currentTimeMillis(), ch)
     }
     val linkedMatch = linked?.match
     val replay = state.archiveFrom != null
