@@ -46,7 +46,7 @@ object Standings {
 
     /** Ligile cu clasament: cele cu echipe (fără tenis, curse, gale, golf), fără amicale. */
     val leagues: List<Espn.League> = Espn.leagues.filter { l ->
-        l.kind == Espn.Kind.TEAM && l.key !in setOf("FRIENDLY", "CLUBFRIENDLY", "RUGBYTEST", "USUPER", "ESPSUPER", "ITASUPER")
+        l.kind == Espn.Kind.TEAM && !l.forFavorites && l.key !in setOf("FRIENDLY", "CLUBFRIENDLY", "RUGBYTEST", "USUPER", "ESPSUPER", "ITASUPER")
     }
 
     /**

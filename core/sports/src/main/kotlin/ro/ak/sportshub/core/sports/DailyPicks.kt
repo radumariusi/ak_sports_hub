@@ -70,7 +70,7 @@ object TeamCalendar {
             team to matches
                 .filter { m ->
                     m.status != MatchStatus.FINISHED && m.end > now &&
-                        (TeamNames.same(team, m.home) || (m.away.isNotBlank() && TeamNames.same(team, m.away)))
+                        (TeamNames.covers(team, m.home) || TeamNames.covers(team, m.away))
                 }
                 .sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
                 .distinctBy { it.id }

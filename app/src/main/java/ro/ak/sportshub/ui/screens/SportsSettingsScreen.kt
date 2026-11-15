@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import ro.ak.sportshub.core.model.Quality
+import ro.ak.sportshub.core.sports.TeamNames
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.FollowedNames
 import ro.ak.sportshub.data.EventZones
@@ -415,9 +416,22 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
         }
         SportsDialog.TEAMS -> TextInputDialog(
             title = "Echipe favorite",
-            suggestions = { q -> catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM, ro.ak.sportshub.core.sports.NameCatalog.Kind.ATHLETE)).map { e -> e.name to e.alt.take(3).joinToString(" · ").ifEmpty { null } } },
+            suggestions = { q ->
+                catalog.search(q, setOf(ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM, ro.ak.sportshub.core.sports.NameCatalog.Kind.ATHLETE)).flatMap { e ->
+                    val alt = e.alt.take(3).joinToString(" · ")
+                    // O echipă fără semn cuprinde și U18, U21, a doua echipă și echipa feminină; „seniori” = doar echipa mare.
+                    if (e.kind == ro.ak.sportshub.core.sports.NameCatalog.Kind.TEAM && !TeamNames.hasMarker(e.name)) {
+                        listOf(
+                            e.name to listOf(alt, "cu U18, U21 și echipa feminină").filter { it.isNotEmpty() }.joinToString(" · "),
+                            "${e.name} seniori" to "doar echipa mare",
+                        )
+                    } else {
+                        listOf(e.name to alt.ifEmpty { null })
+                    }
+                }
+            },
             initial = s.favorites.teams.joinToString(", "),
-            hint = "Separate prin virgulă. Scrie începutul numelui (de exemplu „man u”) și alege din sugestii: forma întreagă e recunoscută și scrisă altfel (Man Utd, Man. United).",
+            hint = "Separate prin virgulă. Scrie începutul numelui (de exemplu „man u”) și alege din sugestii: forma întreagă e recunoscută și scrisă altfel (Man Utd, Man. United). O echipă cuprinde și U18, U21 și echipa feminină; scrie „seniori” după nume pentru doar echipa mare, sau „U21”, „Women” pentru doar acea echipă.",
             onDismiss = { dialog = null },
             onConfirm = { text ->
                 val list = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
