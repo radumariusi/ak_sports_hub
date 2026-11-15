@@ -26,6 +26,12 @@ object MatchAssembler {
     /** Cât timp credem o stare „LIVE” veche din cache, după ora de start. */
     private val STALE_LIVE_MS = TimeUnit.HOURS.toMillis(6)
 
+    /** O emisiune cu aceleași echipe până la 36 de ore după meci e o reluare. */
+    val REPLAY_LOOKBACK_MS: Long = TimeUnit.HOURS.toMillis(36)
+
+    /** Cât mai rămâne „LIVE” un meci după durata obișnuită a sportului (prelungiri, pauze). */
+    private val LIVE_GRACE_MS = TimeUnit.HOURS.toMillis(1)
+
     fun assemble(
         events: List<SportEvent>,
         broadcasts: List<MatchBroadcast>,
@@ -62,11 +68,22 @@ object MatchAssembler {
                         }
                 }
                 .minByOrNull { abs(merged[it].start - b.start) }
-            if (best != null) attached.getOrPut(best) { ArrayList() } += mb else loose += mb
+            if (best != null) {
+                attached.getOrPut(best) { ArrayList() } += mb
+                continue
+            }
+            // Reluarea unui meci jucat deja (aceleași echipe, început cu 30 de minute până la 36 de ore înainte):
+            // emisiunea devine o sursă a meciului, nu un meci nou „LIVE”.
+            val earlier = if (x.away.isBlank()) null else {
+                val from = lowerBound(starts, b.start - REPLAY_LOOKBACK_MS)
+                val to = lowerBound(starts, b.start - BROADCAST_LATE_MS)
+                (from until to).lastOrNull { i -> merged[i].away.isNotBlank() && TeamNames.samePair(merged[i].home, merged[i].away, x.home, x.away) }
+            }
+            if (earlier != null) attached.getOrPut(earlier) { ArrayList() } += mb else loose += mb
         }
 
         val fromEvents = merged.mapIndexed { i, e -> fromEvent(e, attached[i].orEmpty(), now) }
-        val fromEpg = cluster(loose).map { fromBroadcasts(it, now) }
+        val fromEpg = joinReruns(cluster(loose)).map { fromBroadcasts(it, now) }
         return attachSlots(fromEvents + fromEpg, slots, now).sortedWith(compareBy<Match> { it.start }.thenBy { it.title })
     }
 
@@ -223,7 +240,8 @@ object MatchAssembler {
         }
         val status = when (e.status) {
             MatchStatus.FINISHED -> MatchStatus.FINISHED
-            MatchStatus.LIVE -> if (now < e.start + STALE_LIVE_MS) MatchStatus.LIVE else MatchStatus.FINISHED
+            // „LIVE” din fișierul salvat e starea de la descărcare: după durata obișnuită plus o oră, s-a terminat.
+            MatchStatus.LIVE -> if (now < e.start + minOf(STALE_LIVE_MS, duration + LIVE_GRACE_MS)) MatchStatus.LIVE else MatchStatus.FINISHED
             else -> byTime
         }
         return Match(
@@ -292,16 +310,49 @@ object MatchAssembler {
         return lo
     }
 
+    /**
+     * Grupurile de emisiuni cu aceleași echipe la ore diferite (în cel mult [REPLAY_LOOKBACK_MS]) sunt același meci:
+     * primul grup e transmisia, celelalte reluări. Se unesc în primul (canalele reluărilor rămân surse).
+     */
+    private fun joinReruns(groups: List<List<MatchBroadcast>>): List<List<MatchBroadcast>> {
+        val sorted = groups.sortedBy { g -> g.minOf { it.broadcast.start } }
+        val out = ArrayList<MutableList<MatchBroadcast>>()
+        val byKey = HashMap<String, MutableList<MatchBroadcast>>()
+        for (g in sorted) {
+            val x = g.first().extracted
+            if (x.away.isBlank()) {
+                out += g.toMutableList()
+                continue
+            }
+            val key = listOf(TeamNames.key(x.home), TeamNames.key(x.away)).sorted().joinToString("|")
+            val first = byKey[key]
+            if (first != null && g.minOf { it.broadcast.start } - first.minOf { it.broadcast.start } <= REPLAY_LOOKBACK_MS) {
+                first += g
+            } else {
+                val list = g.toMutableList()
+                byKey[key] = list
+                out += list
+            }
+        }
+        return out
+    }
+
     private fun fromBroadcasts(mbs: List<MatchBroadcast>, now: Long): Match {
+        // Transmisia: emisiunile care încep cel mult 30 de minute după prima; restul sunt reluări.
+        val earliest = mbs.minOf { it.broadcast.start }
+        val airing = mbs.filter { it.broadcast.start <= earliest + BROADCAST_LATE_MS }
         // Emisiunile marcate „live” dau ora cea mai apropiată de start; altfel cea mai devreme.
-        val lead = mbs.filter { it.extracted.explicitLive }.ifEmpty { mbs }
+        val lead = airing.filter { it.extracted.explicitLive }.ifEmpty { airing }
         val start = lead.minOf { it.broadcast.start }
-        val end = mbs.maxOf { it.broadcast.stop }
+        val sport = mbs.firstNotNullOfOrNull { it.extracted.sport }
+        // Sfârșitul: emisiunea transmisiei, dar nu mai mult decât durata obișnuită a sportului plus o oră
+        // (un bloc EPG lung „Sky Sport Calcio” nu ține meciul „LIVE” toată ziua).
+        val end = minOf(airing.maxOf { it.broadcast.stop }, start + (sport?.typicalDurationMs ?: Sport.DEFAULT_DURATION_MS) + LIVE_GRACE_MS)
         val first = lead.first().extracted
         val status = when {
-            mbs.any { now >= it.broadcast.start && now < it.broadcast.stop } -> MatchStatus.LIVE
-            now >= end -> MatchStatus.FINISHED
-            else -> MatchStatus.SCHEDULED
+            now < start -> MatchStatus.SCHEDULED
+            now < end -> MatchStatus.LIVE
+            else -> MatchStatus.FINISHED
         }
         val key = if (first.away.isBlank()) {
             EventNames.key(first.home)

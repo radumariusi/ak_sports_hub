@@ -37,6 +37,15 @@ object ProviderPolicy {
         else -> Tier.SITE
     }
 
+    // Ordinea cererilor: întâi cei care dau multe meciuri dintr-o singură cerere (o pagină), ca lista să apară repede.
+    private val fetchOrder = listOf(
+        FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER, UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API,
+        TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
+    )
+
+    /** Locul furnizorului în runda de cereri (mai mic = mai devreme). */
+    fun fetchRank(provider: String): Int = fetchOrder.indexOf(provider).let { if (it < 0) fetchOrder.size else it }
+
     /** 0 = cel mai de încredere. Furnizorii necunoscuți (EPG, canale EVENT) vin după toți. */
     fun rank(provider: String): Int = order.indexOf(provider).let { if (it < 0) order.size else it }
 

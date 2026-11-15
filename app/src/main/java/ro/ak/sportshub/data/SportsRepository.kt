@@ -299,9 +299,8 @@ class SportsRepository(
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
-        val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.rank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
-        if (ok > 0 && guarded.isNotEmpty()) recompute()
-        val (gOk, gFailed) = runJobs(guarded, "Se descarcă programul meciurilor (furnizori protejați)", force)
+        val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
+        val (gOk, gFailed) = runJobs(guarded.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor (furnizori protejați)", force)
         changed = ok + gOk > 0
         errors += failed + gFailed
         // Apoi posturile TV de la Sofascore, pentru câteva meciuri (programul e deja la zi).
@@ -318,6 +317,7 @@ class SportsRepository(
     private suspend fun runJobs(jobs: List<Job>, label: String, force: Boolean): Pair<Int, Int> {
         var ok = 0
         var failed = 0
+        var sinceRecompute = 0
         jobs.forEachIndexed { i, job ->
             val provider = providerOf(job.url)
             // După un 429 repetat, furnizorul nu mai e întrebat în runda asta: rămân datele salvate.
@@ -340,7 +340,19 @@ class SportsRepository(
             }
             record(provider, result)
             noteBlock(provider, result)
-            if (result == Download.Ok) ok++ else failed++
+            if (result == Download.Ok) {
+                ok++
+                sinceRecompute++
+            } else {
+                failed++
+            }
+            // Lista se reface pe parcurs (după fiecare furnizor și la fiecare 8 cereri reușite), nu abia la final:
+            // meciurile de la primii furnizori apar în câteva secunde, nu după toată runda.
+            val next = jobs.getOrNull(i + 1)?.let { providerOf(it.url) }
+            if (sinceRecompute > 0 && (next != provider || sinceRecompute >= RECOMPUTE_EVERY)) {
+                recompute()
+                sinceRecompute = 0
+            }
             if (i < jobs.lastIndex) delay(gapFor(provider)) // cereri rare, una câte una
         }
         return ok to failed
@@ -614,6 +626,8 @@ class SportsRepository(
         val request = Request.Builder().url(job.url)
             .header("Accept", if (job.html != null) "text/html,application/xhtml+xml" else "application/json")
             .apply { if (job.html != null || job.url.contains("sofascore")) header("User-Agent", BROWSER_UA) }
+            // Paginile în engleză (FotMob dădea numele în italiană: „Norvegia – Galles” nu se unea cu „Norway – Wales”).
+            .apply { if (job.html != null) header("Accept-Language", "en-GB,en;q=0.9") }
             .apply {
                 // API-ul Sofascore refuză des cererile care nu par venite de pe site-ul lui.
                 if (job.url.contains("sofascore")) {
@@ -804,7 +818,8 @@ class SportsRepository(
             (all.keys + counts.keys).associateWith { p -> (all[p] ?: ProviderHealth()).copy(events = counts[p] ?: 0) }
         }
         val scan = scanCache ?: scanChannels().also { scanCache = it }
-        val broadcasts = loadBroadcasts(scan.sportEpg, from, until)
+        // Emisiunile de până la 30 de ore în urmă: transmisia de aseară face din emisiunea de dimineață o reluare.
+        val broadcasts = loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, until)
         val zone = s.eventZoneId()
         val slots = if (!s.eventChannels) emptyList() else scan.events.map { EventChannels.parse(it.id, it.name, it.groupName, now, zone) }
         val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
@@ -1085,6 +1100,8 @@ class SportsRepository(
         const val SPORTSDB_GAP_MS = 4_000L
         val ROUND_MS = TimeUnit.MINUTES.toMillis(10)
         val WINDOW_BACK_MS = TimeUnit.HOURS.toMillis(12)
+        val BROADCAST_BACK_MS = TimeUnit.HOURS.toMillis(30)
+        const val RECOMPUTE_EVERY = 8
         val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
         const val IN_CHUNK = 500
         const val MAX_CATEGORY_ROWS = 20_000

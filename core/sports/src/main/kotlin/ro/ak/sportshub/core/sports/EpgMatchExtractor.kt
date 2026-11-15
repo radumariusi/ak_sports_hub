@@ -15,6 +15,10 @@ object EpgMatchExtractor {
         "replay", "reluare", "rezumat", "highlights", "best of", "magazin", "magazine", "preview", "review",
         "studio", "analysis", "analiza", "stiri", "news", "talk", "show", "goals", "goluri", "classic", "clasic",
         "documentar", "documentary", "(r)", "[r]", "repeat", "delayed", "deferred", "înregistrare", "inregistrare",
+        // Reluările în alte limbi (Sky Italia, DAZN, Canal+, Polsat…): fără ele, o reluare de dimineață părea „LIVE”.
+        "replica", "differita", "sintesi", "repeticion", "repetición", "diferido", "resumen", "rediffusion", "differe",
+        "différé", "resume", "résumé", "wiederholung", "zusammenfassung", "aufzeichnung", "reprise", "resumo",
+        "powtorka", "powtórka", "retransmisja", "skrot", "skrót", "(rpt)", "(replay)", "(rep)",
     )
     private val strongSeparators = listOf(
         Regex("""\s+(?i:vs\.?|v\.?)\s+"""),
