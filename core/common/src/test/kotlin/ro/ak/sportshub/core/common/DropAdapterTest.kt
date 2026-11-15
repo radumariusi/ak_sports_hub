@@ -22,7 +22,7 @@ class DropAdapterTest {
     }
 
     @Test
-    fun `pierderi constante: încearcă pe rând, păstrează ce ajută`() {
+    fun `pierderi constante - încearcă pe rând, păstrează ce ajută`() {
         val a = DropAdapter { now }
         var dropped = 0
         a.sample(0, all)
