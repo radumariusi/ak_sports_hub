@@ -555,8 +555,10 @@ private fun SourcesList(
         item(key = "header") { header() }
         if (families.isEmpty()) {
             item(key = "empty") {
+                val later = !ro.ak.sportshub.core.sports.SourceWindow.searches(entry.match, System.currentTimeMillis(), java.time.ZoneId.systemDefault())
                 Text(
-                    text = "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
+                    text = if (later) "Sursele se caută doar pentru meciurile live, de azi și de mâine: le vezi aici din ziua dinainte de meci. " +
+                        "Poți adăuga și acum un canal de mână cu „+ Canal”." else "Nicio sursă găsită în playlisturile tale. Sursele apar când EPG-ul unui canal conține meciul, " +
                         "când un canal EVENT / PPV are meciul în nume, când un post anunțat are același nume cu un canal al tău " +
                         "(sau e în dicționarul de posturi) ori după regulile de drepturi TV. „? De ce nu are sursă” arată posturile " +
                         "anunțate care lipsesc; poți adăuga și un canal de mână cu „+ Canal”.",
@@ -653,6 +655,7 @@ private fun GroupHeader(title: String, count: Int, dim: Boolean = false) {
 /** De ce e sursa aici: „Sigur (EPG)”, „Probabil (post anunțat): Sky Sports Main Event”, „EPG-ul arată altceva: Snooker”. */
 private fun sourceReason(s: MatchSource<*>): String = when {
     s.rejected -> "respinsă de tine"
+    s.confidence == Confidence.ELSEWHERE && s.airing == Verdict.NOT_AIRING_NOTE -> "Nesigur: " + Verdict.NOT_AIRING_NOTE
     s.confidence == Confidence.ELSEWHERE -> "EPG-ul arată altceva" + (s.airing?.let { ": $it" } ?: "") + (s.station?.let { " (anunțat: $it)" } ?: "")
     else -> s.confidence.label + (s.station?.let { ": $it" } ?: "")
 }
@@ -709,6 +712,7 @@ private fun SourceActions(
     val c = source.channel
     val verdict = when {
         source.rejected -> Verdict.REJECTED
+        source.confidence == Confidence.ELSEWHERE && source.airing == Verdict.NOT_AIRING_NOTE -> Verdict.NOT_AIRING
         source.confidence == Confidence.CONFIRMED -> Verdict.CONFIRMED
         else -> null
     }
@@ -718,9 +722,10 @@ private fun SourceActions(
         add("▶ Pe tot ecranul" to onFull)
         add((if (previewing) "■ Oprește previzualizarea" else "Previzualizează în dreapta") to onPreview)
         add(((if (verdict == Verdict.CONFIRMED) "✓ " else "") + "E meciul") to { decide(Verdict.CONFIRMED); onDismiss() })
-        add(((if (verdict == Verdict.REJECTED) "✓ " else "") + "Nu e meciul") to { decide(Verdict.REJECTED); onDismiss() })
+        add(((if (verdict == Verdict.REJECTED) "✓ " else "") + "Nu e meciul (ține minte)") to { decide(Verdict.REJECTED); onDismiss() })
+        add(((if (verdict == Verdict.NOT_AIRING) "✓ " else "") + "Canalul e bun, dar nu transmite meciul") to { decide(Verdict.NOT_AIRING); onDismiss() })
         if (verdict != null) add("Anulează alegerea" to { decide(null); onDismiss() })
-        add((if (isSuspect) "✓ Alt canal în stream (scoate semnul)" else "Alt canal în stream") to {
+        add((if (isSuspect) "✓ Canal greșit: alt canal în stream (scoate eticheta)" else "Canal greșit: alt canal în stream (eroare IPTV)") to {
             container.suspectChannels.toggle(c.playlistId, c.name)
             onDismiss()
         })
@@ -737,6 +742,8 @@ private fun SourceActions(
                 "Alegerea se ține minte pentru meciurile din ${match.competition ?: "aceeași competiție"}."
             Confidence.EPG -> "Alegerea e doar pentru meciul ăsta (EPG-ul canalului l-a arătat)."
             Confidence.EVENT -> "Alegerea e doar pentru meciul ăsta (numele canalului EVENT / PPV îl arată)."
-        } + " „Alt canal în stream”: rămâne sursă, după celelalte variante.",
+        } + " „Nu transmite meciul”: doar pentru meciul ăsta, rămâne sursă cu eticheta „nesigur”, fără să învețe nimic." +
+            " „Canal greșit”: furnizorul IPTV dă alt canal sub numele ăsta; rămâne sursă, cu eticheta „canal posibil greșit”" +
+            " (și după actualizarea playlistului), pe care o scoți tot de aici când își revine.",
     )
 }

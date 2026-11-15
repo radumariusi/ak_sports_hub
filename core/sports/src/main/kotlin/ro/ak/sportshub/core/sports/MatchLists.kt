@@ -82,6 +82,20 @@ data class MatchFilter(
     }
 }
 
+/**
+ * Unde se caută sursele (cererea lui Radu): doar pentru meciurile live, de azi și de mâine. Restul săptămânii
+ * apare în listă fără surse; le primește când ajunge „mâine”.
+ */
+object SourceWindow {
+
+    /** Începutul zilei de poimâine (ora locală): meciurile de la ora asta încolo nu au încă surse. */
+    fun end(now: Long, zone: ZoneId): Long =
+        Instant.ofEpochMilli(now).atZone(zone).toLocalDate().plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
+
+    /** Se caută surse pentru [m]? */
+    fun searches(m: Match, now: Long, zone: ZoneId): Boolean = m.isLive || m.start < end(now, zone)
+}
+
 object MatchLists {
 
     /** Ziua locală a meciului. */

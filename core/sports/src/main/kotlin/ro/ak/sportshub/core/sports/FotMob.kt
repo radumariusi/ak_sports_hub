@@ -38,6 +38,29 @@ object FotMob {
         return ordered.ifEmpty { listOf("gb") }.take(MAX_COUNTRIES)
     }
 
+    /**
+     * Ligile de tineret (cererea lui Radu: U18 și U21, măcar Anglia), din pagina de program a ligii pe FotMob
+     * (tot sezonul într-o cerere, în `__NEXT_DATA__`; echipele „Middlesbrough U21”). ESPN nu are aceste ligi.
+     * [forFavorites]: liga se cere doar dacă ai echipe favorite, iar filtrul de competiții îi păstrează doar
+     * meciurile lor (tineretul e permis doar în Anglia).
+     */
+    data class YouthLeague(val id: Int, val slug: String, val competition: String, val forFavorites: Boolean = false) {
+        val url: String get() = "https://www.fotmob.com/leagues/$id/fixtures/$slug"
+        val fileKey: String get() = "lg$id"
+    }
+
+    val youthLeagues: List<YouthLeague> = listOf(
+        YouthLeague(9084, "premier-league-2", "English Premier League 2 U21"),
+        YouthLeague(10068, "premier-league-u18", "English U18 Premier League"),
+        YouthLeague(9741, "uefa-youth-league", "UEFA Youth League U19", forFavorites = true),
+    )
+
+    fun youthLeague(fileKey: String): YouthLeague? = youthLeagues.firstOrNull { it.fileKey == fileKey }
+
+    /** Meciurile din pagina de program a ligii [league] (competiția e numele ligii, nu cel din pagină). */
+    fun parseLeague(html: String, league: YouthLeague): List<SportEvent> =
+        parse(html, league.fileKey).map { it.copy(competition = league.competition, stations = emptyList()) }
+
     private val preferred = listOf("ro", "gb", "us", "it", "es", "de", "fr", "pt", "nl", "ie", "ca", "au", "pl", "gr", "be", "ch", "at")
 
     fun looksValid(html: String): Boolean = html.contains("__NEXT_DATA__") || html.contains("tv-guide")

@@ -33,6 +33,7 @@ import ro.ak.sportshub.core.sports.MatchTab
 import ro.ak.sportshub.core.sports.NowOnChannels
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.core.sports.Sport
+import ro.ak.sportshub.core.sports.SourceWindow
 import ro.ak.sportshub.core.sports.TeamCalendar
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.data.MatchEntry
@@ -506,6 +507,7 @@ private fun MatchRow(
             // Pe scurt, ca titlul să încapă; presupusele se văd în panoul din dreapta.
             Text(
                 text = when {
+                    count == 0 && !SourceWindow.searches(m, System.currentTimeMillis(), zone) -> "din ajun"
                     count == 0 -> "fără surse"
                     entry.summary.sure == 0 -> "$count presup."
                     count == 1 -> "1 sursă"
@@ -607,7 +609,15 @@ private fun MatchPreviewPanel(
         Box(Modifier.fillMaxWidth().height(1.dp).background(AkColors.Divider))
         Text(text = "CELE MAI BUNE SURSE", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = AkColors.TextDim)
         if (best.isEmpty()) {
-            Text(text = "Nicio sursă în playlisturile tale.", fontSize = 17.sp, color = AkColors.TextDim)
+            Text(
+                text = if (SourceWindow.searches(entry.match, System.currentTimeMillis(), java.time.ZoneId.systemDefault())) {
+                    "Nicio sursă în playlisturile tale."
+                } else {
+                    "Sursele se caută din ziua dinainte de meci."
+                },
+                fontSize = 17.sp,
+                color = AkColors.TextDim,
+            )
         }
         best.forEach { s ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -803,7 +813,7 @@ private fun ro.ak.sportshub.core.sports.Confidence.short(): String = when (this)
     ro.ak.sportshub.core.sports.Confidence.LEARNED -> "învățat"
     ro.ak.sportshub.core.sports.Confidence.DEDICATED -> "dedicat"
     ro.ak.sportshub.core.sports.Confidence.RIGHTS -> "drepturi TV"
-    ro.ak.sportshub.core.sports.Confidence.ELSEWHERE -> "EPG: altceva"
+    ro.ak.sportshub.core.sports.Confidence.ELSEWHERE -> "nesigur"
 }
 
 
