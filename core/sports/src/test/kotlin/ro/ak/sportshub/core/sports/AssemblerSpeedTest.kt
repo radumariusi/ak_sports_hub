@@ -54,6 +54,13 @@ class AssemblerSpeedTest {
         val matches = MatchAssembler.assemble(events, emptyList(), now, emptyList(), slots + loose)
         val ms = (System.nanoTime() - started) / 1_000_000
         assertTrue("$ms ms", ms < 10_000)
-        assertTrue(matches.count { it.eventChannels.isNotEmpty() && "test" in it.providers } > 1000)
+        // Ora fără dată se citește în ziua cea mai apropiată, deci leagă doar meciurile din următoarele ~18 ore.
+        assertTrue(matches.count { it.eventChannels.isNotEmpty() && "test" in it.providers } > 800)
+        // Fiecare canal e legat de meciul cu aceleași echipe.
+        val byId = slots.associateBy { it.channelId }
+        for (m in matches.filter { "test" in it.providers }) for (id in m.eventChannels) {
+            val slot = byId[id] ?: continue
+            assertTrue("${m.home} - ${m.away} ${m.providers} ← ${slot.channelName}", TeamNames.samePair(m.home, m.away, slot.home!!, slot.away!!))
+        }
     }
 }
