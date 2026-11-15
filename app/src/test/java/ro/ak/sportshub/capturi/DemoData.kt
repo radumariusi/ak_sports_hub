@@ -1,5 +1,8 @@
 package ro.ak.sportshub.capturi
 
+import ro.ak.sportshub.core.sports.Espn
+import ro.ak.sportshub.core.sports.SportEvent
+import ro.ak.sportshub.core.sports.TeamLook
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
@@ -83,5 +86,26 @@ object DemoData {
         File(dir, "events-FOOTBALL-$day.json").writeText("""{"events":[$list]}""")
         val tv = events.flatMap { e -> e.stations.map { (ch, country) -> """{"idEvent":"${e.id}","strChannel":"$ch","strCountry":"$country"}""" } }
         File(dir, "tv-$day.json").writeText("""{"tvevents":[${tv.joinToString(",")}]}""")
+        // Culorile, codurile și forma echipelor, ca de la ESPN (siglele nu se descarcă în teste: apare codul).
+        val looks = mapOf(
+            "Arsenal" to TeamLook(color = "ef0107", code = "ARS", form = "WWDWL"),
+            "Chelsea" to TeamLook(color = "034694", code = "CHE", form = "WLWDW"),
+            "FCSB" to TeamLook(color = "e30613", altColor = "1d3f8f", code = "FCSB", form = "WWWDL"),
+            "CFR Cluj" to TeamLook(color = "7a1e2c", code = "CFR", form = "DLWWD"),
+            "Real Madrid" to TeamLook(color = "febe10", altColor = "00529f", code = "RMA", form = "WWWWD"),
+            "Barcelona" to TeamLook(color = "a50044", altColor = "004d98", code = "BAR", form = "WDWWW"),
+            "Liverpool" to TeamLook(color = "c8102e", code = "LIV", form = "WWLWW"),
+            "Manchester City" to TeamLook(color = "6cabdd", code = "MCI", form = "DWLWW"),
+            "Inter" to TeamLook(color = "0068a8", code = "INT", form = "WWDWW"),
+            "AC Milan" to TeamLook(color = "fb090b", code = "MIL", form = "LWDWL"),
+            "Bayern Munich" to TeamLook(color = "dc052d", code = "BAY", form = "WWWWW"),
+            "Borussia Dortmund" to TeamLook(color = "fde100", code = "BVB", form = "WDLWD"),
+            "Tottenham Hotspur" to TeamLook(color = "132257", altColor = "ffffff", code = "TOT", form = "LLWDW"),
+        )
+        container.teamLooks.learn(
+            events.map { e -> SportEvent(Espn.PROVIDER, "demo-" + e.id, "Soccer", e.league, e.home, e.away, now, homeLook = looks[e.home], awayLook = looks[e.away]) },
+        )
+        // O echipă favorită, pentru cardul „următorul meci al echipelor tale”.
+        container.sportsSettings.update { it.copy(favorites = it.favorites.copy(teams = listOf("Liverpool"))) }
     }
 }

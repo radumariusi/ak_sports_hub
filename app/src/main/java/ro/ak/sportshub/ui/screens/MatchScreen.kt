@@ -134,11 +134,18 @@ fun MatchScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
-        Row {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             val hs = event?.homeScore ?: m.homeScore
             val aw = event?.awayScore ?: m.awayScore
             val score = if (!hideSpoilers && liveStatus != MatchStatus.SCHEDULED && hs != null && aw != null) "   $hs–$aw" else ""
+            // Siglele echipelor (sau a competiției la evenimentele fără echipe), doar dacă se cunosc.
+            if (m.away.isNotBlank()) {
+                ro.ak.sportshub.ui.components.TeamLogo(m.home, 44.dp, modifier = Modifier.padding(end = 12.dp))
+            } else {
+                ro.ak.sportshub.ui.components.CompetitionLogo(m.competition, 44.dp, modifier = Modifier.padding(end = 12.dp))
+            }
             Text(text = m.title + score, fontSize = 34.sp, fontFamily = ro.ak.sportshub.ui.theme.AkFonts.Condensed, fontWeight = FontWeight.Bold)
+            if (m.away.isNotBlank()) ro.ak.sportshub.ui.components.TeamLogo(m.away, 44.dp, modifier = Modifier.padding(start = 12.dp))
             if (liveStatus == MatchStatus.LIVE) Badge(text = "LIVE", color = AkColors.Live, modifier = Modifier.padding(start = 8.dp, top = 6.dp))
             if (favorite) Text(text = "  ★", fontSize = 22.sp, color = AkColors.Accent)
         }

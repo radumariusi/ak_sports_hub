@@ -8,14 +8,12 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import ro.ak.sportshub.core.sports.FormResult
 import ro.ak.sportshub.core.sports.Formation
 import ro.ak.sportshub.core.sports.LineupPlayer
 import ro.ak.sportshub.core.sports.Match
@@ -26,6 +24,9 @@ import ro.ak.sportshub.core.sports.TimelineKind
 import ro.ak.sportshub.data.MatchDetailsState
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
+import ro.ak.sportshub.ui.components.FormSquares
+import ro.ak.sportshub.ui.components.TeamLogo
+import ro.ak.sportshub.ui.components.rememberTeamLooks
 import ro.ak.sportshub.ui.components.ListRow
 import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.ui.theme.AkColors
@@ -33,9 +34,6 @@ import ro.ak.sportshub.ui.theme.AkColors
 private val DateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val HourFormat = DateTimeFormatter.ofPattern("HH:mm")
 
-private val Win = Color(0xFF35C46A)
-private val Draw = Color(0xFFB0B7C3)
-private val Loss = Color(0xFFE5484D)
 
 /** Tabul Pre-meci: detalii, formă, meciuri directe, clasament, echipe de start. Fiecare rând primește focus (se derulează cu săgețile). */
 @Composable
@@ -51,6 +49,7 @@ fun PreMatchTab(
     val d = state.details
     val e = d.event
     val zone = ZoneId.systemDefault()
+    val looks = rememberTeamLooks()
     LazyColumn(modifier = modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
@@ -70,10 +69,13 @@ fun PreMatchTab(
             items(facts, key = { "f:" + it.first }) { (k, v) -> ListRow(title = v, subtitle = k, onClick = {}) }
         }
 
-        if (match.away.isNotBlank() && (d.homeRecent.isNotEmpty() || d.awayRecent.isNotEmpty())) {
+        // Forma: din ultimele meciuri cerute pentru Pre-meci, altfel cea din programul ESPN (fără cereri în plus;
+        // ascunsă la „fără spoilere”, pentru că după meci o poate include).
+        val hasLookForm = !hideSpoilers && (looks.team(match.home)?.form != null || looks.team(match.away)?.form != null)
+        if (match.away.isNotBlank() && (d.homeRecent.isNotEmpty() || d.awayRecent.isNotEmpty() || hasLookForm)) {
             item { SectionLabel("Forma (ultimele meciuri)") }
-            item(key = "form-home") { FormRow(match.home, d.homeRecent, zone) }
-            item(key = "form-away") { FormRow(match.away, d.awayRecent, zone) }
+            item(key = "form-home") { FormRow(match.home, d.homeRecent, zone, lookForm = !hideSpoilers) }
+            item(key = "form-away") { FormRow(match.away, d.awayRecent, zone, lookForm = !hideSpoilers) }
         }
 
         if (d.headToHead.isNotEmpty()) {
@@ -285,30 +287,22 @@ private fun LazyListScope.lineupSection(title: String, players: List<LineupPlaye
 }
 
 @Composable
-private fun FormRow(team: String, recent: List<SportEvent>, zone: ZoneId) {
-    val form = MatchInsights.form(recent, team)
+private fun FormRow(team: String, recent: List<SportEvent>, zone: ZoneId, lookForm: Boolean) {
+    val look = rememberTeamLooks().team(team)
+    val fromLook = recent.isEmpty() && lookForm
+    val form = if (recent.isEmpty()) (if (lookForm) look?.formResults().orEmpty() else emptyList()) else MatchInsights.form(recent, team)
     ListRow(
         title = team,
+        icon = { TeamLogo(team, 34.dp, codeFallback = true, look = look) },
         subtitle = if (recent.isEmpty()) {
-            "Fără meciuri recente"
+            if (fromLook && form.isNotEmpty()) "Forma din programul ESPN" else "Fără meciuri recente"
         } else {
             recent.joinToString("  ·  ") { r ->
                 "${Instant.ofEpochMilli(r.start).atZone(zone).format(DateFormat).substring(0, 5)} ${r.home} ${r.homeScore}–${r.awayScore} ${r.away}"
             }
         },
         onClick = {},
-        trailing = {
-            form.forEach { f ->
-                Badge(
-                    text = f.letter,
-                    color = when (f) {
-                        FormResult.WIN -> Win
-                        FormResult.DRAW -> Draw
-                        FormResult.LOSS -> Loss
-                    },
-                )
-            }
-        },
+        trailing = { FormSquares(form, square = 24.dp) },
     )
 }
 

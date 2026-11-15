@@ -17,6 +17,8 @@ import ro.ak.sportshub.core.playlist.PlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import ro.ak.sportshub.data.AppUpdater
+import ro.ak.sportshub.data.LogoImages
+import ro.ak.sportshub.data.TeamLookStore
 import ro.ak.sportshub.data.CatchupStore
 import ro.ak.sportshub.data.ChannelFavoritesStore
 import ro.ak.sportshub.data.SuspectChannelsStore
@@ -120,6 +122,12 @@ class AppContainer(app: Application) {
     /** Jurnalul de diagnostic al furnizorilor de meciuri și de statistici (trimis pe GitHub doar la cerere). */
     val diagnosticLog = DiagnosticLog(app)
 
+    /** Siglele, culorile și forma echipelor, învățate din programul furnizorilor. */
+    val teamLooks = TeamLookStore(app, scope)
+
+    /** Imaginile siglelor (pe disc, descărcate o dată; nimic cât rulează playerul). */
+    val logos = LogoImages(app, http, playing)
+
     val sports = SportsRepository(
         context = app,
         db = database,
@@ -133,6 +141,7 @@ class AppContainer(app: Application) {
         scope = scope,
         log = diagnosticLog,
         playing = playing,
+        looks = teamLooks,
     )
 
     /** Pre-meci și Live: cerute doar cât e deschisă fereastra unui meci. */

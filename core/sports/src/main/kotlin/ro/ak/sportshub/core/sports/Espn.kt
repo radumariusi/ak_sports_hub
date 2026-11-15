@@ -281,12 +281,36 @@ object Espn {
     fun parse(body: String, league: League, day: LocalDate? = null): List<SportEvent> {
         val root = parse(body) ?: return emptyList()
         val events = root.arr("events").filterIsInstance<JsonObject>()
-        return when (league.kind) {
+        val parsed = when (league.kind) {
             Kind.TEAM -> events.mapNotNull { teamEvent(it, league) }
             Kind.TENNIS -> events.flatMap { tennis(it, league, day) }
             Kind.RACING -> events.flatMap { racing(it, league) }
             Kind.SINGLE -> events.mapNotNull { single(it, league, day) }
         }
+        val logo = leagueLogo(root) ?: return parsed
+        return parsed.map { it.copy(competitionLogo = logo) }
+    }
+
+    /** Sigla ligii (`leagues[0].logos[0].href`). */
+    private fun leagueLogo(root: JsonObject): String? {
+        val league = root.arr("leagues").firstOrNull() as? JsonObject ?: return null
+        val logos = league.arr("logos").filterIsInstance<JsonObject>()
+        val pick = logos.firstOrNull { l -> (l["rel"] as? JsonArray)?.any { it.str() == "dark" } == true } ?: logos.firstOrNull()
+        return pick?.text("href")
+    }
+
+    /** Sigla, culorile, codul și forma unei echipe (`competitors[].team`, `competitors[].form`). */
+    private fun look(c: JsonObject): TeamLook? {
+        val t = c.obj("team") ?: return null
+        val logo = t.text("logo") ?: t.arr("logos").filterIsInstance<JsonObject>().firstOrNull()?.text("href")
+        val look = TeamLook(
+            logo = logo,
+            color = t.text("color")?.takeIf { TeamLooks.argb(it) != null },
+            altColor = t.text("alternateColor")?.takeIf { TeamLooks.argb(it) != null },
+            code = t.text("abbreviation"),
+            form = c.text("form")?.takeIf { f -> f.length <= 10 && f.all { it in "WDLwdl" } },
+        )
+        return look.takeUnless { it.isEmpty }
     }
 
     private fun teamEvent(o: JsonObject, league: League): SportEvent? {
@@ -311,6 +335,8 @@ object Espn {
             awayScore = away.text("score")?.toIntOrNull().takeIf { status != MatchStatus.SCHEDULED },
             venue = comp.obj("venue")?.text("fullName"),
             stations = stations(comp),
+            homeLook = look(home),
+            awayLook = look(away),
         )
     }
 

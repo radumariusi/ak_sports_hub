@@ -23,6 +23,11 @@ data class SportEvent(
     val awayScore: Int? = null,
     val venue: String? = null,
     val stations: List<TvStation> = emptyList(),
+    /** Sigla, culorile și forma echipelor, când furnizorul le dă (ESPN, TheSportsDB); doar pentru afișare. */
+    val homeLook: TeamLook? = null,
+    val awayLook: TeamLook? = null,
+    /** Sigla competiției. */
+    val competitionLogo: String? = null,
 )
 
 /** O emisiune din EPG care poate fi un meci (vine din baza EPG, pe canalul EPG [epgChannelId]). */
