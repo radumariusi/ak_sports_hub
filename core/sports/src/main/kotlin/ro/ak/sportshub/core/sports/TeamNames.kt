@@ -57,14 +57,57 @@ object TeamNames {
             if (a.isEmpty() || f.isEmpty() || a == f) null else a to (aliases[f] ?: f)
         }.toMap()
         partsCache.clear()
+        partsOrder.clear()
     }
 
     /**
-     * Cuvintele deja normalizate ale fiecărui nume: la asamblarea meciurilor același nume se compară
-     * de mii de ori, iar normalizarea (diacritice, alias-uri) costă mult mai mult decât compararea.
+     * Cuvintele deja normalizate ale unui nume: [core] (fără mărci), [marks] (feminin, tineret, rezerve) și
+     * [joined] (cuvintele lipite, pentru „ParisSaintGermain”). La asamblare se calculează o dată pe nume.
      */
-    private val partsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Set<String>, Set<String>>>()
-    private const val PARTS_CACHE_MAX = 50_000
+    class Parts internal constructor(
+        /** [key] al numelui. */
+        val key: String,
+        val core: Set<String>,
+        val marks: Set<String>,
+    ) {
+        val joined: String = core.joinToString("")
+
+        /** Cheia mulțimii de cuvinte (ordonate), pentru indexul pe nume întregi. */
+        val setKey: String = core.sorted().joinToString(" ")
+
+        /** Cuvintele de cel puțin 3 litere: o echipă care le conține pe toate e aceeași sau mai lungă. */
+        val longTokens: List<String> = core.filter { it.length >= 3 }
+
+        /**
+         * Cheile submulțimilor de cuvinte care pot fi o echipă egală cu asta: o echipă cu mai puține cuvinte e aceeași
+         * doar dacă toate cuvintele ei sunt aici și are măcar unul de 3 litere. Null dacă sunt prea multe cuvinte.
+         */
+        val subsetKeys: List<String>? by lazy {
+            val words = core.sorted()
+            if (words.size > MAX_SUBSET_WORDS) return@lazy null
+            val out = ArrayList<String>()
+            for (mask in 1 until (1 shl words.size)) {
+                val pick = words.filterIndexed { i, _ -> mask and (1 shl i) != 0 }
+                if (pick.size == words.size || pick.any { it.length >= 3 }) out += pick.joinToString(" ")
+            }
+            out
+        }
+    }
+
+    private const val MAX_SUBSET_WORDS = 6
+
+    /**
+     * Cuvintele fiecărui nume, ținute minte: la asamblarea meciurilor același nume se compară de mii de ori,
+     * iar normalizarea (diacritice, alias-uri) costă mult mai mult decât compararea. Un EPG mare are zeci de mii
+     * de nume: cache-ul e mare, iar când se umple se golește doar jumătatea cea mai veche (nu tot, ca înainte,
+     * când se golea întruna și totul se normaliza din nou).
+     */
+    private val partsCache = java.util.concurrent.ConcurrentHashMap<String, Parts>()
+    private val partsOrder = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private const val PARTS_CACHE_MAX = 200_000
+
+    /** [key], din cache (pentru asamblare, unde același nume revine de mii de ori). */
+    fun cachedKey(name: String): String = parts(name).key
 
     /** Cheia unei echipe (doar pentru comparare; în UI apare numele original). */
     fun key(name: String): String {
@@ -81,35 +124,48 @@ object TeamNames {
         return tokens.joinToString(" ").ifEmpty { folded }
     }
 
-    private fun parts(name: String): Pair<Set<String>, Set<String>> {
+    /** Cuvintele normalizate ale numelui (din cache). */
+    fun parts(name: String): Parts {
         partsCache[name]?.let { return it }
-        if (partsCache.size > PARTS_CACHE_MAX) partsCache.clear()
-        return computeParts(name).also { partsCache[name] = it }
+        if (partsCache.size > PARTS_CACHE_MAX) {
+            repeat(PARTS_CACHE_MAX / 2) { partsOrder.poll()?.let(partsCache::remove) }
+        }
+        val p = computeParts(name)
+        if (partsCache.putIfAbsent(name, p) == null) partsOrder.add(name)
+        return p
     }
 
-    private fun computeParts(name: String): Pair<Set<String>, Set<String>> {
-        val tokens = key(name).split(' ').filter { it.isNotEmpty() }
+    private fun computeParts(name: String): Parts {
+        val k = key(name)
+        val tokens = k.split(' ').filter { it.isNotEmpty() }
         val marks = tokens.mapNotNull { markers[it] }.toSet()
         val core = tokens.filter { it !in markers }.toSet()
-        return core to marks
+        return Parts(k, core, marks)
     }
 
     /**
      * Aceeași echipă? Cheile sunt egale, sau cuvintele numelui mai scurt se regăsesc toate în cel lung
      * („Arsenal” și „Arsenal London”). Echipa feminină sau de tineret nu se confundă cu cea mare.
      */
-    fun same(a: String, b: String): Boolean {
-        val (ca, ma) = parts(a)
-        val (cb, mb) = parts(b)
-        if (ma != mb) return false
+    fun same(a: String, b: String): Boolean = same(parts(a), parts(b))
+
+    fun same(a: Parts, b: Parts): Boolean {
+        if (a === b) return a.core.isNotEmpty()
+        if (a.marks != b.marks) return false
+        val ca = a.core
+        val cb = b.core
         if (ca.isEmpty() || cb.isEmpty()) return false
         if (ca == cb) return true
-        val (small, big) = if (ca.size <= cb.size) ca to cb else cb to ca
-        if (small.none { it.length >= 3 }) return false
-        if (big.containsAll(small)) return true
+        val (small, big) = if (ca.size <= cb.size) a to b else b to a
+        if (small.core.none { it.length >= 3 }) return false
+        if (big.core.containsAll(small.core)) return true
         // „Paris Saint-Germain” / „ParisSaintGermain”: aceleași litere, alt despărțit.
-        return small.joinToString("") == big.joinToString("")
+        return small.joined == big.joined
     }
+
+    /** Aceeași pereche de echipe (cuvintele deja calculate), în orice ordine. */
+    fun samePair(home1: Parts, away1: Parts, home2: Parts, away2: Parts): Boolean =
+        (same(home1, home2) && same(away1, away2)) || (same(home1, away2) && same(away1, home2))
 
     /** Aceeași pereche de echipe, în orice ordine (EPG-urile le inversează uneori). */
     fun samePair(home1: String, away1: String, home2: String, away2: String): Boolean =

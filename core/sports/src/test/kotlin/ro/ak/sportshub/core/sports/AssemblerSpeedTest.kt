@@ -63,4 +63,37 @@ class AssemblerSpeedTest {
             assertTrue("${m.home} - ${m.away} ${m.providers} ← ${slot.channelName}", TeamNames.samePair(m.home, m.away, slot.home!!, slot.away!!))
         }
     }
+
+    /**
+     * Ca pe TV (v1.0.66): 27.000 de emisiuni în două zile, aproape toate fără meci la furnizori, cu zeci de mii de
+     * nume diferite și mii de emisiuni la aceeași oră. Înainte: 440 s pe TV.
+     */
+    @Test(timeout = 60_000)
+    fun `emisiuni dese fara meci la furnizor se grupeaza repede`() {
+        val rnd = Random(9)
+        val now = 1_763_200_000_000L
+        val h = 3_600_000L
+        val words = listOf("Real", "United", "City", "Sporting", "Dinamo", "Olympic", "Athletic", "Rovers", "Town", "Racing")
+        val teams = (0 until 30_000).map { "${words[it % words.size]} ${'A' + it % 26}${it}x" }
+        // 9.000 de meciuri în 54 de ore, fiecare pe 1-6 canale; ora: multe la fix (20:00, 21:00…).
+        val fixtures = (0 until 9000).map { Triple(teams[(2 * it) % teams.size], teams[(2 * it + 1) % teams.size], now - 6 * h + rnd.nextLong(54) * h) }
+        var id = 0L
+        val broadcasts = ArrayList<MatchBroadcast>()
+        for ((home, away, t) in fixtures) repeat(1 + rnd.nextInt(5)) {
+            val start = t + if (rnd.nextInt(5) == 0) rnd.nextLong(30) * h else 0
+            val b = EpgBroadcast(id++, rnd.nextLong(4000), start, start + 2 * h, "$home vs $away", category = "Football")
+            EpgMatchExtractor.extract(b, true)?.let { broadcasts += MatchBroadcast(b, it) }
+        }
+        val events = (0 until 600).map { val (home, away, t) = fixtures[it]; SportEvent("test", "$it", "Soccer", "Liga", home, away, t) }
+        val started = System.nanoTime()
+        val matches = MatchAssembler.assemble(events, broadcasts, now)
+        val ms = (System.nanoTime() - started) / 1_000_000
+        val again = System.nanoTime()
+        MatchAssembler.assemble(events, broadcasts, now)
+        println("asamblare ${broadcasts.size} emisiuni: $ms ms, a doua oară ${(System.nanoTime() - again) / 1_000_000} ms, ${matches.size} meciuri")
+        assertTrue("$ms ms", ms < 8_000)
+        // Fiecare meci apare o singură dată (reluările se unesc), iar cele ale furnizorului își păstrează emisiunile.
+        assertTrue(matches.size in 8000..9100)
+        assertTrue(matches.count { it.broadcasts.isNotEmpty() && "test" in it.providers } >= 590)
+    }
 }

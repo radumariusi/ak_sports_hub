@@ -31,16 +31,18 @@ object EventNames {
     private class Words(val significant: List<String>, val numbers: Set<String>)
 
     private val cache = java.util.concurrent.ConcurrentHashMap<String, Words>()
-    private const val CACHE_MAX = 50_000
+    private val order = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private const val CACHE_MAX = 200_000
 
     private fun words(name: String): Words {
         cache[name]?.let { return it }
-        if (cache.size > CACHE_MAX) cache.clear()
+        // Plin: se golește jumătatea cea mai veche (golit de tot, se recalcula totul întruna la EPG-urile mari).
+        if (cache.size > CACHE_MAX) repeat(CACHE_MAX / 2) { order.poll()?.let(cache::remove) }
         val folded = Sport.fold(name)
         return Words(
             significant = folded.split(' ').filter { it.length >= 2 && it !in common && !it.all(Char::isDigit) },
             numbers = digits.findAll(folded).map { it.value.trimStart('0') }.filter { it.isNotEmpty() && it.length <= 3 }.toSet(),
-        ).also { cache[name] = it }
+        ).also { if (cache.putIfAbsent(name, it) == null) order.add(name) }
     }
 
     /** Cuvintele care deosebesc evenimentul (fără diacritice, litere mici). */
