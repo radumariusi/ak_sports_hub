@@ -283,6 +283,7 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                     if (s.fotMobEnabled) add(FotMob.PROVIDER)
                     if (s.usLeaguesEnabled) addAll(listOf(UsLeagues.ESPN, UsLeagues.NHL_API, UsLeagues.MLB_API))
                     if (s.euroLeagueEnabled) add(ro.ak.sportshub.core.sports.EuroLeague.PROVIDER)
+                    add(ro.ak.sportshub.core.sports.OpenLigaDb.PROVIDER)
                 }
                 active.sortedBy { ProviderPolicy.rank(it) }.forEach { p ->
                     item(key = "health-$p") {

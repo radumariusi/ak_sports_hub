@@ -37,6 +37,7 @@ import ro.ak.sportshub.core.sports.EventSlot
 import ro.ak.sportshub.core.sports.FutbolEnLaTv
 import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.EuroLeague
+import ro.ak.sportshub.core.sports.OpenLigaDb
 import ro.ak.sportshub.core.sports.BusyChannels
 import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.FotMob
@@ -416,6 +417,12 @@ class SportsRepository(
                 val f = File(dir, "euroleague-${c.code}-s${EuroLeague.seasonYear(localToday)}.json")
                 if (force || isStale(f, fresh(EuroLeague.PROVIDER, 0))) jobs += Job(EuroLeague.url(c, localToday), f)
             }
+        }
+        // OpenLigaDB: tot sezonul pe competiție (Frauen-Bundesliga, 3. Liga, UWCL doar cu echipe favorite; DEL, CHL), la 12 ore.
+        for (l in OpenLigaDb.leagues) {
+            if (l.sport !in s.sports || l.forFavorites && s.favorites.teams.isEmpty()) continue
+            val f = File(dir, "oldb-${l.shortcut}-s${OpenLigaDb.seasonYear(localToday)}.json")
+            if (force || isStale(f, fresh(OpenLigaDb.PROVIDER, 0))) jobs += Job(OpenLigaDb.url(l, localToday), f)
         }
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
         // 365Scores: programul complet al zilei (UTC) pentru handbal și volei, azi și mâine.
@@ -1115,6 +1122,11 @@ class SportsRepository(
                 events += parsed(f) { EuroLeague.parse(it, c) }
             }
         }
+        files.filter { it.name.startsWith("oldb-") && it.name.endsWith(".json") }.forEach { f ->
+            val l = f.name.split('-').getOrNull(1)?.let(OpenLigaDb::league) ?: return@forEach
+            if (l.sport !in s.sports || l.forFavorites && s.favorites.teams.isEmpty()) return@forEach
+            events += parsed(f) { OpenLigaDb.parse(it, l) }
+        }
         val tv = if (!s.sportsDbEnabled || !s.sportsDbTv) emptyList() else files.filter { it.name.startsWith("tv-") && it.name.endsWith(".json") }
             .flatMap { f -> runCatching { TheSportsDb.parseTv(f.readText()) }.getOrDefault(emptyList()) }
         return events to tv
@@ -1631,7 +1643,7 @@ class SportsRepository(
             appendLine("| furnizor | nivel | ok | eșuate | meciuri | ultima reușită | pauză | ultima eroare |")
             appendLine("|---|---|---|---|---|---|---|---|")
             val known = listOf(
-                UsLeagues.ESPN, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, TheSportsDb.PROVIDER, FutbolEnLaTv.PROVIDER,
+                UsLeagues.ESPN, EuroLeague.PROVIDER, OpenLigaDb.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, TheSportsDb.PROVIDER, FutbolEnLaTv.PROVIDER,
                 LiveOnSat.PROVIDER, LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
             )
             val health = _health.value
@@ -1964,6 +1976,7 @@ fun providerOf(url: String): String {
         "sofascore" in u -> "sofascore"
         FutbolEnLaTv.isSite(u) -> FutbolEnLaTv.PROVIDER
         "euroleague" in u -> EuroLeague.PROVIDER
+        "openligadb" in u -> OpenLigaDb.PROVIDER
         "365scores" in u -> Scores365.PROVIDER
         "liveonsat" in u -> LiveOnSat.PROVIDER
         "live-footballontv" in u -> LiveFootballOnTv.PROVIDER
@@ -1985,6 +1998,7 @@ fun providerLabel(provider: String): String = when (provider) {
     FotMob.PROVIDER -> "FotMob"
     UsLeagues.ESPN -> "ESPN"
     EuroLeague.PROVIDER -> "EuroLeague"
+    OpenLigaDb.PROVIDER -> "OpenLigaDB"
     Scores365.PROVIDER -> "365Scores"
     UsLeagues.NHL_API -> "NHL"
     UsLeagues.MLB_API -> "MLB"
