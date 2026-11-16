@@ -74,6 +74,8 @@ data class SportsSettings(
     val autoSwitch: Boolean = true,
     /** Alertele de gol și „Final” pentru meciurile favorite (niciodată cu „Fără spoilere”). */
     val goalAlerts: Boolean = true,
+    /** A1: la pauza meciului de pe ecran, propune alt meci live și te întoarce la reluarea jocului. */
+    val halftimeZap: Boolean = true,
 )
 
 const val DEFAULT_STREAM_DELAY = 30
@@ -170,6 +172,7 @@ class SportsSettingsStore(context: Context) {
                 homeRow = o.optBoolean("homeRow", d.homeRow),
                 autoSwitch = o.optBoolean("autoSwitch", d.autoSwitch),
                 goalAlerts = o.optBoolean("goalAlerts", d.goalAlerts),
+                halftimeZap = o.optBoolean("halftimeZap", d.halftimeZap),
                 favorites = SportsFavorites(
                     teams = fav?.optJSONArray("teams").strings(),
                     competitions = fav?.optJSONArray("competitions").strings(),
@@ -214,6 +217,7 @@ class SportsSettingsStore(context: Context) {
         put("reminderMinutes", s.reminderMinutes)
         put("homeRow", s.homeRow)
         put("autoSwitch", s.autoSwitch)
+        put("halftimeZap", s.halftimeZap)
         put("goalAlerts", s.goalAlerts)
         put(
             "favorites",

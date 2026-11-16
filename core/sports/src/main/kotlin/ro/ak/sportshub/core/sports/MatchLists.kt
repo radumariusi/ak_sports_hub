@@ -201,6 +201,8 @@ object MatchSources {
         sources: List<MatchSource<T>>,
         isFavorite: Boolean,
         prefs: SourcePreferences,
+        /** C1: cum a mers sursa la redare (0 stabilă, 1 necunoscută, 2 instabilă); contează la calitate egală. */
+        stability: (MatchSource<T>) -> Int = { 1 },
     ): List<ChannelFamily<MatchSource<T>>> {
         val tiers = sources.groupBy {
             when {
@@ -213,7 +215,7 @@ object MatchSources {
         return (0..3).flatMap { tier ->
             val part = tiers[tier].orEmpty().sortedBy { it.confidence.ordinal }
             val ranked = SourceRanking.rank(
-                part.mapIndexed { i, s -> SourceCandidate(i.toString(), s.language, s.quality) },
+                part.mapIndexed { i, s -> SourceCandidate(i.toString(), s.language, s.quality, stability(s)) },
                 isFavorite = isFavorite,
                 prefs = prefs,
             ).map { part[it.id.toInt()] }

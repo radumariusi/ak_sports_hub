@@ -47,6 +47,8 @@ fun HomeScreen(
     onOpenBackup: () -> Unit = {},
     onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
     onOpenQrSetup: () -> Unit = {},
+    /** Meciul deschis direct pe „De ce nu are sursă?” (raportul zilei, C4). */
+    onOpenMatchWhy: (String) -> Unit = onOpenMatch,
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
@@ -106,6 +108,7 @@ fun HomeScreen(
                     topMenu = topSelected,
                     tabsEntry = sportsTabs,
                     onOpenMatch = onOpenMatch,
+                    onOpenMatchWhy = onOpenMatchWhy,
                     onOpenSettings = onOpenSportsSettings,
                     onPlay = { id -> onPlayChannel(id, 0L) },
                     onPlayArchive = onPlayArchive,

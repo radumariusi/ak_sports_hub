@@ -310,7 +310,17 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
     val variants by container.variantStore.state.collectAsStateWithLifecycle()
     val view = ro.ak.sportshub.data.qualityView(playlistId, name, quality, seen, variants)
     val suspect by container.suspectChannels.keys.collectAsStateWithLifecycle()
+    val played by container.playbackHealth.state.collectAsStateWithLifecycle()
+    val health = played[ro.ak.sportshub.data.CorrectionKey(playlistId, name)]?.verdict
     Row(verticalAlignment = Alignment.CenterVertically) {
+        // C1: bulina variantei care a mers bine la tine (pornire rapidă, fără opriri); „instabil” pentru cea care cade des.
+        when (health) {
+            ro.ak.sportshub.core.common.PlaybackHealth.Verdict.STABLE ->
+                Text(text = "●", fontSize = 11.sp, color = accentText(), maxLines = 1, modifier = Modifier.padding(end = 5.dp))
+            ro.ak.sportshub.core.common.PlaybackHealth.Verdict.UNSTABLE ->
+                Text(text = "instabil", fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, modifier = Modifier.padding(end = 6.dp))
+            else -> Unit
+        }
         // Semnalat din player: rămâne sursă, doar cu eticheta asta.
         if (ro.ak.sportshub.data.CorrectionKey(playlistId, name) in suspect) {
             Text(text = "canal posibil greșit", fontSize = 13.sp, color = accentText(), maxLines = 1, softWrap = false, modifier = Modifier.padding(end = 6.dp))

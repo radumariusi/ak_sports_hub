@@ -31,7 +31,7 @@ import ro.ak.sportshub.ui.screens.SportsKnowledgeScreen
 import ro.ak.sportshub.ui.screens.SportsSettingsScreen
 
 private const val HOME = "home"
-private const val MATCH = "match/{matchId}"
+private const val MATCH = "match/{matchId}?why={why}"
 private const val PLAYLISTS = "playlists"
 private const val PLAYLIST_EDIT = "playlist/{id}?type={type}"
 private const val PLAYER = "player/{channelId}?zapGroup={zapGroup}&archiveStart={archiveStart}&archiveEnd={archiveEnd}&matchId={matchId}"
@@ -84,6 +84,7 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
             composable(HOME) {
                 HomeScreen(
                     onOpenMatch = { id -> nav.navigate("match/" + Uri.encode(id)) },
+                    onOpenMatchWhy = { id -> nav.navigate("match/" + Uri.encode(id) + "?why=1") },
                     onOpenPlaylists = { nav.navigate(PLAYLISTS) },
                     onOpenEpg = { nav.navigate(EPG) },
                     onPlayChannel = { id, zapGroup -> nav.navigate("player/$id?zapGroup=$zapGroup") { launchSingleTop = true } },
@@ -151,10 +152,14 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                     onExit = { nav.popBackStack() },
                 )
             }
-            composable(MATCH) { entry ->
+            composable(
+                MATCH,
+                arguments = listOf(navArgument("why") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { entry ->
                 val matchId = entry.arguments?.getString("matchId").orEmpty()
                 MatchScreen(
                     matchId = matchId,
+                    openWhy = entry.arguments?.getString("why") == "1",
                     onPlay = { id -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } },
                     onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end, matchId)) { launchSingleTop = true } },
                 )

@@ -45,6 +45,35 @@ object Languages {
         "CZ" to "cs", "AL" to "sq", "SE" to "sv", "DK" to "da", "NO" to "no", "FI" to "fi",
     )
 
+    /** Codurile care nu spun limba („und”, „mul”, „qaa”…): se ignoră. */
+    private val unknown = setOf("und", "mul", "mis", "zxx", "qaa", "unk", "none", "nar", "qad")
+
+    /**
+     * Limba declarată de o pistă audio a stream-ului („eng”, „en-US”, „rum”, „English”) → codul ISO 639-1 („en”);
+     * null pentru „und” și ce nu se recunoaște. Pistele sunt cele pe care playerul le citește oricum la redare.
+     */
+    fun code(raw: String?): String? {
+        val t = raw?.trim()?.lowercase()?.substringBefore('-')?.substringBefore('_')?.takeIf { it.isNotEmpty() } ?: return null
+        if (t in unknown) return null
+        if (t.length == 2 && t.all { it in 'a'..'z' }) return if (t == "iw") "he" else t
+        return byName[ChannelNameParser.fold(t)] ?: when (t) {
+            "ron", "mol" -> "ro"
+            "heb" -> "he"
+            "ukr" -> "uk"
+            "slv" -> "sl"
+            "slk", "slo" -> "sk"
+            "mkd", "mac" -> "mk"
+            "bos" -> "bs"
+            "kor" -> "ko"
+            "jpn" -> "ja"
+            "chi", "zho" -> "zh"
+            "hin" -> "hi"
+            "per", "fas" -> "fa"
+            "cat" -> "ca"
+            else -> null
+        }
+    }
+
     /**
      * @param tvgLanguage valoarea `tvg-language` (de exemplu „English”, „ro”, „Romanian;English”)
      * @param country prefixul de țară găsit de [ChannelNameParser] (de exemplu „UK”)

@@ -796,6 +796,8 @@ object Espn {
             "OVERTIME" in name || "EXTRA_TIME" in name -> "ET"
             "FULL_TIME" in name || name == "STATUS_FINAL" -> "FT"
             "SCHEDULED" in name -> "NS"
+            // Hochei: pauza dintre perioade (la baschet, sfârșitul unui sfert); zapping-ul la pauză o folosește doar la hochei.
+            "END_PERIOD" in name || "END_OF_PERIOD" in name -> "EP"
             "IN_PROGRESS" in name && period != null && period in 1..4 -> "Q$period"
             else -> null
         }

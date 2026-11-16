@@ -36,6 +36,8 @@ import ro.ak.sportshub.core.common.ChannelFamily
 import ro.ak.sportshub.core.common.FailoverPlan
 import ro.ak.sportshub.core.common.ObservedQuality
 import ro.ak.sportshub.core.common.ObservedVideo
+import ro.ak.sportshub.core.common.PlaybackSession
+import ro.ak.sportshub.core.common.SourceHealth
 import ro.ak.sportshub.core.common.player.PlaybackErrors
 import ro.ak.sportshub.core.common.player.ReconnectBackoff
 import ro.ak.sportshub.core.common.player.StreamLease
@@ -194,6 +196,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
             override fun onTracksChanged(tracks: Tracks) {
                 observeVideo()
+                observeAudioLanguages(tracks)
                 applyRememberedAudio(tracks)
                 _state.update {
                     it.copy(
@@ -370,6 +373,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
     fun onBackground() {
         if (_state.value.channel == null) return
         stoppedInBackground = true
+        endSession(failed = false)
         cancelJobs()
         stopStream()
         _state.update { it.copy(status = PlaybackStatus.Idle) }
@@ -383,6 +387,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
     }
 
     fun release() {
+        endSession(failed = false)
         cancelJobs()
         scope.cancel()
         player.release()
@@ -511,6 +516,48 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
     private var downgradeJob: kotlinx.coroutines.Job? = null
 
+    // ---------- sănătatea sursei (C1) și limba sunetului (C2), din redarea obișnuită ----------
+
+    /** Varianta a cărei sesiune se măsoară (null: nicio sesiune, de exemplu arhiva). */
+    private var sessionChannel: PlayableChannel? = null
+    private var sessionPreparedAt = 0L
+    private var sessionStartMs: Long? = null
+    private var sessionReadyAt = 0L
+    private var sessionStalls = 0
+
+    /** O sesiune nouă începe la cererea stream-ului (după permisul playlistului și pauza dintre canale). */
+    private fun beginSession(channel: PlayableChannel) {
+        endSession(failed = false)
+        if (archive != null) return
+        sessionChannel = channel
+        sessionPreparedAt = SystemClock.elapsedRealtime()
+        sessionStartMs = null
+        sessionReadyAt = 0L
+        sessionStalls = 0
+    }
+
+    /**
+     * Sesiunea se încheie: pornirea, cât s-a văzut și opririle se adaugă la sănătatea variantei. O variantă părăsită
+     * înainte să pornească (zapping) nu se numără, doar una care a eșuat ([failed]).
+     */
+    private fun endSession(failed: Boolean) {
+        val c = sessionChannel ?: return
+        sessionChannel = null
+        val started = sessionStartMs != null
+        if (!started && !failed) return
+        val watched = if (started) SystemClock.elapsedRealtime() - sessionReadyAt else 0L
+        container.playbackHealth.session(c.playlistId, c.name, PlaybackSession(started, sessionStartMs, watched, sessionStalls))
+    }
+
+    /** C2: limbile declarate de pistele audio ale stream-ului (citite oricum de player), pe variantă. */
+    private fun observeAudioLanguages(tracks: Tracks) {
+        if (archive != null) return
+        val c = _state.value.channel ?: return
+        val raw = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.flatMap { g -> (0 until g.length).map { g.getTrackFormat(it).language } }
+        val langs = SourceHealth.audioLanguages(raw)
+        if (langs.isNotEmpty()) container.playbackHealth.languages(c.playlistId, c.name, langs)
+    }
+
     // ---------- interne ----------
 
     private fun zapKey(c: PlayableChannel): String = if (zapGrouped) c.groupKey else c.id.toString()
@@ -528,6 +575,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
     }
 
     private suspend fun start(channelId: Long, zapGroup: Long, failoverStep: Boolean) {
+        endSession(failed = false)
         stopStream()
         backoff.reset()
         forceHls = false
@@ -591,6 +639,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             return
         }
         waitSwitchGap()
+        beginSession(channel)
         prepare(channel)
     }
 
@@ -641,6 +690,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             Player.STATE_BUFFERING -> {
                 if (_state.value.status == PlaybackStatus.Playing) {
                     _state.update { it.copy(status = PlaybackStatus.Buffering, rebuffers = it.rebuffers + 1) }
+                    if (sessionStartMs != null) sessionStalls++
                 }
                 stallJob = scope.launch {
                     delay(STALL_TIMEOUT_MS)
@@ -649,6 +699,11 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
             Player.STATE_READY -> {
                 _state.update { it.copy(status = PlaybackStatus.Playing) }
+                if (sessionChannel != null && sessionStartMs == null) {
+                    val t = SystemClock.elapsedRealtime()
+                    sessionStartMs = t - sessionPreparedAt
+                    sessionReadyAt = t
+                }
                 _state.value.channel?.let(variants::markWorked)
                 if (pendingSeekMs > 0) {
                     if (player.isCurrentMediaItemSeekable) player.seekTo(pendingSeekMs)
@@ -709,6 +764,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private fun scheduleRetry(reason: String) {
         val channel = _state.value.channel ?: return
         if (retryJob?.isActive == true) return
+        // O cădere după pornire contează ca oprire (C1).
+        if (sessionStartMs != null) sessionStalls++
         if (backoff.attempt >= FailoverPlan.ATTEMPTS_BEFORE_SWITCH && nextVariant() != null) return failOrSwitch(reason)
         val wait = backoff.next() ?: return failOrSwitch(reason)
         retryJob = scope.launch {
@@ -738,6 +795,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private fun failOrSwitch(reason: String, streamFailed: Boolean = true) {
         val channel = _state.value.channel ?: return
         if (streamFailed) variants.markFailed(channel)
+        endSession(failed = streamFailed)
         val next = nextVariant() ?: return fail(reason)
         cancelJobs()
         stopStream()
@@ -753,6 +811,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
     }
 
     private fun fail(reason: String) {
+        endSession(failed = true)
         cancelJobs()
         stopStream()
         _state.update { it.copy(status = PlaybackStatus.Failed(reason)) }
