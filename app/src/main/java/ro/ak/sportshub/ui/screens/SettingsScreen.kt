@@ -120,7 +120,7 @@ fun SettingsScreen(
                 }
 
             },
-            SettingsSection("Redare și afișare", "Imaginea la 4K, frecvența, mărimea textului") {
+            SettingsSection("Redare și afișare", "Imaginea la 4K, frecvența, pauza pe live, mărimea textului") {
                 item {
                     ListRow(
                         title = "Potrivește frecvența ecranului (50/60 Hz)",
@@ -136,6 +136,15 @@ fun SettingsScreen(
                             "Dacă se aude sunetul dar imaginea e neagră, pune „Nu”",
                         onClick = { variantStore.update { it.copy(smoothVideo = !it.smoothVideo) } },
                         trailing = { Text(text = if (variants.smoothVideo) "Da" else "Nu", fontSize = 14.sp) },
+                    )
+                }
+                item {
+                    ListRow(
+                        title = "Pauză pe live",
+                        subtitle = "Playerul ține pe disc ce vezi (aceeași conexiune, niciun stream în plus): pauză, ⏪ ⏩ 10 s, " +
+                            "„revezi ultimele 30 s” pe canalele TS. Se șterge la oprirea canalului. OK schimbă spațiul",
+                        onClick = { variantStore.update { it.copy(timeshiftMb = ro.ak.sportshub.core.common.player.Timeshift.nextOption(it.timeshiftMb)) } },
+                        trailing = { Text(text = ro.ak.sportshub.core.common.player.Timeshift.label(variants.timeshiftMb), fontSize = 14.sp) },
                     )
                 }
                 item {

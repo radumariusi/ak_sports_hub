@@ -30,6 +30,8 @@ data class VariantState(
     val textScale: Float = 0.85f,
     /** Live TV ca ghid în grilă (canale × ore), în loc de listă. */
     val guideGrid: Boolean = false,
+    /** B1: cât din stream-ul live se ține pe disc pentru pauză și derulare, în MB (0 = oprit). */
+    val timeshiftMb: Int = ro.ak.sportshub.core.common.player.Timeshift.DEFAULT_MB,
     /** Varianta preferată, pe cheia de grupare (aceeași în toate playlisturile). */
     val preferred: Map<String, ChannelRef> = emptyMap(),
     /** Corecțiile manuale, pe playlist și numele original al canalului. */
@@ -75,6 +77,7 @@ class VariantStore(context: Context) {
                 smoothVideo = o.optBoolean("smoothVideo", false),
                 textScale = o.optDouble("textScale2", 0.85).toFloat(),
                 guideGrid = o.optBoolean("guideGrid", false),
+                timeshiftMb = o.optInt("timeshiftMb", ro.ak.sportshub.core.common.player.Timeshift.DEFAULT_MB),
                 preferred = o.optJSONArray("preferred").objects().associate { it.getString("key") to it.ref() },
                 corrections = o.optJSONArray("corrections").objects().associate { e ->
                     val c = e.getJSONObject("correction")
@@ -104,6 +107,7 @@ class VariantStore(context: Context) {
         put("smoothVideo", s.smoothVideo)
         put("textScale2", s.textScale.toDouble())
         put("guideGrid", s.guideGrid)
+        put("timeshiftMb", s.timeshiftMb)
         put("preferred", JSONArray().apply { s.preferred.forEach { (k, r) -> put(r.json().put("key", k)) } })
         put(
             "corrections",
