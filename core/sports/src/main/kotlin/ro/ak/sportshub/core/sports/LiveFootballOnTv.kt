@@ -30,7 +30,7 @@ object LiveFootballOnTv {
     private val fixture = Regex("""^(.{2,60}?)\s+v\s+(.{2,60}?)$""")
     private val months = listOf("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december")
 
-    fun looksValid(html: String): Boolean = Regex("""\s v \s?""").containsMatchIn(html) && dayHeading.pattern.isNotEmpty() &&
+    fun looksValid(html: String): Boolean = Regex("""\sv\s""").containsMatchIn(html) && dayHeading.pattern.isNotEmpty() &&
         Regex("""(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+\d{1,2}(st|nd|rd|th)""").containsMatchIn(html)
 
     private fun lines(html: String): List<String> {
