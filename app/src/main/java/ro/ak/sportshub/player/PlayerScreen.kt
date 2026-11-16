@@ -73,6 +73,10 @@ import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.KickoffNotices
 import ro.ak.sportshub.core.sports.AutoSwitch
+import ro.ak.sportshub.core.sports.ArchiveJumps
+import ro.ak.sportshub.core.sports.AutoStop
+import ro.ak.sportshub.core.common.player.AudioDelay
+import ro.ak.sportshub.core.common.player.VideoFit
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchClock
 import ro.ak.sportshub.core.sports.MatchStatus
@@ -107,7 +111,7 @@ import ro.ak.sportshub.ui.theme.AkFonts
 private enum class Panel { None, Channels, Menu, Audio, Subtitles, Schedule, Variants, Match, Quick, Sources }
 
 /** Ferestrele de alegere din panoul meciului. */
-private enum class PanelDialog { DELAY, OFFSET }
+private enum class PanelDialog { DELAY, OFFSET, AUDIO_DELAY, FIT, AUTO_STOP }
 
 private val OkKeys = setOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)
 private const val KICKOFF_NOTICE_MS = 15_000L
@@ -327,6 +331,38 @@ fun PlayerScreen(
         }
     }
 
+    // ---------- A5: oprirea automată (la 5 min după final sau cronometrul de somn) ----------
+    val playerPrefs by container.channelPlayback.general.collectAsStateWithLifecycle()
+    var sleepAt by remember { mutableStateOf<Long?>(null) }
+    var finishedSeenAt by remember(state.channel?.id) { mutableStateOf<Long?>(null) }
+    var finalDismissed by remember(state.channel?.id) { mutableStateOf(false) }
+    val finishedNow = !replay && (panelView?.status ?: linkedMatch?.status) == MatchStatus.FINISHED
+    LaunchedEffect(finishedNow, state.channel?.id) { if (finishedNow && finishedSeenAt == null) finishedSeenAt = System.currentTimeMillis() }
+    val stopAt = AutoStop.stopAt(sleepAt, playerPrefs.stopAfterFinal && !finalDismissed, finishedSeenAt)
+    var stopLeft by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(stopAt) {
+        stopLeft = null
+        val at = stopAt ?: return@LaunchedEffect
+        while (true) {
+            val t = System.currentTimeMillis()
+            if (t >= at) {
+                container.diagnosticLog.log("player", "oprire automată (${if (sleepAt != null && at == sleepAt) "cronometru" else "după final"})")
+                onExit()
+                break
+            }
+            stopLeft = AutoStop.warningSeconds(at, t)
+            delay(500)
+        }
+    }
+    /** Orice tastă (sau atingere) în numărătoare: playerul rămâne pornit. */
+    fun cancelStop() {
+        // Ora se recalculează aici: atingerea păstrează funcția din prima compunere.
+        val at = AutoStop.stopAt(sleepAt, playerPrefs.stopAfterFinal && !finalDismissed, finishedSeenAt)
+        if (sleepAt != null && at == sleepAt) sleepAt = null else finalDismissed = true
+        stopLeft = null
+        toast = "Rămâi pe canal: oprirea automată anulată."
+    }
+
     // Meciul de pe ecran: alertele de gol nu se dau pentru el (îl vezi).
     LaunchedEffect(linkedMatch?.id) { container.watchingMatch.value = linkedMatch?.id }
     DisposableEffect(Unit) { onDispose { container.watchingMatch.value = null } }
@@ -388,6 +424,36 @@ fun PlayerScreen(
         autoSwitch = null
         AnnouncedKickoffs += target.match.id
         playMatch(target)
+    }
+
+    // ---------- A4: ⏪ ⏩ la faza importantă anterioară / următoare, în arhivă ----------
+    fun jumpPhase(forward: Boolean) {
+        val m = linkedMatch ?: run { toast = "Canalul nu e legat de un meci."; return }
+        val channel = state.channel ?: return
+        if (spoilerHidden) {
+            toast = "Fazele sunt ascunse („Fără spoilere”). Le dezvălui din panoul meciului."
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val kickoffAt = detailsState.details.event?.start ?: m.start
+        val hasArchive = Catchup.isAvailable(channel.catchupDays, kickoffAt, nowMs) && Catchup.parse(channel.streamUrl) != null
+        if (!hasArchive || !MatchClock.supports(m.sport)) {
+            toast = "Saltul la faze merge la fotbal, pe canalele cu arhivă."
+            return
+        }
+        val offset = container.catchup.offsetSeconds(channel.playlistId)
+        // Live: doar fazele care au apărut deja în stream (întârzierea aplicată); la reluare, toate.
+        val timeline = if (replay) detailsState.details.timeline else panelView?.timeline ?: detailsState.details.timeline
+        val watched = controller.watchedAt() ?: (nowMs - sportsSettings.streamDelaySeconds * 1_000L)
+        val jump = ArchiveJumps.next(timeline, kickoffAt, m.sport, offset, watched, forward)
+        when {
+            jump == null -> toast = if (forward) "Nicio fază importantă mai departe." else "Nicio fază importantă înainte."
+            jump.start > nowMs - ARCHIVE_READY_MS -> toast = "Faza e prea recentă: arhiva n-o are încă."
+            else -> {
+                toast = "${ArchiveJumps.describe(jump.entry)} (cu un minut înainte)…"
+                controller.jumpTo(jump.start, maxOf(m.end, nowMs))
+            }
+        }
     }
 
     fun showInfo() {
@@ -459,6 +525,8 @@ fun PlayerScreen(
             AndroidKeyEvent.KEYCODE_PROG_RED -> panel = Panel.Quick
             AndroidKeyEvent.KEYCODE_PROG_BLUE -> if (linkedMatch != null) panel = Panel.Match
             AndroidKeyEvent.KEYCODE_INFO -> showInfo()
+            AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> jumpPhase(forward = true)
+            AndroidKeyEvent.KEYCODE_MEDIA_REWIND, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> jumpPhase(forward = false)
             AndroidKeyEvent.KEYCODE_GUIDE, AndroidKeyEvent.KEYCODE_TV_DATA_SERVICE -> panel = Panel.Schedule
             AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS ->
                 if (!controller.playPrevious()) toast = "Nu există un canal anterior."
@@ -489,6 +557,10 @@ fun PlayerScreen(
             // OK scurt / ținut: decis înaintea panourilor, ca ridicarea tastei să nu apese rândul abia focalizat.
             .onPreviewKeyEvent { event ->
                 val code = event.key.nativeKeyCode
+                if (stopLeft != null) {
+                    if (event.type == KeyEventType.KeyDown) cancelStop()
+                    return@onPreviewKeyEvent true
+                }
                 when {
                     code !in OkKeys -> false
                     event.type == KeyEventType.KeyDown && panel == Panel.None && !okHeld -> {
@@ -552,6 +624,8 @@ fun PlayerScreen(
                 }
             },
             onRelease = { it.player = null },
+            // B5: încadrarea ținută minte pe canal.
+            update = { it.resizeMode = state.fit.resizeMode() },
             modifier = Modifier.fillMaxSize(),
         ) }
 
@@ -561,6 +635,8 @@ fun PlayerScreen(
         // atingerea în afara lui îl închide. Panourile sunt deasupra, deci rândurile lor își primesc singure atingerea.
         val touchHasMatch by rememberUpdatedState(linkedMatch != null)
         val touchOk by rememberUpdatedState({ shortOk() })
+        val touchCancelStop by rememberUpdatedState({ cancelStop() })
+        val touchStopShown by rememberUpdatedState(stopLeft != null)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -569,6 +645,7 @@ fun PlayerScreen(
                         onTap = { pos ->
                             val third = size.width / 3f
                             when {
+                                touchStopShown -> touchCancelStop()
                                 panel != Panel.None -> {
                                     panelDialog = null
                                     panel = Panel.None
@@ -679,6 +756,20 @@ fun PlayerScreen(
             }
         }
 
+        stopLeft?.let { left ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(460.dp)
+                    .background(Overlay, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 22.dp, vertical = 16.dp),
+            ) {
+                Text(text = "Oprire automată", fontSize = 13.sp, color = AkColors.Accent)
+                Text(text = "Playerul se închide în $left s", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(text = "Orice tastă: rămâi pe canal", fontSize = 14.sp, color = AkColors.TextDim)
+            }
+        }
+
         toast?.let {
             Text(
                 text = it,
@@ -745,6 +836,18 @@ fun PlayerScreen(
                         else "${c.name}: semnalarea a fost scoasă."
                     }
                 },
+                audioDelayMs = state.audioDelayMs,
+                onAudioDelay = { panelDialog = PanelDialog.AUDIO_DELAY },
+                night = playerPrefs.night,
+                onNight = {
+                    val on = !playerPrefs.night
+                    controller.setNight(on)
+                    toast = if (on) "Mod de noapte pornit: sunetul tare coboară, cel încet urcă." else "Mod de noapte oprit."
+                },
+                fit = state.fit,
+                onFit = { panelDialog = PanelDialog.FIT },
+                autoStop = autoStopText(sleepAt, playerPrefs.stopAfterFinal),
+                onAutoStop = { panelDialog = PanelDialog.AUTO_STOP },
                 onExit = onExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
@@ -922,9 +1025,91 @@ fun PlayerScreen(
                 },
             )
         }
+        PanelDialog.AUDIO_DELAY -> state.channel?.let { c ->
+            ChoiceDialog(
+                title = "Întârzierea sunetului · ${c.name}",
+                hint = "Dacă vorbele vin după buze, alege o valoare negativă; dacă vin înainte, una pozitivă. " +
+                    "Se ține minte pentru canal. (Nu se aplică la redarea tunelată.)",
+                options = AudioDelay.options.map { AudioDelay.label(it) },
+                selectedIndex = AudioDelay.options.indexOf(state.audioDelayMs).coerceAtLeast(0),
+                onDismiss = { panelDialog = null },
+                onSelect = { i ->
+                    controller.setAudioDelay(AudioDelay.options[i])
+                    panelDialog = null
+                },
+            )
+        }
+        PanelDialog.FIT -> state.channel?.let { c ->
+            ChoiceDialog(
+                title = "Imaginea · ${c.name}",
+                hint = "Se ține minte pentru canal.",
+                options = VideoFit.entries.map { "${it.label}: ${it.hint}" },
+                selectedIndex = state.fit.ordinal,
+                onDismiss = { panelDialog = null },
+                onSelect = { i ->
+                    controller.setFit(VideoFit.entries[i])
+                    panelDialog = null
+                },
+            )
+        }
+        PanelDialog.AUTO_STOP -> {
+            val options = listOf("Oprită", "La 5 minute după finalul meciului (ține minte)") +
+                AutoStop.SLEEP_MINUTES.map { "Peste $it de minute" }
+            val selected = when {
+                sleepAt != null -> -1
+                playerPrefs.stopAfterFinal -> 1
+                else -> 0
+            }
+            ChoiceDialog(
+                title = "Oprire automată",
+                hint = "Playerul se închide singur (conexiunea playlistului se eliberează). Cu 30 s înainte apare o numărătoare; orice tastă o anulează.",
+                options = options,
+                selectedIndex = selected.coerceAtLeast(0),
+                onDismiss = { panelDialog = null },
+                onSelect = { i ->
+                    panelDialog = null
+                    when (i) {
+                        0 -> {
+                            sleepAt = null
+                            container.channelPlayback.updateGeneral { it.copy(stopAfterFinal = false) }
+                            toast = "Oprirea automată e oprită."
+                        }
+                        1 -> {
+                            sleepAt = null
+                            finalDismissed = false
+                            container.channelPlayback.updateGeneral { it.copy(stopAfterFinal = true) }
+                            toast = "Playerul se închide la 5 minute după finalul meciului de pe ecran."
+                        }
+                        else -> {
+                            val minutes = AutoStop.SLEEP_MINUTES[i - 2]
+                            sleepAt = System.currentTimeMillis() + minutes * 60_000L
+                            toast = "Playerul se închide peste $minutes de minute."
+                        }
+                    }
+                },
+            )
+        }
         null -> Unit
     }
 }
+
+/** B5: încadrarea aleasă → modul ferestrei video. */
+private fun VideoFit.resizeMode(): Int = when (this) {
+    VideoFit.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    VideoFit.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    VideoFit.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+}
+
+/** Rândul „Oprire automată” din meniu. */
+private fun autoStopText(sleepAt: Long?, afterFinal: Boolean): String {
+    val sleep = sleepAt?.let {
+        "la " + java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()))
+    }
+    return listOfNotNull(sleep, if (afterFinal) "la 5 min după finalul meciului" else null).joinToString(" · ").ifEmpty { "oprită" }
+}
+
+/** Arhiva unei faze e gata la câteva minute după ea (Xtream scrie pe minute întregi). */
+private const val ARCHIVE_READY_MS = 120_000L
 
 /** „De la început” în panou: arhiva pornește cu două minute înainte de start. */
 private const val FROM_START_LEAD_MS = 120_000L
@@ -1149,6 +1334,14 @@ private fun MenuPanel(
     onPrefer: () -> Unit,
     suspect: Boolean,
     onSuspect: () -> Unit,
+    audioDelayMs: Int,
+    onAudioDelay: () -> Unit,
+    night: Boolean,
+    onNight: () -> Unit,
+    fit: VideoFit,
+    onFit: () -> Unit,
+    autoStop: String,
+    onAutoStop: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier,
 ) {
@@ -1179,6 +1372,19 @@ private fun MenuPanel(
                 subtitle = if (state.textTracks > 0) "${state.textTracks} disponibile" else "niciuna în stream",
                 onClick = onSubtitles,
             )
+            ListRow(title = "Întârzierea sunetului", subtitle = "${AudioDelay.short(audioDelayMs)} pe acest canal", onClick = onAudioDelay)
+            ListRow(
+                title = "Mod de noapte",
+                subtitle = if (night) "pornit: dinamica sunetului comprimată" else "oprit",
+                onClick = onNight,
+                trailing = if (night) {
+                    { Text(text = "✓", fontSize = 16.sp) }
+                } else {
+                    null
+                },
+            )
+            ListRow(title = "Imaginea", subtitle = "${fit.label} pe acest canal", onClick = onFit)
+            ListRow(title = "Oprire automată", subtitle = autoStop, onClick = onAutoStop)
             if (state.variantCount > 1) {
                 ListRow(
                     title = "Variantele canalului",

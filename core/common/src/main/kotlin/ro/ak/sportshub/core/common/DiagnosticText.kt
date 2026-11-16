@@ -149,4 +149,32 @@ object DiagnosticText {
         if (head.startsWith("\"message\"") && t.length > 2_000) return null
         return cut(t.replace(spaces, " "), 200)
     }
+
+    private val anyUrl = Regex("""(?i)\b(?:https?|rtmp|rtsp|udp|file)://[^\s"'<>)\]]+""")
+
+    /**
+     * Textul unei căderi a aplicației (E2): excepția, mesajul și primele cadre ale fiecărei cauze. Orice adresă
+     * din mesaje (stream-uri, playlisturi, cu utilizator și parolă în cale) devine „‹adresă›”: în jurnal nu intră
+     * nimic din playlisturi.
+     */
+    fun crash(error: Throwable, thread: String, maxFrames: Int = 40, maxCauses: Int = 4): String = buildString {
+        appendLine("Fir: $thread")
+        var t: Throwable? = error
+        var depth = 0
+        val seen = HashSet<Throwable>()
+        while (t != null && depth < maxCauses && seen.add(t)) {
+            if (depth > 0) append("Cauza: ")
+            append(t.javaClass.name)
+            t.message?.let { append(": ").append(maskUrls(it).replace('\n', ' ').take(400)) }
+            appendLine()
+            t.stackTrace.take(if (depth == 0) maxFrames else maxFrames / 2).forEach { appendLine("    la $it") }
+            val more = t.stackTrace.size - (if (depth == 0) maxFrames else maxFrames / 2)
+            if (more > 0) appendLine("    … încă $more")
+            t = t.cause
+            depth++
+        }
+    }
+
+    /** Orice adresă din [text] devine „‹adresă›”. */
+    fun maskUrls(text: String): String = anyUrl.replace(text, "‹adresă›")
 }

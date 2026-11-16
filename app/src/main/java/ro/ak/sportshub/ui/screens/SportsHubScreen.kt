@@ -120,6 +120,9 @@ fun SportsHubScreen(
     val store = container.sportsSettings
     val snapshot by sports.snapshot.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
+    // E3: prima listă de meciuri afișată după pornire (o dată pe rulare, în jurnal).
+    val hasMatches = snapshot.matches.isNotEmpty()
+    LaunchedEffect(hasMatches) { if (hasMatches) container.startup.mark("lista Sports Hub afișată", " (${snapshot.matches.size} meciuri)") }
     val settings by store.settings.collectAsStateWithLifecycle()
     val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }

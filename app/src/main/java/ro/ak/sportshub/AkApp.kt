@@ -41,6 +41,7 @@ import ro.ak.sportshub.data.SportsSettingsStore
 import ro.ak.sportshub.data.VariantRepository
 import ro.ak.sportshub.data.VariantStore
 import ro.ak.sportshub.data.StandingsRepository
+import ro.ak.sportshub.data.ChannelPlaybackStore
 
 /** Dependențele aplicației, create o singură dată (fără bibliotecă de injecție, deocamdată). */
 class AppContainer(app: Application) {
@@ -167,6 +168,44 @@ class AppContainer(app: Application) {
 
     /** Backup și restaurare pentru setări (și, la cerere, playlisturi). */
     val backup = SettingsBackup(app, database)
+
+    /** Reglajele playerului pe canal (întârzierea sunetului, pista audio, încadrarea) și modul de noapte. */
+    val channelPlayback = ChannelPlaybackStore(app)
+
+    /** Timpii pornirii (E3), scriși o dată în jurnal. */
+    val startup = StartupClock(diagnosticLog)
+}
+
+/**
+ * Cât durează pornirea (E3): de la pornirea procesului (și de la deschiderea ecranului) până la primul ecran și până
+ * la lista Sports Hub afișată. Fiecare pas se scrie o singură dată pe rulare, cu versiunea, ca să se vadă în jurnal
+ * dacă o versiune nouă a încetinit ceva.
+ */
+class StartupClock(private val log: DiagnosticLog) {
+    private val appStart = android.os.SystemClock.elapsedRealtime()
+    private val processStart: Long =
+        if (android.os.Build.VERSION.SDK_INT >= 24) android.os.Process.getStartElapsedRealtime() else appStart
+    @Volatile private var screenStart: Long? = null
+    private val marked = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** Ecranul aplicației s-a deschis (prima dată în proces). */
+    fun screenOpened() {
+        if (screenStart == null) screenStart = android.os.SystemClock.elapsedRealtime()
+    }
+
+    fun mark(step: String, detail: String = "") {
+        val screen = screenStart ?: return
+        if (!marked.add(step)) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        // Procesul pornit mai devreme pentru altceva (notificare, actualizare programată): contează doar ecranul.
+        val cold = screen - processStart < COLD_LIMIT_MS
+        val fromProcess = if (cold) "${now - processStart} ms de la pornirea procesului · " else ""
+        log.log("pornire", "$step$detail: $fromProcess${now - screen} ms de la deschiderea ecranului · v${BuildConfig.VERSION_NAME}")
+    }
+
+    private companion object {
+        const val COLD_LIMIT_MS = 5_000L
+    }
 }
 
 open class AkApp : Application() {
@@ -176,7 +215,20 @@ open class AkApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        catchCrashes()
         startBackgroundWork()
+    }
+
+    /**
+     * E2: o cădere a aplicației se scrie în jurnal (fără adrese de stream) înainte ca sistemul s-o închidă; la
+     * pornirea următoare ecranul principal întreabă dacă trimiți jurnalul.
+     */
+    private fun catchCrashes() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching { container.diagnosticLog.crash(ro.ak.sportshub.core.common.DiagnosticText.crash(error, thread.name)) }
+            previous?.uncaughtException(thread, error)
+        }
     }
 
     /** Actualizările, notificările și rândul de pe ecranul principal (în testele de capturi nu pornesc). */

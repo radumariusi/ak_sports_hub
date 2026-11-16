@@ -69,6 +69,36 @@ class DiagnosticLog(context: Context) {
     fun clear() = synchronized(lock) {
         file.delete()
         samples.listFiles()?.forEach { it.delete() }
+        crashFile.delete()
+        crashFlag.delete()
+    }
+
+    private val crashFile = File(dir, "cadere.txt")
+    private val crashFlag = File(dir, "cadere-noua")
+
+    /**
+     * O cădere a aplicației (E2): textul ei ([DiagnosticText.crash], fără adrese) se scrie imediat, sincron (procesul
+     * se închide după), în jurnal și separat, iar la pornirea următoare aplicația întreabă dacă trimiți jurnalul.
+     */
+    fun crash(text: String) {
+        synchronized(lock) {
+            runCatching {
+                dir.mkdirs()
+                crashFile.writeText("${time.format(Instant.now())} UTC\n" + DiagnosticText.cut(text, MAX_CRASH))
+                crashFlag.writeText("1")
+            }
+        }
+        log("cadere", text.lineSequence().take(3).joinToString(" | "))
+    }
+
+    /** Ultima cădere (cu ora UTC), dacă există. */
+    fun lastCrash(): String? = synchronized(lock) { runCatching { crashFile.readText() }.getOrNull()?.ifBlank { null } }
+
+    /** A fost o cădere de la ultima întrebare? */
+    fun crashPending(): Boolean = crashFlag.exists()
+
+    fun clearCrashPending() {
+        crashFlag.delete()
     }
 
     /** Păstrează a doua jumătate a jurnalului. */
@@ -80,5 +110,6 @@ class DiagnosticLog(context: Context) {
     private companion object {
         const val MAX_BYTES = 400_000L
         const val MAX_SAMPLE = 300_000
+        const val MAX_CRASH = 20_000
     }
 }

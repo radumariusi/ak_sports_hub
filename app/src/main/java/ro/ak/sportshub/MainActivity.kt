@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (application as AkApp).container.startup.screenOpened()
         if (savedInstanceState == null) deepLink.value = DeepLinks.parse(intent?.data)
         setContent {
             val variants by (application as AkApp).container.variantStore.state.collectAsStateWithLifecycle()

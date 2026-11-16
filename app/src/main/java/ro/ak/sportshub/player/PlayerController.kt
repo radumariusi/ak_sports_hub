@@ -40,6 +40,9 @@ import ro.ak.sportshub.core.common.player.PlaybackErrors
 import ro.ak.sportshub.core.common.player.ReconnectBackoff
 import ro.ak.sportshub.core.common.player.StreamLease
 import ro.ak.sportshub.core.common.player.TrackLabels
+import ro.ak.sportshub.core.common.player.AudioChoice
+import ro.ak.sportshub.core.common.player.AudioDelay
+import ro.ak.sportshub.core.common.player.VideoFit
 import ro.ak.sportshub.core.common.player.Zapping
 import ro.ak.sportshub.core.database.ChannelWithPlaylist
 import ro.ak.sportshub.core.database.PlayableChannel
@@ -83,6 +86,10 @@ data class PlayerUiState(
     val notice: Notice? = null,
     /** Se redă din arhivă (catch-up), de la această oră; null = live. */
     val archiveFrom: Long? = null,
+    /** Întârzierea sunetului pe canal (B2), în ms. */
+    val audioDelayMs: Int = 0,
+    /** Încadrarea imaginii pe canal (B5). */
+    val fit: VideoFit = VideoFit.FIT,
 )
 
 /** O porțiune din arhiva canalului (catch-up): de la [start] la [end], în ms UTC. */
@@ -135,7 +142,14 @@ class PlayerController(context: Context, private val container: AppContainer) {
         .build()
     private val dataSources = OkHttpDataSource.Factory(http).setUserAgent(DEFAULT_USER_AGENT)
 
+    /** Întârzierea sunetului și modul de noapte, citite de pe firul audio. */
+    private val tweaks = AudioTweaks().apply { night = container.channelPlayback.general.value.night }
+
     val player: ExoPlayer = buildPlayer(context)
+
+    /** Pista audio aleasă data trecută pe canal (B3); se aplică o dată pe pornirea stream-ului. */
+    private var channelAudio: AudioChoice? = null
+    private var audioApplied = false
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
@@ -180,6 +194,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
             override fun onTracksChanged(tracks: Tracks) {
                 observeVideo()
+                applyRememberedAudio(tracks)
                 _state.update {
                     it.copy(
                         audioTracks = tracks.groups.filter { g -> g.type == C.TRACK_TYPE_AUDIO }.sumOf { g -> g.length },
@@ -391,6 +406,14 @@ class PlayerController(context: Context, private val container: AppContainer) {
     fun select(option: TrackOption, type: Int) {
         val builder = player.trackSelectionParameters.buildUpon()
         val group = option.group
+        val c = _state.value.channel
+        if (type == C.TRACK_TYPE_AUDIO && group != null && c != null) {
+            // B3: alegerea se ține minte pe canal (limba și eticheta pistei) și se aplică singură data viitoare.
+            val f = group.getTrackFormat(option.index)
+            val choice = AudioChoice(f.language, f.label).takeIf { AudioChoice.norm(it.language) != null || !it.label.isNullOrBlank() }
+            channelAudio = choice
+            container.channelPlayback.update(c.playlistId, c.name) { it.copy(audio = choice) }
+        }
         if (group == null) {
             builder.setTrackTypeDisabled(type, true)
         } else {
@@ -398,6 +421,47 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.index))
         }
         player.trackSelectionParameters = builder.build()
+    }
+
+    /** B3: pista audio ținută minte pe canal, aplicată o dată după ce apar pistele stream-ului. */
+    private fun applyRememberedAudio(tracks: Tracks) {
+        if (audioApplied) return
+        val choice = channelAudio ?: return
+        val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (audio.isEmpty()) return
+        audioApplied = true
+        val candidates = audio.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it, true) }.map { i -> g to i } }
+        if (candidates.size < 2) return
+        val at = choice.pick(candidates.map { (g, i) -> g.getTrackFormat(i).let { f -> f.language to f.label } }) ?: return
+        val (group, index) = candidates[at]
+        if (group.isTrackSelected(index)) return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+            .build()
+    }
+
+    // ---------- reglaje pe canal ----------
+
+    /** B2: întârzierea sunetului pe canalul curent (ținută minte), aplicată imediat. */
+    fun setAudioDelay(ms: Int) {
+        val c = _state.value.channel ?: return
+        val v = AudioDelay.clamp(ms)
+        tweaks.delayUs = v * 1_000L
+        container.channelPlayback.update(c.playlistId, c.name) { it.copy(audioDelayMs = v) }
+        _state.update { it.copy(audioDelayMs = v) }
+    }
+
+    /** B5: încadrarea imaginii pe canalul curent (ținută minte). */
+    fun setFit(fit: VideoFit) {
+        val c = _state.value.channel ?: return
+        container.channelPlayback.update(c.playlistId, c.name) { it.copy(fit = fit) }
+        _state.update { it.copy(fit = fit) }
+    }
+
+    /** B4: modul de noapte (pentru toate canalele). */
+    fun setNight(on: Boolean) {
+        tweaks.night = on
+        container.channelPlayback.updateGeneral { it.copy(night = on) }
     }
 
     private fun options(type: Int, label: (androidx.media3.common.Format) -> String): List<TrackOption> =
@@ -481,6 +545,9 @@ class PlayerController(context: Context, private val container: AppContainer) {
         }
         sessionBest = null
         fpsMeter.reset()
+        val tuned = container.channelPlayback.of(channel.playlistId, channel.name)
+        tweaks.delayUs = tuned.audioDelayMs * 1_000L
+        channelAudio = tuned.audio
         _state.update {
             it.copy(
                 channel = channel,
@@ -497,6 +564,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 textTracks = 0,
                 variantCount = variantOrder.size,
                 archiveFrom = archive?.start,
+                audioDelayMs = tuned.audioDelayMs,
+                fit = tuned.fit,
             )
         }
         if (archive != null && streamUrl(channel) == null) {
@@ -546,6 +615,8 @@ class PlayerController(context: Context, private val container: AppContainer) {
             .build()
         _state.update { it.copy(status = PlaybackStatus.Connecting) }
         pendingSeekMs = archive?.let { it.start - floorMinute(it.start) } ?: 0L
+        // La fiecare pornire (și reconectare) pistele sunt noi: alegerea ținută minte se caută din nou.
+        audioApplied = false
         player.setMediaItem(item)
         player.playWhenReady = true
         player.prepare()
@@ -700,7 +771,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
         )
         // FFmpeg doar când televizorul nu are decodor (AC3, E-AC3, DTS…).
-        val renderers = DefaultRenderersFactory(context)
+        val renderers = TweakedRenderersFactory(context, tweaks)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true)
         return ExoPlayer.Builder(context, renderers)

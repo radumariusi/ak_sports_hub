@@ -77,6 +77,9 @@ class DiagnosticReporter(
         val url = json.optString("html_url")
         val comments = ArrayList<String>()
         comments += "### Jurnalul cererilor (UTC)\n```\n${journal.replace("```", "'''")}\n```"
+        log.lastCrash()?.let { crash ->
+            comments += "### Ultima cădere a aplicației\n```\n${DiagnosticText.cut(crash, DiagnosticText.MAX_CHUNK - 200).replace("```", "'''")}\n```"
+        }
         log.samples().entries.sortedBy { it.key }.forEach { (provider, sample) ->
             DiagnosticText.chunks(DiagnosticText.condense(sample.first, DiagnosticText.MAX_CHUNK * 2)).take(2).forEachIndexed { i, part ->
                 comments += "### Ultimul răspuns refuzat: $provider${if (i > 0) " (continuare)" else ""}\n```\n${part.replace("```", "'''")}\n```"
@@ -95,6 +98,7 @@ class DiagnosticReporter(
             delay(1_000) // GitHub limitează scrierile rapide
         }
         log.log("jurnal", "trimis ca issue #$number ($sent comentarii)")
+        log.clearCrashPending()
         return ReportState.Sent(number, url)
     }
 

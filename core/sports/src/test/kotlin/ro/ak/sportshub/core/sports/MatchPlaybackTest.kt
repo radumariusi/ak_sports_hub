@@ -193,3 +193,49 @@ class MatchPlaybackTest {
         assertEquals("22", LiveClock.advance("22", "1H", Sport.BASKETBALL, min(3)))
     }
 }
+
+class ArchiveJumpsAndAutoStopTest {
+
+    private val kickoff = 1_000_000_000_000L
+    private fun t(minute: Int, kind: TimelineKind) = TimelineEntry(minute, kind, true, "J$minute", null)
+    private val timeline = listOf(
+        t(10, TimelineKind.YELLOW),
+        t(23, TimelineKind.GOAL),
+        t(30, TimelineKind.SUBSTITUTION),
+        t(58, TimelineKind.RED),
+        t(77, TimelineKind.PENALTY),
+    )
+
+    @Test
+    fun `inainte sare la faza importanta urmatoare, peste cartonase galbene si schimbari`() {
+        val first = ArchiveJumps.next(timeline, kickoff, Sport.FOOTBALL, 0, kickoff, forward = true)!!
+        assertEquals(23, first.entry.minute)
+        assertEquals(MatchClock.jumpStart(kickoff, 23, Sport.FOOTBALL, 0), first.start)
+        // După salt (se vede puțin după începutul arhivei): următoarea e cartonașul roșu.
+        val second = ArchiveJumps.next(timeline, kickoff, Sport.FOOTBALL, 0, first.start + 3_000, forward = true)!!
+        assertEquals(58, second.entry.minute)
+        assertNull(ArchiveJumps.next(timeline, kickoff, Sport.FOOTBALL, 0, kickoff + 3 * 3_600_000L, forward = true))
+    }
+
+    @Test
+    fun `inapoi revede faza abia trecuta, apoi pe cea dinainte`() {
+        val penaltyStart = MatchClock.jumpStart(kickoff, 77, Sport.FOOTBALL, 0)!!
+        val after = ArchiveJumps.next(timeline, kickoff, Sport.FOOTBALL, 0, penaltyStart + 90_000, forward = false)!!
+        assertEquals(77, after.entry.minute)
+        val again = ArchiveJumps.next(timeline, kickoff, Sport.FOOTBALL, 0, penaltyStart + 4_000, forward = false)!!
+        assertEquals(58, again.entry.minute)
+        assertNull(ArchiveJumps.next(timeline, kickoff, Sport.BASKETBALL, 0, penaltyStart, forward = false))
+        assertEquals("Gol din penalty · 77′ · J77", ArchiveJumps.describe(after.entry))
+    }
+
+    @Test
+    fun `oprirea automata alege ora cea mai apropiata si numara ultimele 30 de secunde`() {
+        assertNull(AutoStop.stopAt(null, afterFinal = false, finishedSeenAt = 5_000L))
+        assertEquals(5_000L + AutoStop.AFTER_FINAL_MS, AutoStop.stopAt(null, afterFinal = true, finishedSeenAt = 5_000L))
+        assertEquals(60_000L, AutoStop.stopAt(60_000L, afterFinal = true, finishedSeenAt = 5_000L))
+        assertNull(AutoStop.warningSeconds(100_000L, 0L))
+        assertEquals(30, AutoStop.warningSeconds(100_000L, 70_000L))
+        assertEquals(1, AutoStop.warningSeconds(100_000L, 99_500L))
+        assertEquals(0, AutoStop.warningSeconds(100_000L, 120_000L))
+    }
+}

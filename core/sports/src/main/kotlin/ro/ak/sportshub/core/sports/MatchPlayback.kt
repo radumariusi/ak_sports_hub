@@ -407,3 +407,74 @@ object LiveClock {
         return if (total > cap) "$cap+${total - cap}" else total.toString()
     }
 }
+
+/**
+ * ⏩ / ⏪ în arhivă (A4): salt la faza importantă următoare sau anterioară (gol, penalty, cartonaș roșu), cu
+ * același calcul ca „sari la N′” din panou (un minut înainte, plus corecția playlistului). Doar la sporturile cu
+ * ceas pe minute ([MatchClock.supports]).
+ */
+object ArchiveJumps {
+
+    val KEY_KINDS = setOf(TimelineKind.GOAL, TimelineKind.OWN_GOAL, TimelineKind.PENALTY, TimelineKind.MISSED_PENALTY, TimelineKind.RED)
+
+    /** Faza [entry] se vede pornind arhiva de la [start] (ms UTC). */
+    data class Jump(val entry: TimelineEntry, val start: Long)
+
+    /** Înainte: faza care începe după ce se vede acum (cu o marjă, ca să nu repete faza abia sărită). */
+    const val FORWARD_MARGIN_MS = 5_000L
+
+    /** Înapoi: o fază începută acum mai puțin de atât se sare (a doua apăsare duce la cea dinainte). */
+    const val BACK_MARGIN_MS = 20_000L
+
+    fun jumps(timeline: List<TimelineEntry>, kickoff: Long, sport: Sport?, offsetSeconds: Int): List<Jump> =
+        timeline.filter { it.kind in KEY_KINDS }
+            .mapNotNull { t -> MatchClock.jumpStart(kickoff, t.minute, sport, offsetSeconds)?.let { Jump(t, it) } }
+            .sortedBy { it.start }
+
+    /** Faza următoare ([forward]) sau anterioară față de [watchedAt] (ora care se vede acum), ori null. */
+    fun next(
+        timeline: List<TimelineEntry>,
+        kickoff: Long,
+        sport: Sport?,
+        offsetSeconds: Int,
+        watchedAt: Long,
+        forward: Boolean,
+    ): Jump? {
+        val all = jumps(timeline, kickoff, sport, offsetSeconds)
+        return if (forward) all.firstOrNull { it.start > watchedAt + FORWARD_MARGIN_MS } else all.lastOrNull { it.start < watchedAt - BACK_MARGIN_MS }
+    }
+
+    /** „Gol · 67′ · Saka” pentru mesajul de după salt. */
+    fun describe(t: TimelineEntry): String =
+        listOfNotNull(t.kind.label, t.minute?.let { "$it′" }, t.player?.takeIf { it.isNotBlank() }).joinToString(" · ")
+}
+
+/**
+ * Oprirea automată a playerului (A5): la [AFTER_FINAL_MS] după ce meciul de pe ecran s-a terminat (starea cu
+ * întârzierea stream-ului aplicată) sau la ora unui cronometru de somn. Înainte de închidere, [WARNING_MS] de
+ * numărătoare în care orice tastă o anulează.
+ */
+object AutoStop {
+    const val AFTER_FINAL_MS = 5 * 60_000L
+    const val WARNING_MS = 30_000L
+
+    /** Cronometrele de somn din meniu, în minute. */
+    val SLEEP_MINUTES = listOf(15, 30, 45, 60, 90, 120, 180)
+
+    /**
+     * Ora la care se închide playerul: cea mai apropiată dintre cronometrul de somn [sleepAt] și finalul meciului
+     * văzut la [finishedSeenAt] (doar dacă [afterFinal] e pornit).
+     */
+    fun stopAt(sleepAt: Long?, afterFinal: Boolean, finishedSeenAt: Long?): Long? {
+        val fin = if (afterFinal) finishedSeenAt?.plus(AFTER_FINAL_MS) else null
+        return listOfNotNull(sleepAt, fin).minOrNull()
+    }
+
+    /** Secundele rămase din numărătoare, sau null dacă încă nu e momentul ei. */
+    fun warningSeconds(stopAt: Long?, now: Long): Int? {
+        val at = stopAt ?: return null
+        val left = at - now
+        if (left > WARNING_MS) return null
+        return ((left.coerceAtLeast(0) + 999) / 1_000).toInt()
+    }
+}

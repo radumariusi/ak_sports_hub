@@ -227,7 +227,7 @@ private fun LazyListScope.liveTab(
     item(key = "foot") {
         Text(
             text = "ESPN, cerut la un minut doar cât e deschis panoul; nu folosește conexiunea playlistului." +
-                if (actions.onJump != null) " OK pe un eveniment: arhiva, cu un minut înainte." else "",
+                if (actions.onJump != null) " OK pe un eveniment: arhiva, cu un minut înainte; ⏪ ⏩ în player: faza importantă anterioară / următoare." else "",
             fontSize = 12.sp,
             color = AkColors.TextDim,
             modifier = Modifier.padding(14.dp),
