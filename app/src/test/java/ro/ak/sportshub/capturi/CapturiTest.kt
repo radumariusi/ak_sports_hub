@@ -163,8 +163,10 @@ class CapturiTest {
                         }
                     }
                     // Aceleași iconițe mari, ca să se vadă desenul.
-                    androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(22.dp)) {
-                        sports.forEach { sp -> ro.ak.sportshub.ui.components.SportGlyph(sp, ro.ak.sportshub.ui.theme.AkColors.Text, 44.dp) }
+                    sports.chunked(9).forEach { row ->
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(30.dp)) {
+                            row.forEach { sp -> ro.ak.sportshub.ui.components.SportGlyph(sp, ro.ak.sportshub.ui.theme.AkColors.Text, 44.dp) }
+                        }
                     }
                 }
             }
