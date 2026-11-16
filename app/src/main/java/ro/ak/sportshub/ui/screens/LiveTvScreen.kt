@@ -375,7 +375,7 @@ private fun ChannelList(
     val nowNext by produceState(emptyMap<Long, NowNext>(), rows, now) {
         value = epg.nowNext(rows.flatMap { r -> r.variants.take(EPG_VARIANTS).map { it.id } }, now)
     }
-    // Dublu-clic sus / jos: primul / ultimul canal.
+    // Back: întâi la primul canal; CH+/CH− (sau ⏪ ⏩): primul / ultimul canal.
     val jump = ro.ak.sportshub.ui.components.rememberListJump()
     val touch = ro.ak.sportshub.ui.components.isTouchDevice()
     LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = jump.modifier(rows.size)) {

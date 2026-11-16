@@ -1,6 +1,10 @@
 package ro.ak.sportshub.ui.screens
 
 import ro.ak.sportshub.ui.components.touchClick
+import ro.ak.sportshub.ui.components.FilterIcon
+import ro.ak.sportshub.ui.components.FilterPill
+import ro.ak.sportshub.ui.components.FilterRowStyle
+import ro.ak.sportshub.ui.components.IconPill
 import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -298,32 +302,36 @@ fun SportsHubScreen(
         // Rândul de filtre: ▲ urcă pe zile (în „Toată săptămâna”) sau pe tabul curent; din taburi focusul intră pe
         // ultimul filtru folosit. Marginea din jur lasă loc ramei și măririi butonului focusat (altfel ovalul e tăiat).
         val filterUp = if (currentTab == MatchTab.WEEK) dayReq else tabsReq
-        @Composable
-        fun FilterSlot(slot: Int, text: String, onClick: () -> Unit) {
-            ActionButton(
-                text = text,
-                onClick = onClick,
-                modifier = Modifier.focusRequester(filterReqs[slot])
-                    .onFocusChanged { if (it.isFocused) lastFilter = slot }
-                    .focusProperties { up = filterUp },
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FilterSlot(0, "Sport: " + (filter.sport?.label ?: "toate")) { dialog = FilterDialog.SPORT }
-            FilterSlot(1, "Competiție: " + (filter.competition ?: "toate")) { dialog = FilterDialog.COMPETITION }
-            FilterSlot(2, "Echipă: " + (filter.team ?: "oricare")) { dialog = FilterDialog.TEAM }
-            FilterSlot(3, "Limbă: " + (filter.language?.uppercase() ?: "oricare")) { dialog = FilterDialog.LANGUAGE }
-            FilterSlot(4, "Calitate: " + (filter.minQuality?.let { it.label + "+" } ?: "oricare")) { dialog = FilterDialog.QUALITY }
-            FilterSlot(5, if (filter.onlyWithSources) "Doar cu surse: da" else "Doar cu surse: nu") {
-                setFilter { it.copy(onlyWithSources = !it.onlyWithSources) }
+        val style = SportsHubLook.filterStyle
+        fun slotModifier(slot: Int): Modifier = Modifier.focusRequester(filterReqs[slot])
+            .onFocusChanged { if (it.isFocused) lastFilter = slot }
+            .focusProperties { up = filterUp }
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // Filtrele: doar valoarea când e pusă („Fotbal”, „UCL”), numele filtrului când nu; nume lungi tăiate cu „…”.
+            Row(
+                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilterPill(FilterIcon.SPORT, "Sport", filter.sport?.label, style, { dialog = FilterDialog.SPORT }, slotModifier(0))
+                FilterPill(FilterIcon.COMPETITION, "Competiție", filter.competition, style, { dialog = FilterDialog.COMPETITION }, slotModifier(1))
+                FilterPill(FilterIcon.TEAM, "Echipă", filter.team, style, { dialog = FilterDialog.TEAM }, slotModifier(2))
+                FilterPill(FilterIcon.LANGUAGE, "Limbă", filter.language?.uppercase(), style, { dialog = FilterDialog.LANGUAGE }, slotModifier(3))
+                FilterPill(FilterIcon.QUALITY, "Calitate", filter.minQuality?.let { it.label + "+" }, style, { dialog = FilterDialog.QUALITY }, slotModifier(4))
+                FilterPill(
+                    FilterIcon.SOURCES, "Cu surse", if (filter.onlyWithSources) "Doar cu surse" else null, style,
+                    { setFilter { it.copy(onlyWithSources = !it.onlyWithSources) } }, slotModifier(5),
+                )
+                if (!filter.isEmpty) {
+                    FilterPill(FilterIcon.CLEAR, "Fără filtre", null, style, { setFilter { MatchFilter() }; lastFilter = 0 }, slotModifier(6))
+                }
             }
-            if (!filter.isEmpty) FilterSlot(6, "Fără filtre") { setFilter { MatchFilter() }; lastFilter = 0 }
-            FilterSlot(7, "Actualizează") { sports.refreshInBackground(force = true) }
-            FilterSlot(8, "Setări", onOpenSettings)
+            // Actualizează și Setări: butoane rotunde doar cu iconițe, despărțite de filtre.
+            Spacer(Modifier.width(10.dp))
+            IconPill(FilterIcon.REFRESH, { sports.refreshInBackground(force = true) }, slotModifier(7))
+            Spacer(Modifier.width(8.dp))
+            IconPill(FilterIcon.SETTINGS, onOpenSettings, slotModifier(8).padding(end = 4.dp))
         }
 
         Text(
@@ -354,7 +362,7 @@ fun SportsHubScreen(
             val all = calendar.flatMap { it.second } + otherFavorites
             val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                // Dublu-clic sus / jos: primul / ultimul meci din listă.
+                // Back: întâi la primul meci; CH+/CH− (sau ⏪ ⏩): primul / ultimul meci.
                 val jump = ro.ak.sportshub.ui.components.rememberListJump()
                 val firstKey = if (nextFavorite != null) "next-favorite" else calendar.firstNotNullOfOrNull { (team, es) -> es.firstOrNull()?.let { "team:$team:" + it.match.id } }
                     ?: otherFavorites.firstOrNull()?.match?.id
@@ -367,7 +375,7 @@ fun SportsHubScreen(
                     lastKey -> Modifier.focusRequester(jump.last)
                     else -> Modifier
                 }
-                LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f).then(jump.modifier(itemCount))) {
+                LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f).then(jump.modifier(itemCount, backToTop = videoChannel == null))) {
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -527,6 +535,11 @@ internal fun SportsFilterDialog(dialog: FilterDialog, onDismiss: () -> Unit) {
 }
 
 private const val FILTER_SLOTS = 9
+
+/** Varianta rândului de filtre (A = text, C = iconițe); capturile le arată pe amândouă până alege Radu. */
+object SportsHubLook {
+    var filterStyle by mutableStateOf(FilterRowStyle.TEXT)
+}
 
 private fun summaryLine(visible: Int, total: Int, loading: Boolean): String = when {
     loading -> "Se încarcă…"

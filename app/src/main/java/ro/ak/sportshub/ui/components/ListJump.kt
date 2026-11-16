@@ -13,32 +13,46 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * Dublu-clic sus / jos într-o listă: sare la primul / ultimul rând. Primul clic mută focusul ca de obicei, al
- * doilea (în [WINDOW_MS]) derulează la capăt și pune focusul pe rândul marcat cu [first] / [last].
+ * Saltul la capetele unei liste (Radu: dublu-clicul se făcea din greșeală când derula repede):
+ * - Back, cât lista nu e la început, duce la primul rând; abia al doilea Back face ce făcea înainte (ca pe YouTube).
+ * - CH+ / Page Up / ⏪ → primul rând, CH− / Page Down / ⏩ → ultimul rând, dacă telecomanda are tastele.
  */
 class ListJump internal constructor(val state: LazyListState, private val scope: CoroutineScope) {
     val first = FocusRequester()
     val last = FocusRequester()
-    private var upAt = 0L
-    private var downAt = 0L
+    private var backConsumed = false
 
-    /** Pe `LazyColumn`; [count] = numărul de elemente din listă (pentru derularea la capăt). */
-    fun modifier(count: Int): Modifier = Modifier.onPreviewKeyEvent { e ->
+    /**
+     * Pe `LazyColumn`; [count] = numărul de elemente din listă (pentru derularea la capăt). [backToTop] = Back urcă
+     * întâi la primul rând (nu în ferestrele de alegere, unde Back o închide; nu cât rulează altceva care ia Back).
+     */
+    fun modifier(count: Int, backToTop: Boolean = true): Modifier = Modifier.onPreviewKeyEvent { e ->
         val k = e.nativeKeyEvent
-        if (k.action != KeyEvent.ACTION_DOWN || k.repeatCount != 0) return@onPreviewKeyEvent false
-        val now = k.eventTime
         when (k.keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                val double = now - upAt < WINDOW_MS
-                upAt = if (double) 0L else now
-                if (double) jump(0, first)
-                double
+            KeyEvent.KEYCODE_BACK -> {
+                if (k.action == KeyEvent.ACTION_UP) {
+                    // Ridicarea tastei aparține apăsării pe care am folosit-o, ca Back să nu închidă și ecranul.
+                    val mine = backConsumed
+                    backConsumed = false
+                    return@onPreviewKeyEvent mine
+                }
+                if (k.action != KeyEvent.ACTION_DOWN || k.repeatCount != 0) return@onPreviewKeyEvent backConsumed
+                val atTop = state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0
+                if (backToTop && !atTop) {
+                    backConsumed = true
+                    jump(0, first)
+                    true
+                } else {
+                    false
+                }
             }
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                val double = now - downAt < WINDOW_MS
-                downAt = if (double) 0L else now
-                if (double) jump((count - 1).coerceAtLeast(0), last)
-                double
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MOVE_HOME -> {
+                if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) jump(0, first)
+                true
+            }
+            KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MOVE_END -> {
+                if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) jump((count - 1).coerceAtLeast(0), last)
+                true
             }
             else -> false
         }
@@ -62,9 +76,6 @@ class ListJump internal constructor(val state: LazyListState, private val scope:
         else -> Modifier
     }
 
-    companion object {
-        const val WINDOW_MS = 400L
-    }
 }
 
 @Composable

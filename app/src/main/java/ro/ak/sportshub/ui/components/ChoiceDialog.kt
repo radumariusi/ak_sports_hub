@@ -57,7 +57,7 @@ fun ChoiceDialog(
             }
             LazyColumn(contentPadding = ListPadding,
                 state = listState,
-                modifier = Modifier.padding(top = 12.dp).heightIn(max = 420.dp).then(jump.modifier(options.size)),
+                modifier = Modifier.padding(top = 12.dp).heightIn(max = 420.dp).then(jump.modifier(options.size, backToTop = false)),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 itemsIndexed(options) { index, option ->

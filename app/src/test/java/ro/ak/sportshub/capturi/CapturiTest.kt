@@ -117,6 +117,38 @@ class CapturiTest {
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/1b-toata-saptamana.png")
     }
 
+    /** Rândul de filtre în cele două variante propuse (A: text, C: iconițe), fără filtre și cu filtre puse. */
+    private fun filtre(style: ro.ak.sportshub.ui.components.FilterRowStyle, name: String) {
+        ro.ak.sportshub.ui.screens.SportsHubLook.filterStyle = style
+        try {
+            home()
+            click("Azi")
+            waitFor("Arsenal")
+            compose.onRoot().captureRoboImage("build/outputs/roborazzi/9-filtre-$name-fara.png")
+            app.container.sportsSettings.update {
+                it.copy(
+                    filter = ro.ak.sportshub.core.sports.MatchFilter(
+                        sport = ro.ak.sportshub.core.sports.Sport.FOOTBALL,
+                        competition = "UEFA Champions League",
+                        team = "Manchester United",
+                        language = "en",
+                    ),
+                )
+            }
+            Thread.sleep(300)
+            compose.waitForIdle()
+            compose.onRoot().captureRoboImage("build/outputs/roborazzi/9-filtre-$name-puse.png")
+        } finally {
+            ro.ak.sportshub.ui.screens.SportsHubLook.filterStyle = ro.ak.sportshub.ui.components.FilterRowStyle.TEXT
+        }
+    }
+
+    @Test
+    fun filtreA() = filtre(ro.ak.sportshub.ui.components.FilterRowStyle.TEXT, "A")
+
+    @Test
+    fun filtreC() = filtre(ro.ak.sportshub.ui.components.FilterRowStyle.ICONS, "C")
+
     @Test
     fun meci() {
         val id = app.container.sports.snapshot.value.matches.first { it.match.home == "Arsenal" && it.match.isLive }.match.id

@@ -71,7 +71,7 @@ fun accentText(): Color = if (LocalOnFocus.current) AkColors.AccentOnFocus else 
 
 /** Rama chihlimbar a elementului focusat. */
 internal val FocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(10.dp))
-private val PillFocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(50))
+internal val PillFocusBorder = Border(BorderStroke(3.dp, AkColors.Accent), shape = RoundedCornerShape(50))
 
 /**
  * Rând de taburi text, cu litere înguste. Tabul curent e alb cu o linie chihlimbar dedesubt; cel focusat e alb plin.
