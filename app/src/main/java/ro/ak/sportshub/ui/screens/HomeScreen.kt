@@ -19,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -64,6 +65,14 @@ fun HomeScreen(
 
     // Back pe ecranul principal: ieșirea se confirmă.
     BackHandler { confirmExit = true }
+
+    // E3: primul ecran desenat (o dată pe rulare, în jurnal).
+    val container = ro.ak.sportshub.ui.appContainer()
+    LaunchedEffect(Unit) { container.startup.mark("primul ecran") }
+    // E2: după o cădere, întrebarea „Trimiți jurnalul?” (o singură dată).
+    var crashAsk by remember { mutableStateOf(container.diagnosticLog.crashPending()) }
+    var crashReport by remember { mutableStateOf(false) }
+    val report by container.diagnosticReporter.state.collectAsStateWithLifecycle()
 
     // Focus inițial pe meniu, o singură dată (nu și la întoarcerea de pe ecranul unui meci).
     LaunchedEffect(Unit) {
@@ -124,6 +133,38 @@ fun HomeScreen(
                 confirmExit = false
                 if (i == 1) context.findActivity()?.finish()
             },
+        )
+    }
+    if (crashAsk && !confirmExit) {
+        ChoiceDialog(
+            title = "Aplicația s-a închis neașteptat data trecută",
+            hint = "Eroarea e scrisă în jurnal, fără nimic din playlisturi. Trimiți jurnalul? (cu cheia GitHub din Setări → Despre)",
+            options = listOf("Trimite jurnalul", "Nu acum"),
+            selectedIndex = 0,
+            onDismiss = {
+                crashAsk = false
+                container.diagnosticLog.clearCrashPending()
+            },
+            onSelect = { i ->
+                crashAsk = false
+                container.diagnosticLog.clearCrashPending()
+                if (i == 0) {
+                    container.diagnosticReporter.send()
+                    crashReport = true
+                }
+            },
+        )
+    }
+    val done = report as? ro.ak.sportshub.data.ReportState.Sent
+    val failed = report as? ro.ak.sportshub.data.ReportState.Failed
+    if (crashReport && (done != null || failed != null)) {
+        ChoiceDialog(
+            title = if (done != null) "Jurnal trimis (#${done.number})" else "Jurnalul nu s-a trimis",
+            hint = failed?.reason ?: "Mulțumesc! Îl văd în repo, la Issues.",
+            options = listOf("OK"),
+            selectedIndex = 0,
+            onDismiss = { crashReport = false },
+            onSelect = { crashReport = false },
         )
     }
 }

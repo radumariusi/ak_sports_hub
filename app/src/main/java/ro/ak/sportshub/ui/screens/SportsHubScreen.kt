@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -120,6 +121,9 @@ fun SportsHubScreen(
     val store = container.sportsSettings
     val snapshot by sports.snapshot.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
+    // E3: prima listă de meciuri afișată după pornire (o dată pe rulare, în jurnal).
+    val hasMatches = snapshot.matches.isNotEmpty()
+    LaunchedEffect(hasMatches) { if (hasMatches) container.startup.mark("lista Sports Hub afișată", " (${snapshot.matches.size} meciuri)") }
     val settings by store.settings.collectAsStateWithLifecycle()
     val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }

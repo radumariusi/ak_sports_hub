@@ -227,7 +227,7 @@ class SettingsBackup(private val context: Context, private val db: AkDatabase) {
         /** Preferințele salvate: Sports Hub, variante, dicționar, EPG, favorite, catch-up, ultimul canal. */
         val PREFS = listOf(
             SportsSettingsStore.PREFS, "variants", "sports_knowledge", "epg",
-            ChannelFavoritesStore.PREFS, CatchupStore.PREFS, "player", SuspectChannelsStore.PREFS,
+            ChannelFavoritesStore.PREFS, CatchupStore.PREFS, "player", SuspectChannelsStore.PREFS, ChannelPlaybackStore.PREFS,
         )
     }
 }
