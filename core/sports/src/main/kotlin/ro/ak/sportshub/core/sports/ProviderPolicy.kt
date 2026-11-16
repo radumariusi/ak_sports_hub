@@ -26,13 +26,14 @@ object ProviderPolicy {
 
     // Aceleași chei ca `SportEvent.provider` (furnizorii LiveSoccerTV și Sofascore au cheile din numele lor).
     private val order = listOf(
-        Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER, TheSportsDb.PROVIDER,
-        FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER,
+        Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER, OpenLigaDb.PROVIDER,
+        TheSportsDb.PROVIDER, FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER,
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
     )
 
     fun tier(provider: String): Tier = when (provider) {
-        TheSportsDb.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER -> Tier.OPEN
+        TheSportsDb.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER,
+        OpenLigaDb.PROVIDER -> Tier.OPEN
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER -> Tier.SITE
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER -> Tier.GUARDED
         else -> Tier.SITE
@@ -41,7 +42,7 @@ object ProviderPolicy {
     // Ordinea cererilor: întâi cei care dau multe meciuri dintr-o singură cerere (o pagină), ca lista să apară repede.
     private val fetchOrder = listOf(
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API,
-        Scores365.PROVIDER, TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
+        Scores365.PROVIDER, OpenLigaDb.PROVIDER, TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
     )
 
     /** Locul furnizorului în runda de cereri (mai mic = mai devreme). */
@@ -54,7 +55,7 @@ object ProviderPolicy {
 
     /** Cât rămâne bun un fișier al furnizorului: [dayOffset] 0 = azi, 1 = mâine. */
     fun freshMs(provider: String, dayOffset: Int): Long = when (tier(provider)) {
-        Tier.OPEN -> if (provider == EuroLeague.PROVIDER) 12 * HOUR else if (dayOffset >= 2) 24 * HOUR else 3 * HOUR
+        Tier.OPEN -> if (provider == EuroLeague.PROVIDER || provider == OpenLigaDb.PROVIDER) 12 * HOUR else if (dayOffset >= 2) 24 * HOUR else 3 * HOUR
         Tier.SITE -> if (dayOffset <= 0) 3 * HOUR else 6 * HOUR
         Tier.GUARDED -> if (dayOffset <= 0) 6 * HOUR else 12 * HOUR
     }
