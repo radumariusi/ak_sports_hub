@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -88,6 +89,11 @@ fun TabStrip(
     focusSignal: Int = 0,
     /** Mijlocul fiecărui tab pe ecran (x în px, față de fereastră), ca alt rând să se centreze sub el. */
     onTabX: ((Int, Float) -> Unit)? = null,
+    /** Pus pe tabul selectat, ca alt rând să poată trimite focusul exact pe el (◀▲▼▶ explicite). */
+    selectedTabRequester: FocusRequester? = null,
+    /** Unde merge focusul cu ▲ / ▼ de pe orice tab (null = cel mai apropiat element, ca de obicei). */
+    up: FocusRequester? = null,
+    down: FocusRequester? = null,
 ) {
     // Când intri în rândul de taburi (din listă sau din bara de sus), focusul vine pe tabul curent, nu pe cel aflat
     // dedesubt: focusRestorer ține minte ultimul tab, iar dacă ecranul a fost refăcut, merge pe tabul selectat.
@@ -109,6 +115,11 @@ fun TabStrip(
                 onClick = { onSelect(index) },
                 modifier = (if (index == 0) firstTabModifier else Modifier)
                     .focusRequester(requesters[index])
+                    .then(if (selected && selectedTabRequester != null) Modifier.focusRequester(selectedTabRequester) else Modifier)
+                    .focusProperties {
+                        if (up != null) this.up = up
+                        if (down != null) this.down = down
+                    }
                     .touchClick { onSelect(index) }
                     .onFocusChanged { if (it.isFocused) onSelect(index) }
                     .then(if (onTabX != null) Modifier.onGloballyPositioned { onTabX(index, it.positionInWindow().x + it.size.width / 2f) } else Modifier),

@@ -22,6 +22,10 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -88,16 +92,21 @@ import ro.ak.sportshub.ui.components.MatchBand
 import ro.ak.sportshub.ui.components.TeamLogo
 import ro.ak.sportshub.ui.components.rememberTeamLooks
 
-private enum class FilterDialog { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY }
+/** Ferestrele filtrelor din Sports Hub (aceleași și în Setări → Filtre Sports Hub). */
+internal enum class FilterDialog { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY }
 
 private val RoLocale = Locale.forLanguageTag("ro")
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm", RoLocale)
 private val DayFormat = DateTimeFormatter.ofPattern("EEE d MMM", RoLocale)
 private val WeekDayFormat = DateTimeFormatter.ofPattern("dd.MM", RoLocale)
-private val DayRowHeight = 26.dp
+private val DayRowHeight = 22.dp
 
 @Composable
 fun SportsHubScreen(
+    /** Tabul curent din meniul de sus (▲ din taburile Sports Hub urcă exact acolo). */
+    topMenu: FocusRequester? = null,
+    /** Pus pe tabul curent din Sports Hub (▼ din meniul de sus coboară exact aici). */
+    tabsEntry: FocusRequester? = null,
     onOpenMatch: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onPlay: (Long) -> Unit = {},
@@ -157,6 +166,12 @@ fun SportsHubScreen(
     }
     // La Back de pe meci, focusul revine pe meciul de unde ai plecat.
     val returnFocus = rememberReturnFocus()
+    // Navigarea sus/jos între rânduri e explicită (meniul de sus → taburi → zile → filtre → listă și înapoi),
+    // ca focusul să nu sară peste un rând când elementele nu stau unul sub altul.
+    val tabsReq = tabsEntry ?: remember { FocusRequester() }
+    val dayReq = remember { FocusRequester() }
+    val filterReqs = remember { List(FILTER_SLOTS) { FocusRequester() } }
+    var lastFilter by rememberSaveable { mutableIntStateOf(0) }
 
     val filter = settings.filter
     val zone = remember { ZoneId.systemDefault() }
@@ -210,6 +225,8 @@ fun SportsHubScreen(
     }
 
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
+    // Filtrul pe care intră focusul de sus; „Fără filtre” (6) există doar cu filtre puse.
+    val filterSlot = lastFilter.coerceIn(0, FILTER_SLOTS - 1).let { if (it == 6 && filter.isEmpty) 0 else it }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // „Toată săptămâna”: zilele de după mâine (20.11…) într-un rând mărunt, chiar sub tab. Rândul are mereu
@@ -227,6 +244,13 @@ fun SportsHubScreen(
                 tab = it
             },
             onTabX = { i, centerX -> if (i == MatchTab.WEEK.ordinal) weekTabCenter = centerX },
+            selectedTabRequester = tabsReq,
+            up = topMenu,
+            down = when {
+                tab >= MatchTab.entries.size -> null
+                currentTab == MatchTab.WEEK -> dayReq
+                else -> filterReqs[filterSlot]
+            },
         )
         Box(
             modifier = Modifier.fillMaxWidth().height(DayRowHeight)
@@ -241,6 +265,9 @@ fun SportsHubScreen(
                     days = weekDays.map { it.format(WeekDayFormat) },
                     selected = weekDay,
                     onSelect = { weekDay = it },
+                    selectedRequester = dayReq,
+                    up = tabsReq,
+                    down = filterReqs[filterSlot],
                     modifier = Modifier.padding(start = offset).onGloballyPositioned { dayStripWidth = it.size.width },
                 )
             }
@@ -268,25 +295,35 @@ fun SportsHubScreen(
             return@Column
         }
 
-        // Din meniul de sus spre listă: focusul intră pe ultimul filtru folosit, nu pe cel mai apropiat.
-        LazyRow(
-            modifier = Modifier.padding(top = 8.dp).focusRestorer(),
+        // Rândul de filtre: ▲ urcă pe zile (în „Toată săptămâna”) sau pe tabul curent; din taburi focusul intră pe
+        // ultimul filtru folosit. Marginea din jur lasă loc ramei și măririi butonului focusat (altfel ovalul e tăiat).
+        val filterUp = if (currentTab == MatchTab.WEEK) dayReq else tabsReq
+        @Composable
+        fun FilterSlot(slot: Int, text: String, onClick: () -> Unit) {
+            ActionButton(
+                text = text,
+                onClick = onClick,
+                modifier = Modifier.focusRequester(filterReqs[slot])
+                    .onFocusChanged { if (it.isFocused) lastFilter = slot }
+                    .focusProperties { up = filterUp },
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            item { ActionButton(text = "Sport: " + (filter.sport?.label ?: "toate"), onClick = { dialog = FilterDialog.SPORT }) }
-            item { ActionButton(text = "Competiție: " + (filter.competition ?: "toate"), onClick = { dialog = FilterDialog.COMPETITION }) }
-            item { ActionButton(text = "Echipă: " + (filter.team ?: "oricare"), onClick = { dialog = FilterDialog.TEAM }) }
-            item { ActionButton(text = "Limbă: " + (filter.language?.uppercase() ?: "oricare"), onClick = { dialog = FilterDialog.LANGUAGE }) }
-            item { ActionButton(text = "Calitate: " + (filter.minQuality?.let { it.label + "+" } ?: "oricare"), onClick = { dialog = FilterDialog.QUALITY }) }
-            item {
-                ActionButton(
-                    text = if (filter.onlyWithSources) "Doar cu surse: da" else "Doar cu surse: nu",
-                    onClick = { setFilter { it.copy(onlyWithSources = !it.onlyWithSources) } },
-                )
+            FilterSlot(0, "Sport: " + (filter.sport?.label ?: "toate")) { dialog = FilterDialog.SPORT }
+            FilterSlot(1, "Competiție: " + (filter.competition ?: "toate")) { dialog = FilterDialog.COMPETITION }
+            FilterSlot(2, "Echipă: " + (filter.team ?: "oricare")) { dialog = FilterDialog.TEAM }
+            FilterSlot(3, "Limbă: " + (filter.language?.uppercase() ?: "oricare")) { dialog = FilterDialog.LANGUAGE }
+            FilterSlot(4, "Calitate: " + (filter.minQuality?.let { it.label + "+" } ?: "oricare")) { dialog = FilterDialog.QUALITY }
+            FilterSlot(5, if (filter.onlyWithSources) "Doar cu surse: da" else "Doar cu surse: nu") {
+                setFilter { it.copy(onlyWithSources = !it.onlyWithSources) }
             }
-            if (!filter.isEmpty) item { ActionButton(text = "Fără filtre", onClick = { setFilter { MatchFilter() } }) }
-            item { ActionButton(text = "Actualizează", onClick = { sports.refreshInBackground(force = true) }) }
-            item { ActionButton(text = "Setări", onClick = onOpenSettings) }
+            if (!filter.isEmpty) FilterSlot(6, "Fără filtre") { setFilter { MatchFilter() }; lastFilter = 0 }
+            FilterSlot(7, "Actualizează") { sports.refreshInBackground(force = true) }
+            FilterSlot(8, "Setări", onOpenSettings)
         }
 
         Text(
@@ -410,6 +447,23 @@ fun SportsHubScreen(
         }
     }
 
+    dialog?.let { d -> SportsFilterDialog(d, onDismiss = { dialog = null }) }
+}
+
+/**
+ * Fereastra unui filtru din Sports Hub. Competițiile și sugestiile de echipe sunt doar ale sportului ales,
+ * iar schimbarea sportului scoate competiția și echipa care nu-i aparțin.
+ */
+@Composable
+internal fun SportsFilterDialog(dialog: FilterDialog, onDismiss: () -> Unit) {
+    val container = appContainer()
+    val store = container.sportsSettings
+    val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
+    val settings by store.settings.collectAsStateWithLifecycle()
+    val filter = settings.filter
+    val sport = filter.sport
+    val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
+    val matches = remember(snapshot) { snapshot.matches.map { it.match } }
     when (dialog) {
         FilterDialog.SPORT -> {
             val options = listOf<Sport?>(null) + Sport.entries
@@ -417,27 +471,35 @@ fun SportsHubScreen(
                 title = "Sport",
                 options = options.map { it?.label ?: "Toate" },
                 selectedIndex = options.indexOf(filter.sport),
-                onDismiss = { dialog = null },
-                onSelect = { i -> setFilter { it.copy(sport = options[i]) }; dialog = null },
+                onDismiss = onDismiss,
+                onSelect = { i -> setFilter { MatchLists.withSport(it, options[i], matches) }; onDismiss() },
             )
         }
         FilterDialog.COMPETITION -> {
-            val options = listOf<String?>(null) + MatchLists.competitions(snapshot.matches.map { it.match })
+            val options = listOf<String?>(null) + MatchLists.competitions(matches, sport)
             ChoiceDialog(
-                title = "Competiție",
+                title = if (sport != null) "Competiție (${sport.label})" else "Competiție",
                 options = options.map { it ?: "Toate" },
                 selectedIndex = options.indexOf(filter.competition).coerceAtLeast(0),
-                onDismiss = { dialog = null },
-                onSelect = { i -> setFilter { it.copy(competition = options[i]) }; dialog = null },
+                onDismiss = onDismiss,
+                onSelect = { i -> setFilter { it.copy(competition = options[i]) }; onDismiss() },
             )
         }
-        FilterDialog.TEAM -> TextInputDialog(
-            title = "Echipă",
-            initial = filter.team.orEmpty(),
-            hint = "O parte din numele echipei. Gol = oricare.",
-            onDismiss = { dialog = null },
-            onConfirm = { text -> setFilter { it.copy(team = text.ifBlank { null }) }; dialog = null },
-        )
+        FilterDialog.TEAM -> {
+            val teams = remember(matches, sport) { MatchLists.teams(matches, sport) }
+            TextInputDialog(
+                title = if (sport != null) "Echipă (${sport.label})" else "Echipă",
+                initial = filter.team.orEmpty(),
+                hint = if (sport != null) "O parte din numele echipei; sugestiile sunt doar de la ${sport.label.lowercase()}. Gol = oricare."
+                else "O parte din numele echipei. Gol = oricare.",
+                suggestions = { typed ->
+                    val t = Sport.fold(typed)
+                    teams.filter { Sport.fold(it).contains(t) }.take(8).map { it to null }
+                },
+                onDismiss = onDismiss,
+                onConfirm = { text -> setFilter { it.copy(team = text.ifBlank { null }) }; onDismiss() },
+            )
+        }
         FilterDialog.LANGUAGE -> {
             val known = snapshot.matches.flatMap { it.summary.languages }.toSet()
             val ordered = (settings.sourcePreferences.preferredLanguages.map { it.lowercase() } + known.sorted()).distinct()
@@ -447,8 +509,8 @@ fun SportsHubScreen(
                 hint = "Din informațiile playlistului (prefixul de țară sau atributele canalului).",
                 options = options.map { it?.uppercase() ?: "Oricare" },
                 selectedIndex = options.indexOf(filter.language).coerceAtLeast(0),
-                onDismiss = { dialog = null },
-                onSelect = { i -> setFilter { it.copy(language = options[i]) }; dialog = null },
+                onDismiss = onDismiss,
+                onSelect = { i -> setFilter { it.copy(language = options[i]) }; onDismiss() },
             )
         }
         FilterDialog.QUALITY -> {
@@ -457,13 +519,14 @@ fun SportsHubScreen(
                 title = "Calitatea minimă a unei surse",
                 options = options.map { it?.let { q -> q.label + " sau mai bună" } ?: "Oricare" },
                 selectedIndex = options.indexOf(filter.minQuality).coerceAtLeast(0),
-                onDismiss = { dialog = null },
-                onSelect = { i -> setFilter { it.copy(minQuality = options[i]) }; dialog = null },
+                onDismiss = onDismiss,
+                onSelect = { i -> setFilter { it.copy(minQuality = options[i]) }; onDismiss() },
             )
         }
-        null -> Unit
     }
 }
+
+private const val FILTER_SLOTS = 9
 
 private fun summaryLine(visible: Int, total: Int, loading: Boolean): String = when {
     loading -> "Se încarcă…"
@@ -1047,7 +1110,15 @@ private fun FittingName(name: String, fontSize: androidx.compose.ui.unit.TextUni
 
 /** Zilele din „Toată săptămâna”, mărunte, sub tab: focusul pe o zi o alege (linia chihlimbar sub ziua aleasă). */
 @Composable
-private fun DayStrip(days: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun DayStrip(
+    days: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    selectedRequester: FocusRequester,
+    up: FocusRequester,
+    down: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
     val requesters = remember(days.size) { List(days.size) { androidx.compose.ui.focus.FocusRequester() } }
     Row(
         modifier = modifier
@@ -1058,7 +1129,11 @@ private fun DayStrip(days: List<String>, selected: Int, onSelect: (Int) -> Unit,
         days.forEachIndexed { i, day ->
             androidx.tv.material3.Surface(
                 onClick = { onSelect(i) },
-                modifier = Modifier.focusRequester(requesters[i]).onFocusChanged { if (it.isFocused) onSelect(i) }
+                modifier = Modifier.focusRequester(requesters[i])
+                    .then(if (i == selected) Modifier.focusRequester(selectedRequester) else Modifier)
+                    // ▲ urcă pe „Toată săptămâna” de pe oricare zi (nu în meniul de sus), ▼ coboară pe filtre.
+                    .focusProperties { this.up = up; this.down = down }
+                    .onFocusChanged { if (it.isFocused) onSelect(i) }
                     .then(Modifier.touchClick { onSelect(i) }),
                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(5.dp)),
                 scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f),

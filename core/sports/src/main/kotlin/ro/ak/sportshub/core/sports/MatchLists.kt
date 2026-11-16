@@ -135,10 +135,38 @@ object MatchLists {
     )
 
     /** Competițiile prezente (pentru filtrul de competiție), cele mai dese întâi. */
-    fun competitions(matches: List<Match>): List<String> =
-        matches.mapNotNull { it.competition }.groupingBy { it }.eachCount()
+    /** Competițiile din listă, cele mai dese întâi; cu [sport], doar ale sportului ales (nu UCL când filtrezi pe golf). */
+    fun competitions(matches: List<Match>, sport: Sport? = null): List<String> =
+        matches.filter { sport == null || it.sport == sport }
+            .mapNotNull { it.competition }.groupingBy { it }.eachCount()
             .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
             .map { it.key }
+
+    /** Echipele (și sportivii) din listă, doar ale sportului ales, pentru sugestiile filtrului de echipă. */
+    fun teams(matches: List<Match>, sport: Sport? = null): List<String> =
+        matches.filter { sport == null || it.sport == sport }
+            .flatMap { listOf(it.home, it.away) }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }.eachCount()
+            .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key }
+
+    /**
+     * Filtrul cu alt sport: competiția și echipa care nu apar la sportul nou se scot (UCL nu rămâne lângă golf,
+     * Ferrari nu rămâne lângă fotbal). Cu „toate sporturile” nu se scoate nimic.
+     */
+    fun withSport(filter: MatchFilter, sport: Sport?, matches: List<Match>): MatchFilter {
+        if (sport == null) return filter.copy(sport = null)
+        val ofSport = matches.filter { it.sport == sport }
+        val competition = filter.competition?.takeIf { c ->
+            ofSport.any { it.competition != null && Sport.fold(it.competition) == Sport.fold(c) }
+        }
+        val team = filter.team?.takeIf { t ->
+            val f = Sport.fold(t)
+            f.isBlank() || ofSport.any { Sport.fold(it.home).contains(f) || Sport.fold(it.away).contains(f) }
+        }
+        return filter.copy(sport = sport, competition = competition, team = team)
+    }
 }
 
 /**
