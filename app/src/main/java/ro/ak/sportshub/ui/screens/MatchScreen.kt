@@ -63,6 +63,7 @@ import ro.ak.sportshub.core.sports.Verdict
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.data.MatchDetailsState
 import ro.ak.sportshub.core.sports.MatchSources
+import ro.ak.sportshub.data.orderedSources
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.data.archiveSource
@@ -92,6 +93,8 @@ private val WhenFormat = DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm", Local
 fun MatchScreen(
     matchId: String,
     onPlay: (Long) -> Unit,
+    /** Deschis din raportul zilei (C4): direct pe „De ce nu are sursă?”. */
+    openWhy: Boolean = false,
     onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
 ) {
     val container = appContainer()
@@ -114,7 +117,7 @@ fun MatchScreen(
     /** Căutarea unui canal de adăugat ca sursă: null = închisă, "" = se cere textul. */
     var addQuery by remember { mutableStateOf<String?>(null) }
     /** „De ce nu are sursă?”: în locul listei de surse apar posturile anunțate și ce s-a găsit pentru ele. */
-    var showWhy by rememberSaveable { mutableStateOf(false) }
+    var showWhy by rememberSaveable { mutableStateOf(openWhy) }
     /** Postul anunțat pe care îl legi de un canal: (post, căutare); căutarea null = se cere textul. */
     var linkStation by remember { mutableStateOf<Pair<String, String?>?>(null) }
     val firstTab = remember { FocusRequester() }
@@ -160,8 +163,10 @@ fun MatchScreen(
     }
 
     val favorite = settings.favorites.isFavorite(m)
-    val families = remember(entry, favorite, settings.sourcePreferences) {
-        MatchSources.order(entry.sources, isFavorite = favorite, prefs = settings.sourcePreferences)
+    // C1: la calitate egală, sursa care a mers bine la tine urcă (sănătatea se schimbă după fiecare redare).
+    val played by container.playbackHealth.state.collectAsStateWithLifecycle()
+    val families = remember(entry, favorite, settings.sourcePreferences, played) {
+        entry.orderedSources(isFavorite = favorite, prefs = settings.sourcePreferences)
     }
 
     // Previzualizarea se oprește când pleci de pe tabul Surse.
@@ -594,7 +599,8 @@ private fun SourcesList(
                     onLongClick = { onLongClick(s) },
                     trailing = {
                         if (c.id == previewId) Badge(text = "▶ PREVIZUALIZARE", color = AkColors.Accent)
-                        c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
+                        // Limba sursei: corecția ta, altfel pista audio văzută la redare (C2), altfel playlistul.
+                        s.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                         VariantQualityBadge(c.playlistId, c.name, c.quality)
                     },
                 )
@@ -718,6 +724,10 @@ private fun SourceActions(
         else -> null
     }
     val isSuspect = ro.ak.sportshub.data.CorrectionKey(c.playlistId, c.name) in suspect
+    // C3: de ce e aici sursa (emisiunea EPG, postul anunțat, regula) și cum a mers la redare (C1), din baza locală.
+    val why by androidx.compose.runtime.produceState(emptyList<String>(), match.id, source) {
+        value = runCatching { container.sports.explainSource(match, source) }.getOrDefault(emptyList())
+    }
     val decide = { v: Verdict? -> container.sports.decide(match, source.groupKey, v, source) }
     val actions = buildList<Pair<String, () -> Unit>> {
         add("▶ Pe tot ecranul" to onFull)
@@ -737,6 +747,7 @@ private fun SourceActions(
         selectedIndex = 0,
         onDismiss = onDismiss,
         onSelect = { i -> actions[i].second() },
+        details = why,
         hint = when (source.origin) {
             Confidence.STATION, Confidence.ELSEWHERE -> "„E meciul” / „Nu e” leagă (sau nu) postul anunțat de canalul ăsta și la meciurile viitoare."
             Confidence.RIGHTS, Confidence.DEDICATED, Confidence.LEARNED, Confidence.CONFIRMED ->

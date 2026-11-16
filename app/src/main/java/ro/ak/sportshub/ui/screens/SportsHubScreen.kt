@@ -52,6 +52,7 @@ import ro.ak.sportshub.ui.components.SectionLabel
 import ro.ak.sportshub.data.MatchEntry
 import ro.ak.sportshub.data.hasReplay
 import ro.ak.sportshub.data.bestSource
+import ro.ak.sportshub.data.orderedSources
 import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.components.ActionButton
 import ro.ak.sportshub.ui.components.Badge
@@ -112,6 +113,8 @@ fun SportsHubScreen(
     /** Pus pe tabul curent din Sports Hub (▼ din meniul de sus coboară exact aici). */
     tabsEntry: FocusRequester? = null,
     onOpenMatch: (String) -> Unit,
+    /** Meciul deschis direct pe „De ce nu are sursă?” (raportul zilei, C4). */
+    onOpenMatchWhy: (String) -> Unit = onOpenMatch,
     onOpenSettings: () -> Unit,
     onPlay: (Long) -> Unit = {},
     onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
@@ -121,6 +124,8 @@ fun SportsHubScreen(
     val store = container.sportsSettings
     val snapshot by sports.snapshot.collectAsStateWithLifecycle()
     val status by sports.status.collectAsStateWithLifecycle()
+    // E4: furnizorii în pauză după un refuz, spus pe față sub filtre.
+    val paused by sports.paused.collectAsStateWithLifecycle()
     // E3: prima listă de meciuri afișată după pornire (o dată pe rulare, în jurnal).
     val hasMatches = snapshot.matches.isNotEmpty()
     LaunchedEffect(hasMatches) { if (hasMatches) container.startup.mark("lista Sports Hub afișată", " (${snapshot.matches.size} meciuri)") }
@@ -224,6 +229,16 @@ fun SportsHubScreen(
                 .minByOrNull { it.start }
                 ?.let { byId[it.id] }
         }
+    }
+    // C4: raportul zilei în tabul „Azi”: câte meciuri favorite, câte cu surse sigure, care are nevoie de tine.
+    val report = remember(snapshot, settings, tab) {
+        if (currentTab != MatchTab.TODAY) null else ro.ak.sportshub.core.sports.DailyReports.build(
+            snapshot.matches, { it.match }, { it.summary }, settings.favorites::isFavorite, System.currentTimeMillis(), zone,
+        )
+    }
+    // A2: meciurile favorite care nu s-au terminat (pentru „se suprapune cu …” în panoul din dreapta).
+    val favoriteMatches = remember(snapshot, settings) {
+        snapshot.matches.map { it.match }.filter { it.status != MatchStatus.FINISHED && settings.favorites.isFavorite(it) }
     }
     val looks = rememberTeamLooks()
     val otherFavorites = remember(visible, calendar) {
@@ -347,6 +362,16 @@ fun SportsHubScreen(
             color = AkColors.TextDim,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
         )
+        ro.ak.sportshub.core.sports.PausedProviders.notice(paused, System.currentTimeMillis(), zone)?.let { note ->
+            Text(
+                text = "⏸ $note. „Actualizează” trece peste pauză.",
+                fontSize = 13.sp,
+                color = AkColors.Accent,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp),
+            )
+        }
 
         if (visible.isEmpty() && calendar.isEmpty()) {
             EmptyState(
@@ -371,11 +396,11 @@ fun SportsHubScreen(
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 // Back: întâi la primul meci; CH+/CH− (sau ⏪ ⏩): primul / ultimul meci.
                 val jump = ro.ak.sportshub.ui.components.rememberListJump()
-                val firstKey = if (nextFavorite != null) "next-favorite" else calendar.firstNotNullOfOrNull { (team, es) -> es.firstOrNull()?.let { "team:$team:" + it.match.id } }
+                val firstKey = if (report != null) "day-report" else if (nextFavorite != null) "next-favorite" else calendar.firstNotNullOfOrNull { (team, es) -> es.firstOrNull()?.let { "team:$team:" + it.match.id } }
                     ?: otherFavorites.firstOrNull()?.match?.id
                 val lastKey = otherFavorites.lastOrNull()?.match?.id
                     ?: calendar.lastOrNull { it.second.isNotEmpty() }?.let { (team, es) -> "team:$team:" + es.last().match.id }
-                val itemCount = (if (nextFavorite != null) 1 else 0) + calendar.sumOf { 1 + maxOf(1, it.second.size) } +
+                val itemCount = (if (report != null) 1 else 0) + (if (nextFavorite != null) 1 else 0) + calendar.sumOf { 1 + maxOf(1, it.second.size) } +
                     (if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) 1 else 0) + otherFavorites.size
                 fun jumpOn(key: String): Modifier = when (key) {
                     firstKey -> if (key == lastKey) Modifier.focusRequester(jump.first).focusRequester(jump.last) else Modifier.focusRequester(jump.first)
@@ -383,6 +408,28 @@ fun SportsHubScreen(
                     else -> Modifier
                 }
                 LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f).then(jump.modifier(itemCount, backToTop = videoChannel == null))) {
+                    report?.let { r ->
+                        item(key = "day-report") {
+                            val focus = r.focus
+                            ListRow(
+                                title = r.text,
+                                titleSize = 16.sp,
+                                subtitle = when {
+                                    focus == null -> "Toate meciurile tale de azi au surse sigure. OK: primul meci."
+                                    focus.summary.count == 0 -> "Fără surse: ${focus.match.title}. OK: de ce nu are sursă."
+                                    else -> "Doar presupuneri: ${focus.match.title}. OK: de ce nu are o sursă sigură."
+                                },
+                                leading = { Text(text = "AZI", fontSize = 18.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.Bold, color = accentText()) },
+                                leadingWidth = 52.dp,
+                                onClick = {
+                                    returnFocus.clicked("day-report")
+                                    if (focus != null) onOpenMatchWhy(focus.match.id)
+                                    else visible.firstOrNull { settings.favorites.isFavorite(it.match) }?.let { onOpenMatch(it.match.id) }
+                                },
+                                modifier = returnFocus.on("day-report").then(jumpOn("day-report")).padding(bottom = 4.dp),
+                            )
+                        }
+                    }
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -447,10 +494,12 @@ fun SportsHubScreen(
                         if (channel != null && videoMatchId == entry.match.id) {
                             ro.ak.sportshub.player.VideoPreview(channelId = channel, modifier = Modifier.padding(bottom = 8.dp))
                         }
+                        val fav = settings.favorites.isFavorite(entry.match)
                         MatchPreviewPanel(
                             entry = entry,
                             looks = looks,
-                            favorite = settings.favorites.isFavorite(entry.match),
+                            overlaps = if (fav) ro.ak.sportshub.core.sports.FavoriteConflicts.overlapping(entry.match, favoriteMatches) else emptyList(),
+                            favorite = fav,
                             hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
                             prefs = settings.sourcePreferences,
                             zone = zone,
@@ -669,6 +718,8 @@ private fun MatchRow(
 private fun MatchPreviewPanel(
     entry: MatchEntry,
     looks: TeamLookBook,
+    /** A2: alte meciuri favorite care se joacă în același timp. */
+    overlaps: List<ro.ak.sportshub.core.sports.Match> = emptyList(),
     favorite: Boolean,
     hideScore: Boolean,
     prefs: ro.ak.sportshub.core.model.SourcePreferences,
@@ -682,8 +733,9 @@ private fun MatchPreviewPanel(
             kotlinx.coroutines.delay(30_000)
         }
     }
-    val best = remember(entry, favorite, prefs) {
-        MatchSources.order(entry.sources, isFavorite = favorite, prefs = prefs)
+    val played by appContainer().playbackHealth.state.collectAsStateWithLifecycle()
+    val best = remember(entry, favorite, prefs, played) {
+        entry.orderedSources(isFavorite = favorite, prefs = prefs)
             .map { it.members.first() }
             .filterNot { it.rejected }
             .take(3)
@@ -783,6 +835,25 @@ private fun MatchPreviewPanel(
                 text = "+ încă $more " + (if (more == 1) "sursă" else "surse") + (if (guesses > 0) " · $guesses presupuse în total" else ""),
                 fontSize = 14.sp,
                 color = AkColors.TextDim,
+            )
+        }
+        // A2: conflictul cu alt meci favorit și ordinea propusă (o singură conexiune: un meci odată).
+        overlaps.firstOrNull()?.let { other ->
+            Box(Modifier.fillMaxWidth().height(1.dp).background(AkColors.Divider))
+            Text(
+                text = "SE SUPRAPUNE CU " + (if (overlaps.size > 1) "${overlaps.size} MECIURI FAVORITE" else "UN MECI FAVORIT"),
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, color = AkColors.Accent,
+            )
+            Text(
+                text = overlaps.take(2).joinToString("\n") { o -> o.title + " · " + Instant.ofEpochMilli(o.start).atZone(zone).format(TimeFormat) },
+                fontSize = 15.sp,
+                maxLines = 2,
+            )
+            Text(
+                text = ro.ak.sportshub.core.sports.FavoriteConflicts.advice(m, other, zone),
+                fontSize = 13.sp,
+                color = AkColors.TextDim,
+                maxLines = 4,
             )
         }
         Spacer(Modifier.weight(1f))

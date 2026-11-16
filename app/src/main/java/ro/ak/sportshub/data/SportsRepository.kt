@@ -59,6 +59,7 @@ import ro.ak.sportshub.core.sports.MatchAssembler
 import ro.ak.sportshub.core.sports.MatchBroadcast
 import ro.ak.sportshub.core.sports.MatchSource
 import ro.ak.sportshub.core.sports.MatchSources
+import ro.ak.sportshub.core.sports.SourceReasons
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.Sofascore
@@ -155,6 +156,8 @@ class SportsRepository(
     private val playlists: PlaylistRepository,
     private val variantStore: VariantStore,
     private val observed: ObservedVideoStore,
+    /** C2: limba pistelor audio văzută la redare (și C1, folosit la ordine în ecran). */
+    private val playback: PlaybackHealthStore,
     private val settings: SportsSettingsStore,
     private val knowledge: SportsKnowledgeStore,
     private val http: OkHttpClient,
@@ -237,6 +240,8 @@ class SportsRepository(
     @OptIn(FlowPreview::class)
     fun start() {
         if (!started.compareAndSet(false, true)) return
+        refreshPaused()
+        scope.launch { settings.settings.collect { refreshPaused() } }
         // Lista arătată urmează lista calculată; cât o schimbare de scor își așteaptă întârzierea, la 5 s.
         scope.launch {
             merge(_snapshot.map { "list" }, settings.settings.map { it.streamDelaySeconds }.distinctUntilChanged().map { "delay" })
@@ -268,6 +273,8 @@ class SportsRepository(
                 knowledge.state.map { "knowledge" },
                 // Rezoluția văzută la redare schimbă ordinea surselor.
                 observed.state.map { "observed" },
+                // Limba pistelor audio văzută la redare (C2) schimbă grupul de limbă al sursei.
+                playback.state.map { all -> all.mapValues { it.value.languages } }.distinctUntilChanged().map { "observed" },
             ).debounce(1_000).collect { reason ->
                 // Rezoluția văzută la redare schimbă doar eticheta și ordinea surselor: se aplică pe lista existentă,
                 // fără recalcul (după ce se oprește playerul, ca nimic să nu încetinească redarea).
@@ -528,6 +535,31 @@ class SportsRepository(
     /** Cât rămâne bun fișierul unui furnizor ([ProviderPolicy.freshMs]). */
     private fun fresh(provider: String, dayOffset: Int): Long = ProviderPolicy.freshMs(provider, dayOffset)
 
+    private val _paused = MutableStateFlow<List<Pair<String, Long>>>(emptyList())
+
+    /** E4: furnizorii în pauză după un refuz (numele afișat, până când), doar cei porniți în setări. */
+    val paused: StateFlow<List<Pair<String, Long>>> = _paused.asStateFlow()
+
+    private fun refreshPaused() {
+        val now = System.currentTimeMillis()
+        val s = settings.current
+        _paused.value = blocks.all.keys.mapNotNull { p ->
+            blockOf(p).until.takeIf { it > now && providerEnabled(p, s) }?.let { providerLabel(p) to it }
+        }.sortedBy { it.second }
+    }
+
+    private fun providerEnabled(provider: String, s: SportsSettings): Boolean = when (provider) {
+        Sofascore.PROVIDER -> s.sofascoreEnabled
+        LiveSoccerTv.PROVIDER -> s.liveSoccerTvEnabled
+        FotMob.PROVIDER -> s.fotMobEnabled
+        FutbolEnLaTv.PROVIDER, LiveFootballOnTv.PROVIDER -> s.futbolEnLaTvEnabled
+        LiveOnSat.PROVIDER -> s.liveOnSatEnabled
+        TheSportsDb.PROVIDER -> s.sportsDbEnabled
+        EuroLeague.PROVIDER -> s.euroLeagueEnabled
+        UsLeagues.NHL_API, UsLeagues.MLB_API -> s.usLeaguesEnabled
+        else -> true
+    }
+
     fun blockOf(provider: String): ProviderPolicy.Block =
         ProviderPolicy.Block.decode(blocks.getString(provider, null)) ?: ProviderPolicy.Block()
 
@@ -547,6 +579,7 @@ class SportsRepository(
             }
         }
         _health.update { all -> all + (provider to (all[provider] ?: ProviderHealth()).copy(pausedUntil = blockOf(provider).until.takeIf { it > now })) }
+        refreshPaused()
     }
 
     /** TheSportsDB (cheia gratuită) are o limită pe minut: cererile lui se răresc mai mult. */
@@ -1159,6 +1192,7 @@ class SportsRepository(
      */
     private fun requality(s: SportsSnapshot): SportsSnapshot {
         val seen = observed.current
+        val played = playback.current
         val variantState = variantStore.current
         var changed = false
         val matches = s.matches.map { e ->
@@ -1166,7 +1200,8 @@ class SportsRepository(
             val sources = e.sources.map { src ->
                 val c = src.channel
                 val q = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
-                if (q == src.quality) src else { touched = true; src.copy(quality = q) }
+                val lang = effectiveLanguage(c.playlistId, c.name, c.language, played, variantState)
+                if (q == src.quality && lang == src.language) src else { touched = true; src.copy(quality = q, language = lang) }
             }
             if (!touched) e else { changed = true; e.copy(sources = sources, summary = MatchSources.summary(sources)) }
         }
@@ -1532,6 +1567,7 @@ class SportsRepository(
             return now.first().title
         }
         val seen = observed.current
+        val played = playback.current
         val variantState = variantStore.current
         val entries = matches.map { m ->
             val sources = ArrayList<MatchSource<ChannelWithPlaylist>>()
@@ -1540,11 +1576,13 @@ class SportsRepository(
                 if (ChannelNameParser.isSeparator(c.name)) return@forEach
                 // Calitatea: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist.
                 val quality = qualityView(c.playlistId, c.name, c.quality, seen, variantState).quality
+                // Limba: corecția ta, altfel limba pistelor audio văzută la redare (C2), altfel playlistul.
+                val lang = effectiveLanguage(c.playlistId, c.name, c.language, played, variantState)
                 val other = if (f.confidence == Confidence.EPG && !f.rejected) elsewhere(m, c) else null
                 sources += if (other != null) {
-                    MatchSource(c, c.groupKey, c.language, quality, Confidence.ELSEWHERE, f.station, f.rejected, f.origin, other)
+                    MatchSource(c, c.groupKey, lang, quality, Confidence.ELSEWHERE, f.station, f.rejected, f.origin, other)
                 } else {
-                    MatchSource(c, c.groupKey, c.language, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
+                    MatchSource(c, c.groupKey, lang, quality, f.confidence, f.station, f.rejected, f.origin, f.airing)
                 }
             }
             val unique = sources.distinctBy { it.channel.id }
@@ -1704,6 +1742,27 @@ class SportsRepository(
     }
 
     /** Leagă postul anunțat [station] de canalul [groupKey] (dicționarul tău) și recalculează lista. */
+    /**
+     * C3: „De ce e aici sursa asta?” (OK lung pe o sursă): emisiunea EPG de pe chiar canalul ăsta (din baza locală),
+     * postul anunțat și furnizorii lui, regula de drepturi; plus cum a mers sursa la redare (C1). Fără rețea.
+     */
+    suspend fun explainSource(match: Match, source: MatchSource<ChannelWithPlaylist>): List<String> = withContext(Dispatchers.IO) {
+        val c = source.channel
+        val epgKind = source.confidence == Confidence.EPG || source.origin == Confidence.EPG
+        val hit = if (epgKind && match.broadcasts.isNotEmpty()) {
+            val mine = runCatching { epg.mapForChannels(listOf(c.id)).map { it.second }.toSet() }.getOrDefault(emptySet())
+            match.broadcasts.firstOrNull { it.epgChannelId in mine }
+        } else {
+            null
+        }
+        val providers = match.providers.filter { it != FollowedNames.PROVIDER }.map(::providerLabel).distinct().joinToString(", ")
+        listOfNotNull(
+            SourceReasons.explain(match, source, c.name, hit, ZoneId.systemDefault(), providers.ifEmpty { null }),
+            playback.of(c.playlistId, c.name)?.summary?.let { "$it." },
+            playback.of(c.playlistId, c.name)?.languages?.takeIf { it.isNotEmpty() }?.let { "Piste audio văzute la redare: " + it.joinToString(", ") { l -> l.uppercase() } + "." },
+        )
+    }
+
     fun linkStation(station: String, groupKey: String) {
         knowledge.update { it.addStationAlias(station, groupKey) }
         scope.launch { recompute() }
@@ -1940,15 +1999,25 @@ class SportsRepository(
     }
 }
 
+/**
+ * C1: cum a mers fiecare sursă la redare (0 stabilă, 1 nu se știe, 2 instabilă), din [PlaybackHealthStore]; îl pune
+ * `AppContainer`. La calitate egală, sursa stabilă urcă peste tot (lista, „cea mai bună sursă”, playerul).
+ */
+var sourceStability: (ChannelWithPlaylist) -> Int = { 1 }
+
+/** Sursele unui meci în ordinea preferințelor tale, cu sănătatea surselor la calitate egală (C1). */
+fun MatchEntry.orderedSources(isFavorite: Boolean, prefs: ro.ak.sportshub.core.model.SourcePreferences) =
+    MatchSources.order(sources, isFavorite = isFavorite, prefs = prefs) { sourceStability(it.channel) }
+
 /** Sursa care pornește direct (prima găsită, în ordinea preferințelor tale), fără cele respinse. */
 fun MatchEntry.bestSource(settings: SportsSettings): ChannelWithPlaylist? =
-    MatchSources.order(sources, isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
+    orderedSources(isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
         .firstOrNull { it.members.first().let { h -> !h.rejected && h.confidence != ro.ak.sportshub.core.sports.Confidence.ELSEWHERE } }
         ?.members?.firstOrNull()?.channel
 
 /** Prima sursă (în aceeași ordine) al cărei canal are arhivă (catch-up), pentru „de la început”. */
 fun MatchEntry.archiveSource(settings: SportsSettings): ChannelWithPlaylist? =
-    MatchSources.order(sources, isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
+    orderedSources(isFavorite = settings.favorites.isFavorite(match), prefs = settings.sourcePreferences)
         .flatMap { it.members }
         .firstOrNull { !it.rejected && (it.channel.catchupDays ?: 0) > 0 }
         ?.channel

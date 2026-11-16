@@ -382,6 +382,7 @@ object MatchInsights {
             "1H" -> "Repriza 1"
             "2H" -> "Repriza 2"
             "HT" -> "Pauză"
+            "EP" -> "Între perioade"
             "ET" -> "Prelungiri"
             "BT" -> "Pauză înainte de prelungiri"
             "P", "PEN LIVE" -> "Lovituri de departajare"
@@ -398,7 +399,7 @@ object MatchInsights {
                 null -> ""
             }
         }
-        val minute = progress?.trim()?.takeIf { it.isNotEmpty() && status == MatchStatus.LIVE && c != "HT" }
+        val minute = progress?.trim()?.takeIf { it.isNotEmpty() && status == MatchStatus.LIVE && c != "HT" && c != "EP" }
             ?.let { if (it.last().isDigit()) "$it'" else it }
         return listOfNotNull(phase.ifEmpty { null }, minute).joinToString(" · ")
     }

@@ -108,6 +108,15 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 }
                 item {
                     ListRow(
+                        title = "Zapping la pauză",
+                        subtitle = "În player, la pauza meciului (fotbal, baschet, hochei, rugby, NFL): OK te mută pe alt meci live favorit " +
+                            "sau cu surse sigure; la reluarea jocului, 10 secunde (Back rămâne) și înapoi pe meciul tău",
+                        onClick = { update(false) { it.copy(halftimeZap = !it.halftimeZap) } },
+                        trailing = { SettingValue(if (s.halftimeZap) "Da" else "Nu") },
+                    )
+                }
+                item {
+                    ListRow(
                         title = "Alerte de gol și „Final”",
                         subtitle = "Pentru meciurile favorite de la ESPN, cât aplicația e pe ecran (și peste player). Niciodată cu „Fără spoilere”",
                         onClick = { update(false) { it.copy(goalAlerts = !it.goalAlerts) } },

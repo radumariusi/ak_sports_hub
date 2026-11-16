@@ -80,12 +80,18 @@ class AppContainer(app: Application) {
     /** Variantele semnalate din player ca „canal posibil greșit”. */
     val suspectChannels = SuspectChannelsStore(app)
 
+    /** Cum a mers redarea fiecărei variante (pornire, opriri, căderi) și limba pistelor audio (C1, C2). */
+    val playbackHealth = ro.ak.sportshub.data.PlaybackHealthStore(app).also { h ->
+        ro.ak.sportshub.data.sourceStability = { c -> h.rank(c.playlistId, c.name) }
+    }
+
     val variants = VariantRepository(
         database.channels(),
         variantStore,
         preferences = { sportsSettings.current.sourcePreferences },
         observed = { observedVideo.current },
         suspect = { suspectChannels.keys.value },
+        health = { playbackHealth.current },
     )
 
     /** Fusul orar al serverelor Xtream (pentru catch-up). */
@@ -139,6 +145,7 @@ class AppContainer(app: Application) {
         playlists = playlists,
         variantStore = variantStore,
         observed = observedVideo,
+        playback = playbackHealth,
         settings = sportsSettings,
         knowledge = sportsKnowledge,
         http = http,

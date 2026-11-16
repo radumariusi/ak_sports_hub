@@ -8,6 +8,8 @@ data class SourceCandidate(
     val id: String,
     val language: String?,
     val quality: Quality,
+    /** Cum a mers la redare (C1): 0 = stabilă, 1 = nu se știe, 2 = instabilă; contează doar la calitate egală. */
+    val stability: Int = 1,
 )
 
 object SourceRanking {
@@ -23,6 +25,7 @@ object SourceRanking {
      * 4. altă limbă HD, SD
      *
      * Alt meci: după rezoluție, în orice limbă; la aceeași rezoluție, limbile preferate întâi.
+     * Peste tot, la aceeași rezoluție, sursa stabilă la tine (C1) urcă, iar cea instabilă coboară.
      */
     fun rank(
         candidates: List<SourceCandidate>,
@@ -44,6 +47,7 @@ object SourceRanking {
         }
 
         val byQualityThenLanguage = compareByDescending<SourceCandidate> { it.quality.rank }
+            .thenBy { it.stability }
             .thenBy(::langIndex)
 
         return if (isFavorite) {

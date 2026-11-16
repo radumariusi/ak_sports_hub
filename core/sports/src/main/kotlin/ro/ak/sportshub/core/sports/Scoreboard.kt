@@ -69,7 +69,7 @@ object Scoreboard {
         minute.find(l)?.let { return it.groupValues[1] + "′" }
         val last = l.substringAfterLast(" · ").lowercase()
         return when {
-            last.startsWith("pauză") -> "PAUZĂ"
+            last.startsWith("pauză") || last.startsWith("între perioade") -> "PAUZĂ"
             last.startsWith("final") -> "FINAL"
             last.startsWith("sfertul ") -> "Q" + last.removePrefix("sfertul ").trim()
             last.startsWith("prelungiri") -> "PREL."

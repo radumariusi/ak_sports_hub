@@ -73,6 +73,12 @@ import ro.ak.sportshub.core.playlist.Catchup
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.KickoffNotices
 import ro.ak.sportshub.core.sports.AutoSwitch
+import ro.ak.sportshub.core.sports.BandItem
+import ro.ak.sportshub.core.sports.GoalAlerts
+import ro.ak.sportshub.core.sports.HalftimeZap
+import ro.ak.sportshub.core.sports.ScoreBand
+import ro.ak.sportshub.core.sports.Scoreboard
+import ro.ak.sportshub.data.orderedSources
 import ro.ak.sportshub.core.sports.ArchiveJumps
 import ro.ak.sportshub.core.sports.AutoStop
 import ro.ak.sportshub.core.common.player.AudioDelay
@@ -426,6 +432,101 @@ fun PlayerScreen(
         playMatch(target)
     }
 
+    // ---------- A1: zapping la pauză ----------
+    /** Meciul propus la pauză (OK: treci pe el) și de unde pleci. */
+    var zapOffer by remember { mutableStateOf<MatchEntry?>(null) }
+    var zapOfferFrom by remember { mutableStateOf<ZapReturn?>(null) }
+    /** Meciul tău, la care te întorci la reluarea jocului. */
+    var zapBack by remember { mutableStateOf<ZapReturn?>(null) }
+    var zapCountdownSince by remember { mutableStateOf<Long?>(null) }
+    val atBreak = !replay && linkedMatch != null && HalftimeZap.supports(linkedMatch.sport) &&
+        HalftimeZap.isBreak(panelView?.label, linkedMatch.sport)
+    LaunchedEffect(atBreak, linkedMatch?.id) {
+        zapOffer = null
+        if (!atBreak) return@LaunchedEffect
+        val m = linkedMatch ?: return@LaunchedEffect
+        val ch = state.channel ?: return@LaunchedEffect
+        val s = container.sportsSettings.current
+        if (!s.halftimeZap || zapBack != null || autoSwitch != null) return@LaunchedEffect
+        val snap = container.sports.snapshot.value
+        val pick = HalftimeZap.pick(
+            m, snap.matches, { it.match }, s.favorites::isFavorite, { it.summary.sure }, { it.bestSource(s) != null },
+        ) ?: return@LaunchedEffect
+        zapOfferFrom = ZapReturn(m.id, ch.id, System.currentTimeMillis(), m.sport, m.title)
+        zapOffer = pick
+        delay(HalftimeZap.OFFER_MS)
+        zapOffer = null
+    }
+
+    /** OK pe propunere: pornește celălalt meci (pe calea schimbării canalului) și ține minte drumul înapoi. */
+    fun acceptZap() {
+        val target = zapOffer ?: return
+        val from = zapOfferFrom ?: return
+        zapOffer = null
+        zapBack = from
+        playMatch(target)
+        toast = "Pauză la ${from.title}: te întorc la reluarea jocului."
+    }
+
+    // Cât ești pe celălalt meci: starea meciului tău se cere la un minut (calea tabului Live, fără conexiunea
+    // playlistului); la reluare (sau după pauza obișnuită a sportului) numărătoare de 10 s și înapoi.
+    LaunchedEffect(zapBack) {
+        val back = zapBack ?: return@LaunchedEffect
+        var refreshedAt = 0L
+        while (true) {
+            val t = System.currentTimeMillis()
+            val entry = container.sports.snapshot.value.matches.firstOrNull { it.match.id == back.matchId }
+            if (entry == null || entry.match.status == MatchStatus.FINISHED) {
+                zapBack = null
+                return@LaunchedEffect
+            }
+            if (t - refreshedAt >= DetailsSchedule.LIVE_REFRESH_MS) {
+                refreshedAt = t
+                runCatching { details.refreshLive(entry.match) }
+            }
+            val view = details.delayedView(entry.match, System.currentTimeMillis(), container.sportsSettings.current.streamDelaySeconds * 1_000L)
+            if (view?.status == MatchStatus.FINISHED) {
+                zapBack = null
+                return@LaunchedEffect
+            }
+            val resumed = view != null && view.status == MatchStatus.LIVE && !HalftimeZap.isBreak(view.label, back.sport)
+            if (HalftimeZap.returnDue(back.sport, back.breakSeenAt, System.currentTimeMillis(), resumed)) break
+            delay(5_000)
+        }
+        zapCountdownSince = System.currentTimeMillis()
+        while (HalftimeZap.secondsLeft(zapCountdownSince ?: 0L, System.currentTimeMillis()) > 0) delay(250)
+        zapCountdownSince = null
+        zapBack = null
+        requestedMatch = back.matchId
+        if (back.channelId != state.channel?.id || replay) controller.play(back.channelId, zapGroup = 0)
+    }
+
+    // ---------- A3: banda de scoruri (tasta galbenă) ----------
+    var band by remember { mutableStateOf(false) }
+    val delayMs = sportsSettings.streamDelaySeconds * 1_000L
+    val bandItems: List<BandItem> = remember(band, snapshot, sportsSettings, now, linkedMatch?.id, revealed, detailsStates) {
+        if (!band) return@remember emptyList()
+        ScoreBand.pick(snapshot.matches.map { it.match }, sportsSettings.favorites::isFavorite, linkedMatch?.id).map { m ->
+            val hidden = Spoilers.hide(sportsSettings.noSpoilers, m.id in revealed, m.status)
+            val ev = detailsStates[m.id]?.details?.let { details.delayedDetails(m, now, delayMs, it).event }
+            val clock = Scoreboard.clock(details.delayedView(m, now, delayMs)?.label)
+            BandItem(m.id, ScoreBand.text(m, ev?.homeScore ?: m.homeScore, ev?.awayScore ?: m.awayScore, clock, hidden))
+        }
+    }
+    // Cât e banda pe ecran, scorurile se cer ca la alertele de gol: câte un `summary` ESPN pe minut, cel mult 3 meciuri,
+    // niciunul cu scorul ascuns („Fără spoilere”).
+    LaunchedEffect(band) {
+        if (!band) return@LaunchedEffect
+        while (true) {
+            val s = container.sportsSettings.current
+            val shown = ScoreBand.pick(container.sports.snapshot.value.matches.map { it.match }, s.favorites::isFavorite, linkedId)
+                .filter { !Spoilers.hide(s.noSpoilers, it.id in details.revealed.value, it.status) && container.sports.espnEventFor(it) != null }
+                .take(GoalAlerts.MAX_WATCHED)
+            shown.forEach { runCatching { details.refreshLive(it) } }
+            delay(DetailsSchedule.LIVE_REFRESH_MS)
+        }
+    }
+
     // ---------- A4: ⏪ ⏩ la faza importantă anterioară / următoare, în arhivă ----------
     fun jumpPhase(forward: Boolean) {
         val m = linkedMatch ?: run { toast = "Canalul nu e legat de un meci."; return }
@@ -503,6 +604,14 @@ fun PlayerScreen(
         }
     }
 
+    // A1: Back pe propunere o închide; Back în numărătoarea întoarcerii: rămâi pe meciul celălalt.
+    BackHandler(enabled = zapOffer != null) { zapOffer = null }
+    BackHandler(enabled = zapCountdownSince != null) {
+        zapBack = null
+        zapCountdownSince = null
+        toast = "Rămâi pe meciul ăsta."
+    }
+
     // Back în timpul numărătorii: comutarea se anulează (rămâi pe canal).
     BackHandler(enabled = autoSwitch != null) {
         autoSwitch?.let { AnnouncedKickoffs += it.match.id }
@@ -523,6 +632,12 @@ fun PlayerScreen(
             AndroidKeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> panel = Panel.Audio
             AndroidKeyEvent.KEYCODE_CAPTIONS -> panel = Panel.Subtitles
             AndroidKeyEvent.KEYCODE_PROG_RED -> panel = Panel.Quick
+            AndroidKeyEvent.KEYCODE_PROG_YELLOW -> {
+                band = !band
+                if (band && ScoreBand.pick(snapshot.matches.map { it.match }, sportsSettings.favorites::isFavorite, linkedMatch?.id).isEmpty()) {
+                    toast = "Niciun meci favorit live acum (banda rămâne, apare când începe unul)."
+                }
+            }
             AndroidKeyEvent.KEYCODE_PROG_BLUE -> if (linkedMatch != null) panel = Panel.Match
             AndroidKeyEvent.KEYCODE_INFO -> showInfo()
             AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> jumpPhase(forward = true)
@@ -541,6 +656,7 @@ fun PlayerScreen(
 
     fun shortOk() {
         when {
+            zapOffer != null && panel == Panel.None -> acceptZap()
             numberInput.isActive -> commitNumber()
             state.status is PlaybackStatus.Failed -> controller.retry()
             infoVisible -> infoVisible = false
@@ -739,6 +855,42 @@ fun PlayerScreen(
             }
         }
 
+        if (autoSwitch == null) zapOffer?.let { z ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 32.dp, end = 32.dp)
+                    .width(440.dp)
+                    .background(Overlay, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(text = "Pauză" + (zapOfferFrom?.title?.let { " la $it" } ?: ""), fontSize = 13.sp, color = AkColors.Accent, maxLines = 1)
+                Text(text = "Treci la ${z.match.title}?", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(text = "OK: da, te întorc la reluarea jocului · Back: nu", fontSize = 14.sp, color = AkColors.TextDim)
+            }
+        }
+
+        zapCountdownSince?.let { since ->
+            val left = produceState(HalftimeZap.secondsLeft(since, System.currentTimeMillis()), since) {
+                while (true) {
+                    value = HalftimeZap.secondsLeft(since, System.currentTimeMillis())
+                    delay(250)
+                }
+            }.value
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 32.dp, end = 32.dp)
+                    .width(440.dp)
+                    .background(Overlay, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(text = "Se reia jocul", fontSize = 13.sp, color = AkColors.Accent)
+                Text(text = zapBack?.title.orEmpty(), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(text = "Mă întorc în $left s · Back: rămâi aici", fontSize = 14.sp, color = AkColors.TextDim)
+            }
+        }
+
         if (autoSwitch == null) kickoff?.let { k ->
             if (panel != Panel.Quick) {
                 Column(
@@ -782,14 +934,19 @@ fun PlayerScreen(
             )
         }
 
-        if ((infoVisible || state.status !is PlaybackStatus.Playing) && panel == Panel.None) {
-            InfoBar(
-                state = state,
-                matchLine = linkedMatch?.let { m -> matchLine(m, panelView, spoilerHidden) },
-                rateMatchOn = rateOn,
-                smoothOn = surfaceOn,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+        val infoShown = (infoVisible || state.status !is PlaybackStatus.Playing) && panel == Panel.None
+        Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            // A3: banda de scoruri, o linie discretă deasupra informațiilor (tasta galbenă o pornește / oprește).
+            if (band && panel == Panel.None) ScoreBandLine(bandItems)
+            if (infoShown) {
+                InfoBar(
+                    state = state,
+                    matchLine = linkedMatch?.let { m -> matchLine(m, panelView, spoilerHidden) },
+                    rateMatchOn = rateOn,
+                    smoothOn = surfaceOn,
+                    modifier = Modifier,
+                )
+            }
         }
 
         when (panel) {
@@ -848,6 +1005,11 @@ fun PlayerScreen(
                 onFit = { panelDialog = PanelDialog.FIT },
                 autoStop = autoStopText(sleepAt, playerPrefs.stopAfterFinal),
                 onAutoStop = { panelDialog = PanelDialog.AUTO_STOP },
+                band = band,
+                onBand = {
+                    panel = Panel.None
+                    band = !band
+                },
                 onExit = onExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
@@ -1123,6 +1285,30 @@ private fun matchLine(m: Match, view: PanelView?, hidden: Boolean): String = whe
     else -> m.title
 }
 
+/** A1: unde se întoarce zapping-ul la pauză: meciul tău, canalul lui, când a început pauza. */
+private data class ZapReturn(val matchId: String, val channelId: Long, val breakSeenAt: Long, val sport: ro.ak.sportshub.core.sports.Sport?, val title: String)
+
+/** A3: banda de scoruri, o linie jos cu meciurile favorite live (scorul întârziat, ascuns la „Fără spoilere”). */
+@Composable
+private fun ScoreBandLine(items: List<BandItem>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xCC000000))
+            .padding(horizontal = 48.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = "★ LIVE", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AkColors.Accent, modifier = Modifier.padding(end = 14.dp))
+        Text(
+            text = if (items.isEmpty()) "Niciun meci favorit live acum" else items.joinToString("   ·   ") { it.text },
+            fontSize = 15.sp,
+            color = if (items.isEmpty()) AkColors.TextDim else AkColors.Text,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun StatusOverlay(status: PlaybackStatus, modifier: Modifier) {
     val (title, hint) = when (status) {
@@ -1342,6 +1528,8 @@ private fun MenuPanel(
     onFit: () -> Unit,
     autoStop: String,
     onAutoStop: () -> Unit,
+    band: Boolean,
+    onBand: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier,
 ) {
@@ -1385,6 +1573,11 @@ private fun MenuPanel(
             )
             ListRow(title = "Imaginea", subtitle = "${fit.label} pe acest canal", onClick = onFit)
             ListRow(title = "Oprire automată", subtitle = autoStop, onClick = onAutoStop)
+            ListRow(
+                title = "Banda cu scoruri",
+                subtitle = (if (band) "pornită" else "oprită") + ": meciurile favorite live, jos (tasta galbenă)",
+                onClick = onBand,
+            )
             if (state.variantCount > 1) {
                 ListRow(
                     title = "Variantele canalului",
@@ -1519,7 +1712,7 @@ private fun MatchSourcesPanel(
     modifier: Modifier,
 ) {
     val list = remember(entry, favorite, prefs) {
-        ro.ak.sportshub.core.sports.MatchSources.order(entry.sources, isFavorite = favorite, prefs = prefs).flatMap { it.members }
+        entry.orderedSources(isFavorite = favorite, prefs = prefs).flatMap { it.members }
     }
     SidePanel(modifier.width(600.dp)) {
         Column {

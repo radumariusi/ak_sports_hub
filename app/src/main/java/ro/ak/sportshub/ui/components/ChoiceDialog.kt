@@ -33,6 +33,8 @@ fun ChoiceDialog(
     onDismiss: () -> Unit,
     onSelect: (Int) -> Unit,
     hint: String? = null,
+    /** Câteva rânduri scurte sub titlu, mai vizibile decât [hint] (de exemplu „de ce e aici sursa”). */
+    details: List<String> = emptyList(),
 ) {
     val focus = remember { FocusRequester() }
     val start = selectedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
@@ -52,6 +54,9 @@ fun ChoiceDialog(
                 .padding(20.dp),
         ) {
             Text(text = title, fontSize = 20.sp)
+            details.forEach { line ->
+                Text(text = line, fontSize = 15.sp, color = AkColors.Accent, modifier = Modifier.padding(top = 4.dp))
+            }
             if (hint != null) {
                 Text(text = hint, fontSize = 13.sp, color = AkColors.TextDim, modifier = Modifier.padding(top = 4.dp))
             }

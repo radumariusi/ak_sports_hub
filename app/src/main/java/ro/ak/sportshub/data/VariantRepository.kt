@@ -25,6 +25,8 @@ class VariantRepository(
     private val observed: () -> Map<CorrectionKey, ObservedVideo> = { emptyMap() },
     /** Variantele semnalate „canal posibil greșit” ([SuspectChannelsStore]): rămân, dar după celelalte. */
     private val suspect: () -> Set<CorrectionKey> = { emptySet() },
+    /** Cum a mers redarea fiecărei variante (C1) și limba pistelor audio (C2), [PlaybackHealthStore]. */
+    private val health: () -> Map<CorrectionKey, ro.ak.sportshub.core.common.PlaybackHealth> = { emptyMap() },
 ) {
 
     /** Calitatea pentru ordine: corecția ta, altfel rezoluția văzută la redare, altfel eticheta din playlist. */
@@ -41,13 +43,15 @@ class VariantRepository(
         val now = System.currentTimeMillis()
         val seen = observed()
         val flagged = suspect()
+        val played = health()
         val sorted = VariantOrder.sort(
             variants,
             quality = { effectiveQuality(it, s, seen) },
-            language = { it.language },
+            language = { effectiveLanguage(it.playlistId, it.name, it.language, played, s) },
             isPreferred = { isPreferred(it, s) },
             failedRecently = { failedRecently(it, s, now) },
             prefs = preferences(),
+            stability = { played[CorrectionKey(it.playlistId, it.name)]?.rank ?: 1 },
         )
         return if (flagged.isEmpty()) sorted else sorted.sortedBy { CorrectionKey(it.playlistId, it.name) in flagged }
     }

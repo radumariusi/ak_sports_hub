@@ -26,7 +26,8 @@ object VariantOrder {
      * 1. varianta preferată (aleasă de tine);
      * 2. cele care n-au pornit ultima oară coboară la final (nu dispar);
      * 3. rezoluția, de la 4K în jos;
-     * 4. la aceeași rezoluție, limbile preferate (în ordinea din setări).
+     * 4. la aceeași rezoluție, cum a mers la tine ([stability]: stabilă 0, necunoscută 1, instabilă 2; C1);
+     * 5. apoi limbile preferate (în ordinea din setări).
      * La egalitate rămâne ordinea primită (playlisturi, apoi poziția din playlist).
      */
     fun <T> sort(
@@ -36,6 +37,7 @@ object VariantOrder {
         isPreferred: (T) -> Boolean = { false },
         failedRecently: (T) -> Boolean = { false },
         prefs: SourcePreferences = SourcePreferences(),
+        stability: (T) -> Int = { 1 },
     ): List<T> {
         val preferred = prefs.preferredLanguages.map { it.lowercase() }
         fun langIndex(item: T): Int =
@@ -44,6 +46,7 @@ object VariantOrder {
             compareBy<T> { if (isPreferred(it)) 0 else 1 }
                 .thenBy { if (failedRecently(it)) 1 else 0 }
                 .thenByDescending { quality(it).rank }
+                .thenBy(stability)
                 .thenBy(::langIndex),
         )
     }
