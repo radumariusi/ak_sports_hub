@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.touchClick
 import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -939,7 +940,8 @@ private fun NextFavoriteCard(
     val al = if (m.away.isNotBlank()) looks.team(m.away) else null
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() },
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
+            .then(Modifier.touchClick(onClick = onClick)),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
         border = ClickableSurfaceDefaults.border(focusedBorder = FocusBorder),
@@ -1056,7 +1058,8 @@ private fun DayStrip(days: List<String>, selected: Int, onSelect: (Int) -> Unit,
         days.forEachIndexed { i, day ->
             androidx.tv.material3.Surface(
                 onClick = { onSelect(i) },
-                modifier = Modifier.focusRequester(requesters[i]).onFocusChanged { if (it.isFocused) onSelect(i) },
+                modifier = Modifier.focusRequester(requesters[i]).onFocusChanged { if (it.isFocused) onSelect(i) }
+                    .then(Modifier.touchClick { onSelect(i) }),
                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(5.dp)),
                 scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(

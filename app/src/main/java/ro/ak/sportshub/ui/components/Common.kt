@@ -109,6 +109,7 @@ fun TabStrip(
                 onClick = { onSelect(index) },
                 modifier = (if (index == 0) firstTabModifier else Modifier)
                     .focusRequester(requesters[index])
+                    .touchClick { onSelect(index) }
                     .onFocusChanged { if (it.isFocused) onSelect(index) }
                     .then(if (onTabX != null) Modifier.onGloballyPositioned { onTabX(index, it.positionInWindow().x + it.size.width / 2f) } else Modifier),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -173,7 +174,7 @@ fun ListRow(
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.touchClick(onLongClick = onLongClick, onClick = onClick),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f),
         border = ClickableSurfaceDefaults.border(focusedBorder = FocusBorder),
@@ -382,7 +383,7 @@ fun ActionButton(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
+        modifier = modifier.touchClick(enabled = enabled, onClick = onClick),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
         border = ClickableSurfaceDefaults.border(focusedBorder = PillFocusBorder),

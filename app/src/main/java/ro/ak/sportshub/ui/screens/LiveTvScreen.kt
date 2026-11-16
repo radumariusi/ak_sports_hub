@@ -377,6 +377,7 @@ private fun ChannelList(
     }
     // Dublu-clic sus / jos: primul / ultimul canal.
     val jump = ro.ak.sportshub.ui.components.rememberListJump()
+    val touch = ro.ak.sportshub.ui.components.isTouchDevice()
     LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = jump.modifier(rows.size)) {
         itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
             val c = row.shown
@@ -409,6 +410,14 @@ private fun ChannelList(
                     }
                     c.language?.let { Badge(text = it.uppercase(), color = AkColors.Focus) }
                     VariantQualityBadge(c.playlistId, c.name, c.quality)
+                    // Pe telefon, în locul săgeții dreapta: ecranul canalului.
+                    if (touch) {
+                        ro.ak.sportshub.ui.components.ActionButton(
+                            text = "›",
+                            onClick = { returnFocus.clicked(row.key); onOpenChannel(c) },
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 },
             )
         }

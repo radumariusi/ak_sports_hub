@@ -1,5 +1,6 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.touchClick
 import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -522,7 +523,7 @@ internal fun FocusLine(
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.touchClick(onClick = onClick),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
         border = ClickableSurfaceDefaults.border(focusedBorder = FocusBorder),

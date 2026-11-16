@@ -1,5 +1,8 @@
 package ro.ak.sportshub.ui.screens
 
+import ro.ak.sportshub.ui.components.touchClick
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import ro.ak.sportshub.ui.components.ListPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -108,14 +111,20 @@ internal fun ChannelGrid(
                 text = formatDay(from, now) + if (shift > 0) "  ◀" else "",
                 fontSize = 13.sp,
                 color = AkColors.TextDim,
-                modifier = Modifier.width(NameWidth),
+                // Pe telefon: atingerea mută ghidul cu o oră înapoi (pe televizor, săgeata stânga).
+                modifier = Modifier.width(NameWidth).pointerInput(Unit) { detectTapGestures { if (shift > 0) shift-- } },
             )
             Row(modifier = Modifier.weight(1f)) {
                 GuideGrid.ticks(from).forEach { t ->
                     Text(text = formatTime(t), fontSize = 13.sp, fontFamily = AkFonts.Condensed, color = AkColors.TextDim, modifier = Modifier.weight(1f))
                 }
             }
-            Text(text = "▶", fontSize = 13.sp, color = AkColors.TextDim)
+            Text(
+                text = "▶",
+                fontSize = 13.sp,
+                color = AkColors.TextDim,
+                modifier = Modifier.pointerInput(Unit) { detectTapGestures { if (shift < GuideGrid.MAX_SHIFT_HOURS) shift++ } }.padding(horizontal = 8.dp),
+            )
         }
         LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(rows, key = { it.key }) { row ->
@@ -162,7 +171,8 @@ private fun GridChannelRow(
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth().height(52.dp).onFocusChanged { focused = it.isFocused },
+        modifier = modifier.fillMaxWidth().height(52.dp).onFocusChanged { focused = it.isFocused }
+            .touchClick(onLongClick = onLongClick, onClick = onClick),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
         border = ClickableSurfaceDefaults.border(focusedBorder = FocusBorder),
