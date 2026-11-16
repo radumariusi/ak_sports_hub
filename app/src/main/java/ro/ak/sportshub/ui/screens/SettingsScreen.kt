@@ -224,6 +224,24 @@ fun SettingsScreen(
                     )
                 }
                 item {
+                    val store = appContainer().sportsSettings
+                    ListRow(
+                        title = "„Continuă vizionarea” din Google TV",
+                        subtitle = "Meciurile favorite live sau care încep în 30 de minute; OK pornește sursa recomandată",
+                        onClick = { store.update { it.copy(watchNext = !it.watchNext) } },
+                        trailing = { Text(text = if (sports.watchNext) "Da" else "Nu", fontSize = 14.sp) },
+                    )
+                }
+                item {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    ListRow(
+                        title = "Economizor de ecran cu scoruri",
+                        subtitle = "Alege „AK Sports Hub: scoruri” în setările televizorului (Ecran → Economizor de ecran). " +
+                            "Pe unele Google TV alegerea e ascunsă de sistem.",
+                        onClick = { openDreamSettings(context) },
+                    )
+                }
+                item {
                     ListRow(
                         title = "Backup și restaurare",
                         subtitle = "Setări, favorite, alias-uri, reguli și corecții într-un fișier; playlisturile doar dacă vrei",
@@ -287,6 +305,15 @@ fun SettingsScreen(
                 scope.launch { updater.check() }
             },
         )
+    }
+}
+
+/** F3: setările economizorului de ecran ale sistemului (dacă televizorul le are). */
+private fun openDreamSettings(context: android.content.Context) {
+    val intent = android.content.Intent(android.provider.Settings.ACTION_DREAM_SETTINGS)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }.onFailure {
+        runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }
 

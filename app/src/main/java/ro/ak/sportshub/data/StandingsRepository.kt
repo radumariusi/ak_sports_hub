@@ -13,6 +13,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import ro.ak.sportshub.core.sports.Bracket
+import ro.ak.sportshub.core.sports.Brackets
 import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.Standings
 import ro.ak.sportshub.core.sports.TableGroup
@@ -24,6 +26,14 @@ data class StandingsState(
     /** Ce se cere acum sau ultima problemă; null dacă nimic. */
     val status: String? = null,
     /** Când s-a descărcat clasamentul arătat (0: niciodată). */
+    val fetchedAt: Long = 0,
+)
+
+/** Tabloul unei cupe sau al unui Grand Slam (A6), cu starea cererii. */
+data class BracketState(
+    val bracket: Bracket? = null,
+    val loading: Boolean = false,
+    val status: String? = null,
     val fetchedAt: Long = 0,
 )
 
@@ -65,6 +75,70 @@ class StandingsRepository(context: Context, private val http: OkHttpClient, priv
             set(league) { read(league, file).copy(loading = false, status = error?.let { e -> if (file.exists()) "$e Se arată clasamentul salvat." else e }) }
         }
     }
+
+    private val _brackets = MutableStateFlow<Map<String, BracketState>>(emptyMap())
+    val brackets: StateFlow<Map<String, BracketState>> = _brackets.asStateFlow()
+
+    /**
+     * A6: tabloul cupei (programul ESPN pe ani întregi, `Brackets.years`) sau al Grand Slam-ului în curs (programul
+     * zilei ATP/WTA). Cerut doar la alegerea tabloului, cel mult o dată la [MAX_AGE_MS]; răspunsurile se păstrează
+     * comprimate, iar o eroare nu șterge tabloul vechi.
+     */
+    suspend fun loadBracket(league: Espn.League, force: Boolean = false) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            dir.mkdirs()
+            val tennis = league.key in Brackets.TENNIS
+            val files: List<Pair<String, File>> = if (tennis) {
+                listOf(Brackets.dayUrl(league, Espn.today()) to File(dir, "${league.key}-tablou.json.gz"))
+            } else {
+                Brackets.years(System.currentTimeMillis()).map { y -> Brackets.yearUrl(league, y) to File(dir, "${league.key}-tablou-$y.json.gz") }
+            }
+            fun readAll(): BracketState {
+                val bodies = files.mapNotNull { (_, f) -> if (f.exists()) runCatching { gunzip(f) }.getOrNull() else null }
+                if (bodies.isEmpty()) return BracketState()
+                val bracket = runCatching {
+                    if (tennis) Brackets.parseTennis(bodies.first(), men = league.key == "ATP") else Brackets.parseCup(bodies, league.competition)
+                }.getOrNull()
+                return BracketState(bracket, fetchedAt = files.maxOf { it.second.lastModifiedOrZero() })
+            }
+            if (_brackets.value[league.key]?.bracket == null) readAll().let { saved -> setBracket(league) { saved } }
+            val oldest = files.minOf { it.second.lastModifiedOrZero() }
+            if (!force && oldest > 0 && System.currentTimeMillis() - oldest < MAX_AGE_MS) return@withContext
+            setBracket(league) { it.copy(loading = true, status = "Se cere tabloul (ESPN)…") }
+            var error: String? = null
+            for ((url, file) in files) {
+                val e = runCatching {
+                    http.newCall(Request.Builder().url(url).header("Accept", "application/json").build()).execute().use { r ->
+                        if (!r.isSuccessful) return@runCatching "ESPN a răspuns ${r.code}."
+                        val body = r.body?.string().orEmpty()
+                        if (!body.trimStart().startsWith("{") || "\"events\"" !in body) return@runCatching "ESPN a dat un răspuns fără meciuri."
+                        val tmp = File(dir, file.name + ".tmp")
+                        java.util.zip.GZIPOutputStream(tmp.outputStream()).bufferedWriter().use { it.write(body) }
+                        if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+                        null
+                    }
+                }.getOrElse { "Fără conexiune la ESPN (${it.javaClass.simpleName})." }
+                if (e != null) error = e
+            }
+            log?.log("clasament", "${league.key} tablou: " + (error ?: "ok"))
+            val read = readAll()
+            setBracket(league) {
+                val status = when {
+                    error != null && read.bracket != null -> "$error Se arată tabloul salvat."
+                    error != null -> error
+                    read.bracket == null && tennis -> "Niciun Grand Slam în desfășurare acum."
+                    read.bracket == null -> "Faza eliminatorie n-a început încă."
+                    else -> null
+                }
+                read.copy(loading = false, status = status)
+            }
+        }
+    }
+
+    private fun gunzip(f: File): String = java.util.zip.GZIPInputStream(f.inputStream()).bufferedReader().use { it.readText() }
+
+    private fun setBracket(league: Espn.League, transform: (BracketState) -> BracketState) =
+        _brackets.update { it + (league.key to transform(it[league.key] ?: BracketState())) }
 
     private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<TableGroup>>>()
 

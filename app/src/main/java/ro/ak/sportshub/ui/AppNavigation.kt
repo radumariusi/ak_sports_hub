@@ -27,6 +27,7 @@ import ro.ak.sportshub.ui.playlists.PlaylistsScreen
 import ro.ak.sportshub.ui.screens.ChannelScreen
 import ro.ak.sportshub.ui.screens.HomeScreen
 import ro.ak.sportshub.ui.screens.MatchScreen
+import ro.ak.sportshub.ui.screens.SearchScreen
 import ro.ak.sportshub.ui.screens.SportsKnowledgeScreen
 import ro.ak.sportshub.ui.screens.SportsSettingsScreen
 
@@ -42,6 +43,10 @@ private const val SPORTS_SETTINGS = "sports-settings"
 private const val SPORTS_KNOWLEDGE = "sports-knowledge"
 private const val BACKUP = "backup"
 private const val QR_SETUP = "qr-setup"
+private const val SEARCH = "search?q={q}&voice={voice}"
+
+/** Căutarea (F1): cu textul [query] sau, cu [voice], pornind direct ascultarea. */
+private fun searchRoute(query: String, voice: Boolean) = "search?q=" + Uri.encode(query) + "&voice=" + voice
 
 /** Playerul pe arhiva canalului (catch-up), de la [start] la [end] (ms UTC). */
 private fun archiveRoute(channelId: Long, start: Long, end: Long, matchId: String? = null) =
@@ -62,6 +67,12 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
     LaunchedEffect(link) {
         val target = link ?: return@LaunchedEffect
         when (target) {
+            is DeepLinks.Target.Search -> nav.navigate(searchRoute(target.query, target.voice)) {
+                // O căutare nouă înlocuiește căutarea deschisă, nu se adaugă peste ea.
+                popUpTo(SEARCH) { inclusive = true }
+                launchSingleTop = true
+            }
+            is DeepLinks.Target.Channel -> nav.navigate("player/${target.id}") { launchSingleTop = true }
             is DeepLinks.Target.Match -> nav.navigate("match/" + Uri.encode(target.id)) { launchSingleTop = true }
             is DeepLinks.Target.Play -> {
                 val snapshot = withTimeoutOrNull(15_000) { container.sports.snapshot.first { !it.loading } }
@@ -93,6 +104,21 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                     onOpenBackup = { nav.navigate(BACKUP) },
                     onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
                     onOpenQrSetup = { nav.navigate(QR_SETUP) },
+                    onOpenSearch = { nav.navigate(searchRoute("", voice = false)) },
+                )
+            }
+            composable(
+                SEARCH,
+                arguments = listOf(
+                    navArgument("q") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("voice") { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) { entry ->
+                SearchScreen(
+                    initialQuery = entry.arguments?.getString("q").orEmpty(),
+                    startVoice = entry.arguments?.getBoolean("voice") ?: false,
+                    onOpenMatch = { id -> nav.navigate("match/" + Uri.encode(id)) },
+                    onPlayChannel = { id -> nav.navigate("player/$id") { launchSingleTop = true } },
                 )
             }
             composable(BACKUP) { BackupScreen() }

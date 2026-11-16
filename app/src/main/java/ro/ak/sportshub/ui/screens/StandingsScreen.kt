@@ -41,7 +41,10 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
+import ro.ak.sportshub.core.sports.Brackets
+import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.Spoilers
 import ro.ak.sportshub.core.sports.Standings
@@ -88,20 +91,35 @@ fun StandingsTab(onOpenMatch: (String) -> Unit) {
         val teamLeagues = Standings.leagues.filter { l ->
             matches.any { m -> m.competition == l.competition && (settings.favorites.isTeam(m.home) || (m.away.isNotBlank() && settings.favorites.isTeam(m.away))) }
         }.map { it.key }.toSet()
-        Standings.ordered(settings.favorites, teamLeagues, withMatches)
+        // A6: și tabloul Grand Slam-ului în curs (ATP / WTA), la sfârșit.
+        Standings.ordered(settings.favorites, teamLeagues, withMatches) + Espn.leagues.filter { it.key in Brackets.TENNIS }
     }
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = leagues.firstOrNull { it.key == selectedKey } ?: leagues.firstOrNull()
     var card by remember { mutableStateOf<Pair<TableGroup, TableEntry>?>(null) }
 
-    LaunchedEffect(selected?.key) { selected?.let { container.standings.load(it) } }
+    val brackets by container.standings.brackets.collectAsStateWithLifecycle()
+    // A6: la cupe, tabloul fazei eliminatorii în locul clasamentului (implicit la cupele fără grupe și la tenis).
+    var bracketChoice by rememberSaveable { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    val showBracket = selected?.let { l ->
+        l.key in Brackets.TENNIS || (Brackets.has(l) && (bracketChoice[l.key] ?: (l.key in Brackets.KNOCKOUT_ONLY)))
+    } ?: false
+
+    LaunchedEffect(selected?.key, showBracket) {
+        selected?.let { if (showBracket) container.standings.loadBracket(it) else container.standings.load(it) }
+    }
 
     Row(modifier = Modifier.fillMaxSize().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         LazyColumn(contentPadding = ListPadding, modifier = Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(leagues, key = { it.key }) { l ->
                 ListRow(
-                    title = l.competition,
-                    subtitle = l.sport.label + if (settings.favorites.isCompetition(l.competition)) " · favorită" else "",
+                    title = when (l.key) {
+                        "ATP" -> "Grand Slam · simplu masculin"
+                        "WTA" -> "Grand Slam · simplu feminin"
+                        else -> l.competition
+                    },
+                    subtitle = l.sport.label + (if (Brackets.has(l)) " · tablou" else "") +
+                        if (settings.favorites.isCompetition(l.competition)) " · favorită" else "",
                     selected = l.key == selected?.key,
                     titleSize = 15.sp,
                     onClick = { selectedKey = l.key },
@@ -120,7 +138,25 @@ fun StandingsTab(onOpenMatch: (String) -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                ActionButton(text = "Actualizează", onClick = { scope.launch { container.standings.load(league, force = true) } })
+                if (Brackets.has(league) && league.key !in Brackets.TENNIS) {
+                    ActionButton(
+                        text = if (showBracket) "Clasament" else "Tablou",
+                        onClick = { bracketChoice = bracketChoice + (league.key to !showBracket) },
+                        modifier = Modifier.padding(end = 10.dp),
+                    )
+                }
+                ActionButton(
+                    text = "Actualizează",
+                    onClick = {
+                        scope.launch {
+                            if (showBracket) container.standings.loadBracket(league, force = true) else container.standings.load(league, force = true)
+                        }
+                    },
+                )
+            }
+            if (showBracket) {
+                BracketView(state = brackets[league.key], onOpenMatch = onOpenMatch)
+                return@Column
             }
             Text(
                 text = state?.status ?: state?.fetchedAt?.takeIf { it > 0 }?.let { "Clasament ESPN · actualizat " + ago(it) } ?: "Se încarcă…",
@@ -338,6 +374,120 @@ private fun TeamCard(row: TableEntry, group: TableGroup, look: TeamLook, onOpenM
                     )
                 }
             }
+        }
+    }
+}
+
+// ---------- A6: tabloul cupei ----------
+
+private val GameFormat = DateTimeFormatter.ofPattern("d MMM · HH:mm", RoLocale)
+
+/**
+ * Tabloul: rundele una lângă alta (◀ ▶ trec de la o rundă la alta, ▲ ▼ prin confruntări), pornind de la runda în curs.
+ * O confruntare arată echipele, scorul general (sau seturile), câștigătoarea îngroșată și data manșelor; cu „Fără
+ * spoilere”, scorurile și câștigătorii meciurilor începute nu se arată. OK pe o confruntare din lista Sports Hub
+ * deschide meciul.
+ */
+@Composable
+private fun BracketView(state: ro.ak.sportshub.data.BracketState?, onOpenMatch: (String) -> Unit) {
+    val container = appContainer()
+    val settings by container.sportsSettings.settings.collectAsStateWithLifecycle()
+    val snapshot by container.sports.snapshot.collectAsStateWithLifecycle()
+    val looks = rememberTeamLooks()
+    val bracket = state?.bracket
+    Text(
+        text = state?.status ?: listOfNotNull(
+            bracket?.title?.takeIf { it.isNotBlank() },
+            bracket?.season,
+            state?.fetchedAt?.takeIf { it > 0 }?.let { "ESPN · actualizat " + ago(it) },
+            if (settings.noSpoilers) "fără spoilere: scorurile sunt ascunse" else null,
+        ).joinToString(" · ").ifEmpty { "Se încarcă…" },
+        fontSize = 13.sp,
+        color = AkColors.TextDim,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
+    if (bracket == null || bracket.rounds.isEmpty()) {
+        EmptyState(
+            title = if (state?.loading != false) "Se cere tabloul…" else "Fără tablou",
+            hint = "Tabloul vine din programul ESPN al competiției: doar fazele eliminatorii.",
+        )
+        return
+    }
+    val zone = ZoneId.systemDefault()
+    val rowState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = bracket.currentRound())
+    androidx.compose.foundation.lazy.LazyRow(
+        state = rowState,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        items(bracket.rounds, key = { "round:" + it.key }) { round ->
+            Column(modifier = Modifier.width(290.dp).fillMaxHeight()) {
+                SectionLabel(round.name + " (" + round.ties.size + ")", modifier = Modifier.padding(start = 12.dp, top = 4.dp))
+                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    items(round.ties, key = { round.key + ":" + it.first + ":" + it.second }) { tie ->
+                        val hide = settings.noSpoilers && tie.started
+                        val entry = remember(snapshot.computedAt, tie) {
+                            snapshot.matches.firstOrNull { e ->
+                                val m = e.match
+                                tie.games.any { g ->
+                                    kotlin.math.abs(m.start - g.start) < TimeUnit.HOURS.toMillis(3) &&
+                                        (TeamNames.same(m.home, g.home) && TeamNames.same(m.away, g.away) ||
+                                            TeamNames.same(m.home, g.away) && TeamNames.same(m.away, g.home))
+                                }
+                            }
+                        }
+                        val next = tie.games.firstOrNull { it.status != MatchStatus.FINISHED } ?: tie.games.last()
+                        ListRow(
+                            title = tie.first + " – " + tie.second,
+                            onClick = { entry?.let { onOpenMatch(it.match.id) } },
+                            subtitle = listOfNotNull(
+                                when {
+                                    tie.live -> "LIVE"
+                                    tie.finished && tie.games.size > 1 -> "${tie.games.size} manșe"
+                                    tie.finished -> Instant.ofEpochMilli(next.start).atZone(zone).format(GameFormat)
+                                    else -> Instant.ofEpochMilli(next.start).atZone(zone).format(GameFormat) +
+                                        if (tie.games.size > 1) " · manșa ${tie.games.indexOf(next) + 1}" else ""
+                                },
+                                if (hide) null else tie.note,
+                                if (entry != null) "OK: meciul" else null,
+                            ).joinToString(" · "),
+                            titleContent = {
+                                Column {
+                                    TieLine(tie.first, if (hide) null else tie.firstScore, !hide && tie.winner == 0, settings.favorites.isTeam(tie.first), looks.team(tie.first))
+                                    TieLine(tie.second, if (hide) null else tie.secondScore, !hide && tie.winner == 1, settings.favorites.isTeam(tie.second), looks.team(tie.second))
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TieLine(name: String, score: String?, winner: Boolean, favorite: Boolean, look: TeamLook?) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
+        TeamLogo(team = name, size = 20.dp, codeFallback = false, look = look)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = (if (favorite) "★ " else "") + name,
+            fontSize = 15.sp,
+            fontWeight = if (winner) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (score != null) {
+            Text(
+                text = score,
+                fontSize = 16.sp,
+                fontFamily = AkFonts.Condensed,
+                fontWeight = if (winner) FontWeight.Bold else FontWeight.Medium,
+                color = if (winner) accentText() else androidx.compose.ui.graphics.Color.Unspecified,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }
