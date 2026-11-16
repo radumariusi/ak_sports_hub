@@ -33,6 +33,25 @@ object TheSportsDb {
     fun tvDayUrl(key: String, day: LocalDate): String =
         "$BASE/${enc(key.ifBlank { DEFAULT_KEY })}/eventstv.php?d=$day"
 
+    /** Echipa după nume (cheia gratuită dă un rezultat): sigla, culorile și prescurtarea, pentru echipele fără ESPN. */
+    fun searchTeamUrl(key: String, name: String): String =
+        "$BASE/${enc(key.ifBlank { DEFAULT_KEY })}/searchteams.php?t=${enc(name.trim())}"
+
+    /** Aspectul primei echipe din `searchteams.php` (doar dacă e aceeași echipă, [TeamNames.same]); null altfel. */
+    fun parseTeamLook(body: String, name: String): TeamLook? {
+        val o = firstArray(body).firstOrNull() as? JsonObject ?: return null
+        val found = o.str("strTeam") ?: return null
+        val alt = o.str("strTeamAlternate")?.split(',')?.map { it.trim() }.orEmpty()
+        if (!TeamNames.same(found, name) && alt.none { TeamNames.same(it, name) }) return null
+        val look = TeamLook(
+            logo = o.str("strBadge") ?: o.str("strTeamBadge") ?: o.str("strLogo"),
+            color = o.str("strColour1")?.takeIf { it.startsWith("#") || it.length == 6 },
+            altColor = o.str("strColour2")?.takeIf { it.startsWith("#") || it.length == 6 },
+            code = o.str("strTeamShort")?.takeIf { it.length in 2..4 },
+        )
+        return look.takeIf { !it.isEmpty }
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }

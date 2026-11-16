@@ -30,6 +30,8 @@ import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.OfficialStats
 import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.TheSportsDbDetails
+import ro.ak.sportshub.core.sports.SportEvent
+import ro.ak.sportshub.core.sports.TheSportsDb
 
 /** Detaliile unui meci, cu starea cererilor. */
 data class MatchDetailsState(
@@ -60,6 +62,8 @@ class MatchDetailsRepository(
     private val fotmobEventFor: (Match) -> String? = { null },
     /** Meciul EuroLeague / EuroCup din programul oficial („E2026_379”), pentru statisticile oficiale; null dacă nu e. */
     private val euroleagueEventFor: (Match) -> String? = { null },
+    /** Siglele și culorile echipelor; echipele fără siglă se caută o dată la TheSportsDB. */
+    private val teamLooks: TeamLookStore? = null,
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -103,6 +107,7 @@ class MatchDetailsRepository(
                 dir.mkdirs()
                 cleanup()
                 set(match.id) { it.copy(details = read(match), loading = true) }
+                if (s.sportsDbEnabled) fillTeamLooks(match, s.sportsDbKey)
                 // Meciul nu e în programul ESPN descărcat (azi și mâine): îl caut în programul ligii, în ziua lui.
                 val espn = espnRef(match) ?: lookupEspn(match)
                 // NBA, NHL, MLB: statisticile oficiale ale ligii completează ce nu are ESPN (sau îl înlocuiesc).
@@ -446,6 +451,33 @@ class MatchDetailsRepository(
         return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
     }
 
+    private val teamsDir = File(context.noBackupFilesDir, "sports/echipe")
+
+    /**
+     * Echipele meciului fără siglă în carte (de obicei cele pe care ESPN nu le are): TheSportsDB `searchteams`
+     * (gratuit, un rezultat), cel mult o dată la 30 de zile pe echipă; sigla, culorile și prescurtarea intră în carte.
+     */
+    private fun fillTeamLooks(match: Match, key: String) {
+        val store = teamLooks ?: return
+        if (match.away.isBlank()) return
+        teamsDir.mkdirs()
+        val now = System.currentTimeMillis()
+        for (name in listOf(match.home, match.away)) {
+            if (store.book.value.team(name)?.logo != null) continue
+            val f = File(teamsDir, sha(TeamNames.key(name).ifBlank { name }) + ".json")
+            if (f.exists() && now - f.lastModified() < TEAM_LOOK_MS) continue
+            // Fișierul se scrie și când nu s-a găsit nimic, ca echipa să nu se mai ceară luna asta.
+            if (!download(TheSportsDb.searchTeamUrl(key, name), f)) runCatching { f.writeText("{}") }
+            val look = parseFile0(f) { TheSportsDb.parseTeamLook(it, name) } ?: continue
+            store.learnLooks(listOf(SportEvent(TheSportsDb.PROVIDER, "team", null, null, name, "", 0L, homeLook = look)))
+        }
+    }
+
+    private fun <T> parseFile0(f: File, parse: (String) -> T): T? = if (!f.exists()) null else runCatching { parse(f.readText()) }.getOrNull()
+
+    private fun sha(text: String): String =
+        MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+
     /** Descarcă într-un fișier temporar și îl păstrează doar dacă are date (un răspuns gol nu înlocuiește unul bun). */
     private fun keepIfGood(url: String, target: File, good: (String) -> Boolean) {
         val tmp = File(dir, target.name + ".new")
@@ -607,6 +639,7 @@ class MatchDetailsRepository(
         val FOTMOB_LIVE_MS = TimeUnit.SECONDS.toMillis(60)
         val OFFICIAL_LIVE_MS = TimeUnit.SECONDS.toMillis(60)
         val OFFICIAL_SCHEDULE_MS = TimeUnit.MINUTES.toMillis(30)
+        val TEAM_LOOK_MS = TimeUnit.DAYS.toMillis(30)
         val FOTMOB_PRE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_PAUSE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_LINEUP_BEFORE_MS = TimeUnit.MINUTES.toMillis(90)

@@ -64,6 +64,17 @@ class TeamLookStore(context: Context, private val scope: CoroutineScope) {
         write(file, next.encode())
     }
 
+    /** Aspectul unor echipe aflat altfel (TheSportsDB, la deschiderea meciului): doar cartea siglelor, nu și catalogul. */
+    @Synchronized
+    fun learnLooks(events: Collection<SportEvent>) {
+        ensureLoaded()
+        val old = _book.value
+        val next = runCatching { old.learn(events) }.getOrNull() ?: return
+        if (next === old) return
+        _book.value = next
+        write(file, next.encode())
+    }
+
     private fun write(target: File, text: String) {
         scope.launch(Dispatchers.IO) {
             runCatching {
