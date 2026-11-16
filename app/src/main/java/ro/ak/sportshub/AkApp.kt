@@ -125,6 +125,7 @@ class AppContainer(app: Application) {
 
     /** Siglele, culorile și forma echipelor, învățate din programul furnizorilor. */
     val teamLooks = TeamLookStore(app, scope)
+    val apiKeys = ApiKeys(app)
 
     /** Imaginile siglelor (pe disc, descărcate o dată; nimic cât rulează playerul). */
     val logos = LogoImages(app, http, playing)
@@ -149,7 +150,7 @@ class AppContainer(app: Application) {
     /** Clasamentele (tabul „Clasamente” și Pre-meci), cerute doar cât e deschis tabul sau meciul. */
     val standings = StandingsRepository(app, http, diagnosticLog)
 
-    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor, standings, sports::fotmobEventFor, sports::euroleagueEventFor, teamLooks)
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor, standings, sports::fotmobEventFor, sports::euroleagueEventFor, teamLooks, { apiKeys.goalApi })
 
     /** Meciul la care te uiți acum în player (pentru alertele de gol: nu pentru meciul de pe ecran). */
     val watchingMatch = MutableStateFlow<String?>(null)

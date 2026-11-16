@@ -34,12 +34,13 @@ import ro.ak.sportshub.core.sports.TheSportsDb
 import ro.ak.sportshub.core.sports.ProviderPolicy
 import ro.ak.sportshub.data.ReportState
 
-private enum class SportsDialog { LANGUAGES, QUALITY, KEY, DAYS, TEAMS, COMPETITIONS, NAMES, EVENT_ZONE, STREAM_DELAY }
+private enum class SportsDialog { LANGUAGES, QUALITY, KEY, GOAL_KEY, DAYS, TEAMS, COMPETITIONS, NAMES, EVENT_ZONE, STREAM_DELAY }
 
 /** Setările Sports Hub: ordinea surselor, sursele de meciuri și favoritele. */
 @Composable
 fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
     val container = appContainer()
+    var goalKey by remember { mutableStateOf(container.apiKeys.goalApi) }
     val store = container.sportsSettings
     val sports = container.sports
     val s by store.settings.collectAsStateWithLifecycle()
@@ -146,6 +147,14 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                         subtitle = "Pentru potrivirea pe nume de post; doar cu o cheie proprie (cheia gratuită dă un singur rezultat)",
                         onClick = { update(true) { it.copy(sportsDbTv = !it.sportsDbTv) } },
                         trailing = { SettingValue(if (s.sportsDbTv) "Da" else "Nu") },
+                    )
+                }
+                item {
+                    ListRow(
+                        title = "Cheie GOAL API",
+                        subtitle = "Opțională: a cincea sursă de statistici la fotbal (goal-api.com, 1.000 de cereri pe zi gratuit)",
+                        onClick = { dialog = SportsDialog.GOAL_KEY },
+                        trailing = { SettingValue(if (goalKey == null) "fără" else "pusă") },
                     )
                 }
                 item {
@@ -391,6 +400,17 @@ fun SportsSettingsScreen(onOpenKnowledge: () -> Unit = {}) {
                 },
             )
         }
+        SportsDialog.GOAL_KEY -> TextInputDialog(
+            title = "Cheie GOAL API",
+            initial = "",
+            hint = "Gol = fără GOAL API",
+            onDismiss = { dialog = null },
+            onConfirm = { text ->
+                container.apiKeys.goalApi = text
+                goalKey = container.apiKeys.goalApi
+                dialog = null
+            },
+        )
         SportsDialog.KEY -> TextInputDialog(
             title = "Cheie TheSportsDB",
             initial = s.sportsDbKey,
