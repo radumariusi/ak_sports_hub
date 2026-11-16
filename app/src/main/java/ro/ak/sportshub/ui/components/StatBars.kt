@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -69,7 +69,9 @@ fun LazyListScope.statGroups(groups: List<StatGroups.Group>, keyPrefix: String, 
                 modifier = Modifier.padding(start = 16.dp, top = if (compact) 3.dp else 8.dp, bottom = if (compact) 0.dp else 2.dp),
             )
         }
-        items(g.rows, key = { "$keyPrefix-${g.title}-${it.line.name}" }) { r -> StatBarRow(r, compact) }
+        // Cheia cu poziția: ESPN dă la fotbal american aceeași statistică de două ori („interceptions”), iar două
+        // chei la fel opresc aplicația.
+        itemsIndexed(g.rows, key = { i, it -> "$keyPrefix-${g.title}-$i-${it.line.name}" }) { _, r -> StatBarRow(r, compact) }
     }
 }
 

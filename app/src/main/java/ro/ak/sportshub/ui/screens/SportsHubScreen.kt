@@ -106,7 +106,7 @@ fun SportsHubScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
-    // F5: fereastra video (OK ținut pe un meci): meciul și canalul pornit; se oprește la Back sau pe alt meci.
+    // F5: fereastra video (OK lung pe un meci): meciul și canalul pornit; se oprește la Back sau pe alt meci.
     var videoMatchId by remember { mutableStateOf<String?>(null) }
     var videoChannel by remember { mutableStateOf<Long?>(null) }
     var videoNote by remember { mutableStateOf<String?>(null) }
@@ -423,7 +423,7 @@ private fun MatchRow(
     zone: ZoneId,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
-    /** OK ținut: fereastra video cu sursa recomandată (F5). */
+    /** OK lung: fereastra video cu sursa recomandată (F5). */
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -636,7 +636,7 @@ private fun MatchPreviewPanel(
             )
         }
         Spacer(Modifier.weight(1f))
-        Text(text = "OK deschide meciul: surse, pre-meci, live · OK ținut: video aici (Back oprește)", fontSize = 14.sp, color = AkColors.TextDim)
+        Text(text = "OK deschide meciul: surse, pre-meci, live · OK lung: video aici (Back oprește)", fontSize = 14.sp, color = AkColors.TextDim)
     }
 }
 
@@ -701,7 +701,7 @@ private const val StandingsTabLabel = "Clasamente"
 
 /**
  * Tabul „Acum pe canalele tale”: fiecare canal de sport cu meciul care rulează acum pe el (din lista de meciuri,
- * fără cereri în plus). OK pornește canalul (varianta preferată sau cea mai bună), OK ținut deschide meciul.
+ * fără cereri în plus). OK pornește canalul (varianta preferată sau cea mai bună), OK lung deschide meciul.
  */
 @Composable
 private fun NowOnChannelsList(
@@ -715,7 +715,7 @@ private fun NowOnChannelsList(
     val now = snapshot.computedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
     val rows = remember(snapshot) { NowOnChannels.build(snapshot.matches.map { it.match to it.sources }, now) }
     Text(
-        text = if (rows.isEmpty()) "Niciun canal cu meci acum." else "${rows.size} canale cu meci acum · OK pornește canalul · OK ținut: meciul",
+        text = if (rows.isEmpty()) "Niciun canal cu meci acum." else "${rows.size} canale cu meci acum · OK pornește canalul · OK lung: meciul",
         fontSize = 13.sp,
         color = AkColors.TextDim,
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),

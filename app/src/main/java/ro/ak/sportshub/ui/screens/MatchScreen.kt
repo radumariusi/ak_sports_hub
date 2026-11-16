@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -288,7 +289,7 @@ fun MatchScreen(
                             }
                         }
                     },
-                    // OK: previzualizare în dreapta; OK pe aceeași sursă: pe tot ecranul. OK ținut: alegerile sursei.
+                    // OK: previzualizare în dreapta; OK pe aceeași sursă: pe tot ecranul. OK lung: alegerile sursei.
                     onClick = { src ->
                         if (previewOf?.channel?.id == src.channel.id) {
                             returnFocus.clicked("s:" + src.channel.id)
@@ -483,7 +484,7 @@ private fun WhyNoSource(
                 )
             }
         }
-        items(d.stations, key = { "st:" + it.station.name + "|" + it.station.country }) { c ->
+        itemsIndexed(d.stations, key = { i, it -> "st:$i:" + it.station.name + "|" + it.station.country }) { _, c ->
             val linkable = c.outcome == StationOutcome.MISSING || c.outcome == StationOutcome.OTHER_COUNTRY
             ListRow(
                 title = c.station.name + (c.station.country?.let { " ($it)" } ?: ""),
@@ -533,7 +534,7 @@ private fun WhyNoSource(
 /**
  * Lista surselor, pe grupuri de limbi (limbile tale, apoi spaniolă / italiană / germană / franceză, apoi restul), în
  * fiecare grup în ordinea preferințelor (găsite, presupuse, „EPG-ul arată altceva”); cele respinse la final.
- * OK o previzualizează în dreapta, încă un OK pe ea o pornește pe tot ecranul; OK ținut apăsat: alegerile sursei.
+ * OK o previzualizează în dreapta, încă un OK pe ea o pornește pe tot ecranul; OK lung: alegerile sursei.
  */
 @Composable
 private fun SourcesList(
@@ -613,7 +614,7 @@ private fun SourcesList(
             Text(
                 text = "Calitatea și limba vin din playlist (✓ = rezoluția văzută la redare). În fiecare grup: întâi sursele găsite, apoi cele " +
                     "presupuse, apoi cele al căror EPG arată altceva" + (if (favorite) " (meci favorit: limbile preferate întâi)." else ".") +
-                    " OK: previzualizare în dreapta, încă un OK: tot ecranul. OK ținut: e meciul / nu e / alt canal. ◀ ▶: taburile.",
+                    " OK: previzualizare în dreapta, încă un OK: tot ecranul. OK lung: e meciul / nu e / alt canal. ◀ ▶: taburile.",
                 fontSize = 12.sp,
                 color = AkColors.TextDim,
                 modifier = Modifier.padding(14.dp),
@@ -662,7 +663,7 @@ private fun sourceReason(s: MatchSource<*>): String = when {
 
 /**
  * Previzualizarea unei surse, în dreapta listei: același player (un singur stream, permisul playlistului), mic.
- * Nu ia focusul: OK pe aceeași sursă din listă o trece pe tot ecranul, OK ținut deschide alegerile ei.
+ * Nu ia focusul: OK pe aceeași sursă din listă o trece pe tot ecranul, OK lung deschide alegerile ei.
  */
 @Composable
 private fun SourcePreviewPane(
@@ -674,7 +675,7 @@ private fun SourcePreviewPane(
             SectionLabel("Previzualizare")
             Text(
                 text = "OK pe o sursă o pornește aici, mică: vezi dacă merge, ce e pe ea și ce rezoluție are (se notează singură " +
-                    "pe etichetă). Încă un OK pe aceeași sursă: pe tot ecranul. OK ținut apăsat: e meciul / nu e / alt canal în " +
+                    "pe etichetă). Încă un OK pe aceeași sursă: pe tot ecranul. OK lung: e meciul / nu e / alt canal în " +
                     "stream. Un singur stream odată (o conexiune pe playlist).",
                 fontSize = 14.sp,
                 color = AkColors.TextDim,
@@ -690,14 +691,14 @@ private fun SourcePreviewPane(
         }
         Text(text = listOfNotNull(c.playlistName, sourceReason(source)).joinToString(" · "), fontSize = 13.sp, color = AkColors.TextDim, maxLines = 2)
         Text(
-            text = "OK din nou: pe tot ecranul · OK ținut: e meciul / nu e / alt canal · Back: oprește",
+            text = "OK din nou: pe tot ecranul · OK lung: e meciul / nu e / alt canal · Back: oprește",
             fontSize = 13.sp,
             color = AkColors.Accent,
         )
     }
 }
 
-/** Alegerile unei surse (OK ținut apăsat pe ea): tot ecranul, previzualizare, e meciul, nu e, alt canal în stream. */
+/** Alegerile unei surse (OK lung pe ea): tot ecranul, previzualizare, e meciul, nu e, alt canal în stream. */
 @Composable
 private fun SourceActions(
     match: ro.ak.sportshub.core.sports.Match,

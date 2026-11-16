@@ -67,7 +67,7 @@ private data class GridRow(val key: String, val shown: ChannelWithPlaylist, val 
 /**
  * Ghidul în grilă (F6): canalele pe rânduri, [GuideGrid.HOURS] ore pe orizontală, emisiunile ca blocuri cu lățimea
  * după durată și linia lui „acum”. ▲▼ canalele, ◀ ▶ mută ora (◀ de la ora curentă trece la grupuri), OK pornește
- * canalul, OK ținut îl pune la favorite. Programul vine doar din baza EPG locală (nicio cerere la furnizor).
+ * canalul, OK lung îl pune la favorite. Programul vine doar din baza EPG locală (nicio cerere la furnizor).
  */
 @Composable
 internal fun ChannelGrid(

@@ -170,7 +170,7 @@ fun LiveTvScreen(
                 item {
                     ListRow(
                         title = "★ Canale favorite",
-                        subtitle = if (favoriteKeys.isEmpty()) "OK ținut apăsat pe un canal îl adaugă la favorite" else null,
+                        subtitle = if (favoriteKeys.isEmpty()) "OK lung pe un canal îl adaugă la favorite" else null,
                         selected = selectedGroup == FAVORITES && !(searching && mode.channels),
                         onClick = {
                             selectedGroup = FAVORITES
@@ -307,9 +307,9 @@ fun LiveTvScreen(
             }
             Text(
                 text = message ?: if (liveSettings.guideGrid) {
-                    "Grilă: ◀ ▶ mută ora, OK pornește canalul, OK ținut: favorit. Ecranul canalului: din afișarea listă."
+                    "Grilă: ◀ ▶ mută ora, OK pornește canalul, OK lung: favorit. Ecranul canalului: din afișarea listă."
                 } else {
-                    "OK ținut apăsat: favorit. Săgeata dreapta: variante, varianta preferată, corecții și program. " +
+                    "OK lung: favorit. Săgeata dreapta: variante, varianta preferată, corecții și program. " +
                         "Calitatea și limba sunt cele declarate de playlist."
                 },
                 fontSize = 13.sp,

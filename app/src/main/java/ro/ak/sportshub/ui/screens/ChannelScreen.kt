@@ -69,7 +69,7 @@ private val LanguageChoices = listOf(
 
 /**
  * Un canal cu toate variantele lui (aceeași denumire normalizată și țară, din toate playlisturile).
- * OK pe o variantă o pornește; OK ținut apăsat deschide opțiunile ei: varianta preferată, corecția
+ * OK pe o variantă o pornește; OK lung deschide opțiunile ei: varianta preferată, corecția
  * calității sau a limbii, scoaterea din canal. Canalul întreg se poate uni cu altul.
  * Calitatea și limba sunt cele din playlist (sau corecția ta); stream-urile nu se verifică.
  */
@@ -130,7 +130,7 @@ fun ChannelScreen(channelId: Long, onPlay: (Long) -> Unit, onOpenSchedule: (Long
         Text(
             text = "${list.size} " + (if (list.size == 1) "variantă" else "variante") +
                 (if (playlists > 1) " în $playlists playlisturi" else "") +
-                " · OK pornește varianta · OK ținut apăsat: opțiunile ei",
+                " · OK pornește varianta · OK lung: opțiunile ei",
             fontSize = 14.sp,
             color = AkColors.TextDim,
             modifier = Modifier.padding(top = 4.dp),
