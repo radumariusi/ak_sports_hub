@@ -17,6 +17,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.Espn
+import ro.ak.sportshub.core.sports.EuroLeague
 import ro.ak.sportshub.core.sports.LiveDelay
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.PanelView
@@ -56,6 +57,8 @@ class MatchDetailsRepository(
     private val standings: StandingsRepository? = null,
     /** Meciul FotMob (fotbal) din programul descărcat, a doua sursă pentru statistici și formații; null dacă nu e. */
     private val fotmobEventFor: (Match) -> String? = { null },
+    /** Meciul EuroLeague / EuroCup din programul oficial („E2026_379”), pentru statisticile oficiale; null dacă nu e. */
+    private val euroleagueEventFor: (Match) -> String? = { null },
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -281,7 +284,7 @@ class MatchDetailsRepository(
     /** NBA / NHL / MLB după start, când ESPN lipsește sau n-are statistici ori jucători. */
     private fun officialGaps(match: Match, hasEspn: Boolean): Boolean {
         if (match.away.isBlank() || match.status == MatchStatus.SCHEDULED) return false
-        OfficialStats.leagueOf(match.competition, match.sport) ?: return false
+        if (OfficialStats.leagueOf(match.competition, match.sport) == null && euroleagueUrl(match) == null) return false
         if (!hasEspn) return true
         val d = espnDetails(match) ?: return true
         return d.stats.isEmpty() || d.lineup.isEmpty()
@@ -293,7 +296,6 @@ class MatchDetailsRepository(
      * o ultimă cerere. Un răspuns fără date nu înlocuiește unul bun.
      */
     private fun fetchOfficial(match: Match, force: Boolean) {
-        val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return
         val now = System.currentTimeMillis()
         val b = base(match)
         val stamp = File(dir, "$b-off.stamp")
@@ -303,6 +305,14 @@ class MatchDetailsRepository(
             if (now - last < OFFICIAL_LIVE_MS) return
             if (match.status == MatchStatus.FINISHED && data.exists() && last > match.end + OFFICIAL_LIVE_MS) return
         }
+        // EuroLeague / EuroCup: id-ul e deja în programul oficial, o singură cerere.
+        euroleagueUrl(match)?.let { url ->
+            runCatching { stamp.writeText(now.toString()) }
+            set(match.id) { it.copy(status = "Se cer statisticile oficiale EuroLeague…") }
+            keepIfGood(url, data) { EuroLeague.parseBoxScore(it) != null }
+            return
+        }
+        val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return
         runCatching { stamp.writeText(now.toString()) }
         val ref = File(dir, "$b-offref.txt")
         var id = ref.takeIf { it.exists() }?.readText()?.trim()?.ifEmpty { null }
@@ -400,7 +410,11 @@ class MatchDetailsRepository(
         return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
     }
 
+    private fun euroleagueUrl(match: Match): String? =
+        runCatching { euroleagueEventFor(match) }.getOrNull()?.let { EuroLeague.boxScoreUrl(it) }
+
     private fun official(match: Match): MatchDetails? {
+        if (euroleagueUrl(match) != null) return parseFile("${base(match)}-off.json") { EuroLeague.parseBoxScore(it) }
         val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return null
         return parseFile("${base(match)}-off.json") { OfficialStats.parseStats(league, it) }
     }

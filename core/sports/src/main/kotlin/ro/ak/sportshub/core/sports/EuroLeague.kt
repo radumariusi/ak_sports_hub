@@ -65,6 +65,61 @@ object EuroLeague {
         }
     }
 
+    /**
+     * Statisticile oficiale ale meciului (`live.euroleague.net/api/BoxScore`, fără cheie; format văzut pe un răspuns
+     * real): totalurile echipelor (`Stats[].totr`) și jucătorii (`PlayersStats`, titularii cu `IsStarter` = 1).
+     * [providerId] e `identifier` din program („E2026_379”); null dacă nu se poate citi.
+     */
+    fun boxScoreUrl(providerId: String): String? {
+        val season = providerId.substringBefore('_', "").takeIf { it.length > 1 && it.drop(1).all(Char::isDigit) } ?: return null
+        val code = providerId.substringAfter('_').takeIf { it.isNotEmpty() && it.all(Char::isDigit) } ?: return null
+        return "https://live.euroleague.net/api/BoxScore?gamecode=$code&seasoncode=$season"
+    }
+
+    private val boxStats = listOf(
+        "Aruncări de 2 puncte" to ("FieldGoalsMade2" to "FieldGoalsAttempted2"),
+        "Aruncări de 3 puncte" to ("FieldGoalsMade3" to "FieldGoalsAttempted3"),
+        "Aruncări libere" to ("FreeThrowsMade" to "FreeThrowsAttempted"),
+        "Recuperări" to ("TotalRebounds" to null),
+        "Recuperări în atac" to ("OffensiveRebounds" to null),
+        "Recuperări în apărare" to ("DefensiveRebounds" to null),
+        "Pase de coș" to ("Assistances" to null),
+        "Intercepții" to ("Steals" to null),
+        "Mingi pierdute" to ("Turnovers" to null),
+        "Blocaje (aruncări blocate)" to ("BlocksFavour" to null),
+        "Faulturi" to ("FoulsCommited" to null),
+        "Evaluare (PIR)" to ("Valuation" to null),
+    )
+
+    fun parseBoxScore(body: String): MatchDetails? {
+        val root = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: return null
+        val teams = (root["Stats"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        if (teams.size < 2) return null
+        val h = teams[0].obj("totr")
+        val a = teams[1].obj("totr")
+        val stats = if (h == null || a == null) emptyList() else boxStats.mapNotNull { (label, keys) ->
+            val (made, attempted) = keys
+            val hm = h.text(made) ?: return@mapNotNull null
+            val am = a.text(made) ?: return@mapNotNull null
+            if (attempted == null) return@mapNotNull StatLine(label, hm, am)
+            val ht = h.text(attempted)
+            val at = a.text(attempted)
+            StatLine(label, hm + (ht?.let { " din $it" } ?: ""), am + (at?.let { " din $it" } ?: ""))
+        }
+        val lineup = players(teams[0], true) + players(teams[1], false)
+        return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
+    }
+
+    private fun players(team: JsonObject, home: Boolean) =
+        (team["PlayersStats"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { p ->
+            val raw = p.text("Player") ?: return@mapNotNull null
+            // „LARKIN, SHANE” → „Shane Larkin”.
+            val name = raw.split(',').map { part ->
+                part.trim().lowercase().split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.titlecase() } }
+            }.reversed().joinToString(" ").trim()
+            LineupPlayer(name = name, position = null, number = p.text("Dorsal"), home = home, substitute = p.text("IsStarter") != "1")
+        }.sortedBy { it.substitute }
+
     private fun club(side: JsonObject?): String? = side?.obj("club")?.let { it.text("name") ?: it.text("editorialName") }
 
     private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
