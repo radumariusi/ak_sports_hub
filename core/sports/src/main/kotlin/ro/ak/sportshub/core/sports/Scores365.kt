@@ -83,6 +83,11 @@ object Scores365 {
         }
     }
 
+    /** Programul ca meciuri ale sportului [sport] (furnizor de meciuri): competiția fără etapă („Bundesliga - Round 12” → „Bundesliga”). */
+    fun parseScheduleFor(body: String, sport: Sport): List<SportEvent> = parseSchedule(body).map { e ->
+        e.copy(sport = sport.sportsDbName, competition = e.competition?.substringBefore(" - ")?.trim())
+    }
+
     /**
      * Statisticile: rândurile echipei gazdă și ale oaspeților, unite după `id` (sau nume), în ordinea lor.
      * Gazdele sunt `competitorNum` 1 (sau prima echipă din `games`/`competitors`).

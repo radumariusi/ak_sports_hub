@@ -66,6 +66,7 @@ import ro.ak.sportshub.core.sports.SourceWindow
 import ro.ak.sportshub.core.sports.SourceSummary
 import ro.ak.sportshub.core.sports.SportChannels
 import ro.ak.sportshub.core.sports.SportEvent
+import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.StationIndex
 import ro.ak.sportshub.core.sports.StationNames
 import ro.ak.sportshub.core.sports.TheSportsDb
@@ -411,6 +412,15 @@ class SportsRepository(
             }
         }
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
+        // 365Scores: programul complet al zilei (UTC) pentru handbal și volei, azi și mâine.
+        for (sport in ProviderPolicy.scores365Sports(s.sports)) {
+            val id = Scores365.sportId(sport) ?: continue
+            for (offset in 0..1) {
+                val day = today.plusDays(offset.toLong())
+                val f = File(dir, "s365-${sport.name}-$day.json")
+                if (force || isStale(f, fresh(Scores365.PROVIDER, offset))) jobs += Job(Scores365.scheduleUrl(id, day), f)
+            }
+        }
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
         val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
@@ -1085,6 +1095,10 @@ class SportsRepository(
                     else -> if (Sport.BASEBALL in s.sports) parsed(f) { UsLeagues.parseMlb(it) } else emptyList()
                 }
             }
+        }
+        files.filter { it.name.startsWith("s365-") && it.name.endsWith(".json") }.forEach { f ->
+            val sport = f.name.split('-').getOrNull(1)?.let(Sport::fromName)?.takeIf { it in s.sports } ?: return@forEach
+            events += parsed(f) { Scores365.parseScheduleFor(it, sport) }
         }
         if (s.euroLeagueEnabled && Sport.BASKETBALL in s.sports) {
             files.filter { it.name.startsWith("euroleague-") && it.name.endsWith(".json") }.forEach { f ->
@@ -1941,6 +1955,7 @@ fun providerOf(url: String): String {
         "sofascore" in u -> "sofascore"
         FutbolEnLaTv.isSite(u) -> FutbolEnLaTv.PROVIDER
         "euroleague" in u -> EuroLeague.PROVIDER
+        "365scores" in u -> Scores365.PROVIDER
         "liveonsat" in u -> LiveOnSat.PROVIDER
         "fotmob" in u -> FotMob.PROVIDER
         "espn.com" in u -> UsLeagues.ESPN
@@ -1959,6 +1974,7 @@ fun providerLabel(provider: String): String = when (provider) {
     FotMob.PROVIDER -> "FotMob"
     UsLeagues.ESPN -> "ESPN"
     EuroLeague.PROVIDER -> "EuroLeague"
+    Scores365.PROVIDER -> "365Scores"
     UsLeagues.NHL_API -> "NHL"
     UsLeagues.MLB_API -> "MLB"
     FollowedNames.PROVIDER -> "Nume urmărit (EPG)"

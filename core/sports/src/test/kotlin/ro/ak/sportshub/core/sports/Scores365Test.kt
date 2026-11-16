@@ -52,6 +52,18 @@ class Scores365Test {
     }
 
     @Test
+    fun `programul ca meciuri de handbal`() {
+        val body = """{"games":[{"id":1,"competitionDisplayName":"Bundesliga - Round 12","startTime":"2026-11-16T18:00:00+00:00",
+            "statusGroup":2,"homeCompetitor":{"id":5,"name":"SC Magdeburg"},"awayCompetitor":{"id":6,"name":"SG Flensburg-Handewitt"}}]}"""
+        val e = Scores365.parseScheduleFor(body, Sport.HANDBALL).single()
+        assertEquals("Bundesliga", e.competition)
+        assertEquals(Sport.HANDBALL.sportsDbName, e.sport)
+        assertEquals(MatchStatus.SCHEDULED, e.status)
+        assertEquals(listOf(Sport.HANDBALL), ProviderPolicy.scores365Sports(listOf(Sport.HANDBALL, Sport.FOOTBALL, Sport.DARTS)))
+        assertEquals(false, Sport.HANDBALL in ProviderPolicy.sportsDbSports(listOf(Sport.HANDBALL, Sport.DARTS)))
+    }
+
+    @Test
     fun `sporturile cunoscute`() {
         assertEquals(3, Scores365.sportId(Sport.TENNIS))
         assertNull(Scores365.sportId(null))
