@@ -35,6 +35,10 @@ jobs:
       - name: Capturi de ecran
         run: ./gradlew :app:testDebugUnitTest --tests 'ro.ak.sportshub.capturi.*' --stacktrace
 
+      - name: Drumul focusului (testul de navigare)
+        if: always()
+        run: cat app/build/outputs/roborazzi/navigare.txt || true
+
       - name: Capturile ca artefact (3 zile)
         if: always()
         uses: actions/upload-artifact@v4

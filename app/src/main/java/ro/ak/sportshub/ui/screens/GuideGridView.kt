@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -126,8 +127,10 @@ internal fun ChannelGrid(
                 modifier = Modifier.pointerInput(Unit) { detectTapGestures { if (shift < GuideGrid.MAX_SHIFT_HOURS) shift++ } }.padding(horizontal = 8.dp),
             )
         }
-        LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            items(rows, key = { it.key }) { row ->
+        // Back: întâi la primul canal; CH+/CH− (P+/P−, ⏪ ⏩): primul / ultimul canal, ca în listă.
+        val jump = ro.ak.sportshub.ui.components.rememberListJump()
+        LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = jump.modifier(rows.size)) {
+            itemsIndexed(rows, key = { _, r -> r.key }) { index, row ->
                 val list = row.variants.take(GRID_EPG_VARIANTS).firstNotNullOfOrNull { programmes[it.id]?.takeIf { p -> p.isNotEmpty() } }.orEmpty()
                 GridChannelRow(
                     row = row,
@@ -135,7 +138,7 @@ internal fun ChannelGrid(
                     nowFraction = ((now - from).toFloat() / GuideGrid.SPAN_MS).takeIf { it > 0.005f && it < 0.995f },
                     onClick = { returnFocus.clicked(row.key); onClick(row.shown) },
                     onLongClick = { onLongClick(row.shown) },
-                    modifier = returnFocus.on(row.key).onPreviewKeyEvent { e ->
+                    modifier = returnFocus.on(row.key).then(jump.row(index, rows.size)).onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (e.key) {
                             Key.DirectionRight -> {

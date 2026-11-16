@@ -355,3 +355,143 @@ private fun DrawScope.drawSport(sport: Sport?, color: Color) {
         }
     }
 }
+
+/** Variante propuse pentru iconițele refăcute (fotbal, handbal, volei, snooker); planșa din capturi le arată pe toate. */
+val SportGlyphVariants = listOf(
+    "fotbal-1", "fotbal-2", "fotbal-3",
+    "handbal-1", "handbal-2", "handbal-3",
+    "volei-1", "volei-2", "volei-3",
+    "snooker-1", "snooker-2", "snooker-3",
+)
+
+@Composable
+fun SportGlyphVariant(key: String, color: Color, size: Dp = 18.dp) {
+    Canvas(Modifier.size(size)) { drawVariant(key, color) }
+}
+
+internal fun DrawScope.drawVariant(key: String, color: Color) {
+    val s = this.size.width / 24f
+    val stroke = Stroke(width = 1.9f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    val thin = 1.5f * s
+    fun p(x: Float, y: Float) = Offset(x * s, y * s)
+    fun line(x1: Float, y1: Float, x2: Float, y2: Float, w: Float = 1.9f * s) =
+        drawLine(color, p(x1, y1), p(x2, y2), strokeWidth = w, cap = StrokeCap.Round)
+    fun circle(x: Float, y: Float, r: Float, fill: Boolean = false, w: Float = 1.9f * s) =
+        if (fill) drawCircle(color, radius = r * s, center = p(x, y)) else drawCircle(color, radius = r * s, center = p(x, y), style = Stroke(width = w))
+    fun polar(r: Float, deg: Float) = (12f + r * kotlin.math.cos(Math.toRadians(deg.toDouble())).toFloat()) to
+        (12f + r * kotlin.math.sin(Math.toRadians(deg.toDouble())).toFloat())
+    fun path(vararg pts: Pair<Float, Float>, close: Boolean = false) = Path().apply {
+        pts.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * s, y * s) else lineTo(x * s, y * s) }
+        if (close) close()
+    }
+    fun curve(from: Pair<Float, Float>, ctrl: Pair<Float, Float>, to: Pair<Float, Float>, w: Float = thin) {
+        val pa = Path().apply {
+            moveTo(from.first * s, from.second * s)
+            quadraticTo(ctrl.first * s, ctrl.second * s, to.first * s, to.second * s)
+        }
+        drawPath(pa, color, style = Stroke(width = w, cap = StrokeCap.Round))
+    }
+    val pent = (0 until 5).map { -90f + it * 72f }
+    when (key) {
+        // Fotbal 1: mingea clasică — pentagonul plin din mijloc și cele cinci petice pline de pe margine.
+        "fotbal-1" -> {
+            circle(12f, 12f, 10f)
+            drawPath(path(*pent.map { polar(3.8f, it) }.toTypedArray(), close = true), color)
+            pent.forEach { a ->
+                line(polar(3.8f, a).first, polar(3.8f, a).second, polar(6.8f, a).first, polar(6.8f, a).second, thin)
+                drawPath(path(polar(6.8f, a), polar(10f, a - 22f), polar(10f, a + 22f), close = true), color)
+            }
+        }
+        // Fotbal 2: doar contururi — pentagonul din mijloc și hexagoanele schițate în jur.
+        "fotbal-2" -> {
+            circle(12f, 12f, 10f)
+            drawPath(path(*pent.map { polar(4f, it) }.toTypedArray(), close = true), color, style = stroke)
+            pent.forEach { a ->
+                line(polar(4f, a).first, polar(4f, a).second, polar(7.2f, a).first, polar(7.2f, a).second, thin)
+                curve(polar(7.2f, a), polar(8.6f, a + 22f), polar(10f, a + 30f))
+                curve(polar(7.2f, a), polar(8.6f, a - 22f), polar(10f, a - 30f))
+            }
+        }
+        // Fotbal 3: mingea în poartă (rama și plasa).
+        "fotbal-3" -> {
+            drawPath(path(2.5f to 20f, 2.5f to 5f, 21.5f to 5f, 21.5f to 20f), color, style = stroke)
+            for (x in listOf(7f, 12f, 17f)) line(x, 5f, x, 11f, 1.1f * s)
+            line(2.5f, 8.5f, 21.5f, 8.5f, 1.1f * s)
+            circle(12f, 15.5f, 4.5f)
+            drawPath(path(*pent.map { a -> (12f + 1.8f * kotlin.math.cos(Math.toRadians(a.toDouble())).toFloat()) to (15.5f + 1.8f * kotlin.math.sin(Math.toRadians(a.toDouble())).toFloat()) }.toTypedArray(), close = true), color)
+        }
+        // Handbal 1: jucătorul care aruncă, cu mingea deasupra.
+        "handbal-1" -> {
+            circle(11f, 4.5f, 2.2f, fill = true)
+            circle(19.5f, 3.5f, 2.3f)
+            line(11f, 8f, 10f, 14.5f)
+            line(11f, 9f, 18f, 5.5f)
+            line(11f, 9.5f, 6f, 12f)
+            line(10f, 14.5f, 6f, 21f)
+            line(10f, 14.5f, 15f, 17f); line(15f, 17f, 15.5f, 21.5f)
+        }
+        // Handbal 2: poarta de handbal (dungi) cu mingea.
+        "handbal-2" -> {
+            drawPath(path(2.5f to 21f, 2.5f to 6f, 21.5f to 6f, 21.5f to 21f), color, style = stroke)
+            for (x in listOf(5.5f, 9.5f, 13.5f, 17.5f)) line(x, 6f, x + 2f, 6f, 3f * s)
+            circle(12f, 15f, 4.5f)
+            curve(7.8f to 13.5f, 12f to 16.5f, 16.2f to 13.5f)
+            line(12f, 10.5f, 12f, 15.2f, thin)
+        }
+        // Handbal 3: mâna care ține mingea.
+        "handbal-3" -> {
+            circle(12f, 8f, 6f)
+            curve(6.4f to 6.5f, 12f to 10f, 17.6f to 6.5f)
+            line(12f, 2f, 12f, 8.6f, thin)
+            drawPath(path(5f to 13f, 5f to 17f, 8f to 22f, 16f to 22f, 19f to 17f, 19f to 12.5f), color, style = stroke)
+            for (x in listOf(8.5f, 12f, 15.5f)) line(x, 13.5f, x, 16f, thin)
+        }
+        // Volei 1: mingea cu trei benzi răsucite din centru.
+        "volei-1" -> {
+            circle(12f, 12f, 10f)
+            for (a in listOf(-90f, 30f, 150f)) {
+                curve(12f to 12f, polar(7f, a + 50f), polar(10f, a + 10f))
+                curve(polar(3.2f, a + 120f), polar(8.5f, a + 95f), polar(10f, a + 60f))
+            }
+        }
+        // Volei 2: mingea deasupra fileului.
+        "volei-2" -> {
+            circle(12f, 6.5f, 4.8f)
+            curve(7.5f to 5f, 12f to 8f, 16.5f to 5f)
+            curve(12f to 1.8f, 10f to 6.5f, 12.5f to 11.2f)
+            line(1.5f, 14.5f, 22.5f, 14.5f)
+            line(1.5f, 18f, 22.5f, 18f, thin)
+            for (x in listOf(4f, 8f, 12f, 16f, 20f)) line(x, 14.5f, x, 18f, 1.1f * s)
+            line(1.5f, 13f, 1.5f, 22f); line(22.5f, 13f, 22.5f, 22f)
+        }
+        // Volei 3: mingea cu cele trei panouri curbe, ca un „Y” rotunjit.
+        "volei-3" -> {
+            circle(12f, 12f, 10f)
+            curve(12f to 12f, 6f to 9f, 4f to 4.5f, w = 1.9f * s)
+            curve(12f to 12f, 18f to 9f, 20f to 4.5f, w = 1.9f * s)
+            curve(12f to 12f, 13.5f to 17f, 10f to 21.8f, w = 1.9f * s)
+        }
+        // Snooker 1: triunghiul cu bile.
+        "snooker-1" -> {
+            drawPath(path(12f to 3f, 22f to 20.5f, 2f to 20.5f, close = true), color, style = stroke)
+            circle(12f, 9.3f, 1.9f, fill = true)
+            circle(9.6f, 13.6f, 1.9f, fill = true); circle(14.4f, 13.6f, 1.9f, fill = true)
+            circle(7.2f, 17.8f, 1.9f, fill = true); circle(12f, 17.8f, 1.9f, fill = true); circle(16.8f, 17.8f, 1.9f, fill = true)
+        }
+        // Snooker 2: tacul care lovește bila albă spre bila colorată.
+        "snooker-2" -> {
+            line(2f, 21f, 11f, 13f, 2.4f * s)
+            circle(13.5f, 11f, 2.4f)
+            circle(19f, 6f, 2.6f, fill = true)
+            line(15.8f, 9f, 16.8f, 8.1f, 1.1f * s)
+        }
+        // Snooker 3: buzunarul mesei cu o bilă.
+        "snooker-3" -> {
+            drawRoundRect(color, topLeft = p(2.5f, 5f), size = Size(19f * s, 14f * s),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5f * s), style = stroke)
+            for ((x, y) in listOf(2.5f to 5f, 21.5f to 5f, 2.5f to 19f, 21.5f to 19f, 12f to 5f, 12f to 19f)) circle(x, y, 1.6f, fill = true)
+            circle(9f, 12f, 2f, fill = true)
+            circle(15.5f, 12f, 2f)
+        }
+    }
+}
