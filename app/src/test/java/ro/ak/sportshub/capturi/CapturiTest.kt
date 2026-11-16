@@ -225,7 +225,7 @@ class CapturiTest {
     fun variantaVerificata() {
         val id = seedObserved()
         compose.setContent { AkTheme { ChannelScreen(channelId = id, onPlay = {}, onOpenSchedule = {}) } }
-        waitFor("în playlist")
+        waitFor("FHD ✓")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/7-variante-rezolutie-reala.png")
     }
 
