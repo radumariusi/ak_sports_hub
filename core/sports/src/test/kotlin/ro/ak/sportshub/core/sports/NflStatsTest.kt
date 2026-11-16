@@ -33,3 +33,12 @@ class NflStatsTest {
         assertNull(StatGroups.number("31:20"))
     }
 }
+
+class ShortNamesTest {
+    @Test
+    fun `numele se scurteaza treptat`() {
+        val f = TeamCodes.shorter("Manchester United")
+        org.junit.Assert.assertEquals(listOf("Manchester United", "Man Utd", "Man U.", "MUN"), f)
+        org.junit.Assert.assertEquals("Tottenham", TeamCodes.shorter("Tottenham Hotspur FC")[2])
+    }
+}

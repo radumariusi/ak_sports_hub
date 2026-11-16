@@ -1811,7 +1811,7 @@ class SportsRepository(
         val CAL_REFRESH_MS = TimeUnit.DAYS.toMillis(7)
 
         /** Zilele ESPN cerute: azi, mâine și restul săptămânii (tabul „Săptămâna asta”). */
-        const val ESPN_DAYS = 7
+        const val ESPN_DAYS = 9
 
         /** Cât de des se verifică scorurile care își așteaptă întârzierea. */
         const val DELAY_TICK_MS = 5_000L
@@ -1848,7 +1848,7 @@ class SportsRepository(
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
         const val MAX_EXTRACT_CACHE = 300_000
-        val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(7)
+        val WINDOW_AHEAD_MS = TimeUnit.DAYS.toMillis(9)
         const val IN_CHUNK = 500
         const val MAX_CATEGORY_ROWS = 20_000
         const val MAX_UNMATCHED = 150

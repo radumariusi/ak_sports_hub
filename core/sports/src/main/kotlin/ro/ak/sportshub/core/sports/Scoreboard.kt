@@ -30,6 +30,28 @@ object TeamCodes {
         }
         return code.uppercase()
     }
+
+    private val shortWords = mapOf(
+        "manchester" to "Man", "united" to "Utd", "athletic" to "Ath.", "atletico" to "Atl.", "atlético" to "Atl.",
+        "borussia" to "B.", "saint" to "St", "sporting" to "Sp.", "olympique" to "OL", "internazionale" to "Inter",
+        "university" to "Univ.", "universitatea" to "U", "state" to "St.", "wanderers" to "W.", "hotspur" to "",
+        "albion" to "", "rovers" to "R.", "city" to "City", "county" to "Co.", "national" to "Nat.",
+    )
+
+    /**
+     * Forme tot mai scurte ale numelui, pentru locurile înguste (panoul din dreapta): numele întreg, fără prefixele
+     * de club (FC, AFC…), cu cuvintele lungi prescurtate („Manchester United” → „Man Utd”), apoi primul cuvânt
+     * cu inițialele celorlalte, la final codul de 3 litere. Fără duplicate, în ordinea asta.
+     */
+    fun shorter(name: String): List<String> {
+        val words = name.trim().split(' ').filter { it.isNotEmpty() }
+        val noNoise = words.filter { it.uppercase().trimEnd('.') !in noise }.ifEmpty { words }
+        val abbreviated = noNoise.mapNotNull { w -> shortWords[w.lowercase()]?.let { it.ifEmpty { null } } ?: w.takeIf { shortWords[w.lowercase()] == null } }
+            .ifEmpty { noNoise }
+        val initials = if (abbreviated.size > 1) abbreviated.first() + " " + abbreviated.drop(1).joinToString(" ") { it.take(1) + "." } else null
+        return listOfNotNull(name.trim(), noNoise.joinToString(" "), abbreviated.joinToString(" "), initials, of(name))
+            .filter { it.isNotBlank() }.distinct()
+    }
 }
 
 /** Ce scrie pe tabela de scor și în panoul meciului din player. */
