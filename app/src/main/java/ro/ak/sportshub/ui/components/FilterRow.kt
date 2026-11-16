@@ -56,7 +56,7 @@ fun FilterPill(
     modifier: Modifier = Modifier,
     /** Sportul ales (doar la [FilterIcon.SPORT]): iconița lui în locul celei generice. */
     sport: Sport? = null,
-    maxWidth: Dp = 190.dp,
+    maxWidth: Dp = 170.dp,
 ) {
     var focused by remember { mutableStateOf(false) }
     Surface(
@@ -81,7 +81,7 @@ fun FilterPill(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (icon == FilterIcon.SPORT) SportGlyph(sport, color = tint) else FilterGlyph(icon, color = tint)
-                Text(
+                if (text.isNotEmpty()) Text(
                     text = text,
                     fontSize = 15.sp,
                     fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Medium,

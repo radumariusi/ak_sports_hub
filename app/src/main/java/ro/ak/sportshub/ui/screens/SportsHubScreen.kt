@@ -322,7 +322,8 @@ fun SportsHubScreen(
                     { setFilter { it.copy(onlyWithSources = !it.onlyWithSources) } }, slotModifier(5),
                 )
                 if (!filter.isEmpty) {
-                    FilterPill(FilterIcon.CLEAR, "Fără filtre", null, { setFilter { MatchFilter() }; lastFilter = 0 }, slotModifier(6))
+                    // „Fără filtre”: doar ✕, ca rândul să încapă și cu toate filtrele puse.
+                    FilterPill(FilterIcon.CLEAR, "", null, { setFilter { MatchFilter() }; lastFilter = 0 }, slotModifier(6))
                 }
             }
             // Actualizează și Setări: butoane rotunde doar cu iconițe, despărțite de filtre.
