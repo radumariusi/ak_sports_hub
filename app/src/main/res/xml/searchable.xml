@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- F1: căutarea aplicației (Google Assistant, căutarea globală a televizorului): meciuri și canale. -->
+<searchable xmlns:android="http://schemas.android.com/apk/res/android"
+    android:label="@string/app_name"
+    android:hint="@string/search_hint"
+    android:searchSuggestAuthority="ro.ak.sportshub.search"
+    android:searchSuggestIntentAction="android.intent.action.VIEW"
+    android:searchSuggestSelection=" ?"
+    android:searchSuggestThreshold="2"
+    android:includeInGlobalSearch="true"
+    android:searchSettingsDescription="@string/search_settings"
+    android:voiceSearchMode="showVoiceSearchButton|launchRecognizer" />

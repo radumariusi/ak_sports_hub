@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AK Sports Hub</string>
+    <string name="search_hint">Echipă, competiție sau canal</string>
+    <string name="search_settings">Meciuri din Sports Hub și canale din playlisturi</string>
+    <string name="dream_label">AK Sports Hub: scoruri</string>
 </resources>

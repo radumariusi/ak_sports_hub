@@ -49,6 +49,8 @@ fun HomeScreen(
     onOpenQrSetup: () -> Unit = {},
     /** Meciul deschis direct pe „De ce nu are sursă?” (raportul zilei, C4). */
     onOpenMatchWhy: (String) -> Unit = onOpenMatch,
+    /** F1: căutarea în meciuri și canale (și cu vocea). */
+    onOpenSearch: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
@@ -99,6 +101,7 @@ fun HomeScreen(
                 // Taburile ocupă tot locul rămas, ca ceasul să stea lipit de marginea din dreapta.
                 modifier = Modifier.weight(1f),
             )
+            ro.ak.sportshub.ui.components.ActionButton(text = "⌕ Caută", onClick = onOpenSearch, modifier = Modifier.padding(end = 14.dp))
             HeaderClock()
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {

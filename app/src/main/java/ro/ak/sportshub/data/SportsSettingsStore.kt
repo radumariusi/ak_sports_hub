@@ -70,6 +70,8 @@ data class SportsSettings(
     val reminderMinutes: Int = MatchReminders.DEFAULT_LEAD_MINUTES,
     /** Rândul „Meciurile tale de azi” pe ecranul principal Android TV. */
     val homeRow: Boolean = true,
+    /** F2: meciurile favorite live (sau care încep curând) în rândul „Continuă vizionarea” din Google TV. */
+    val watchNext: Boolean = true,
     /** Comutare automată pe meciul favorit cu un minut înainte de start (cu 10 secunde ca s-o anulezi). */
     val autoSwitch: Boolean = true,
     /** Alertele de gol și „Final” pentru meciurile favorite (niciodată cu „Fără spoilere”). */
@@ -170,6 +172,7 @@ class SportsSettingsStore(context: Context) {
                 reminders = o.optBoolean("reminders", d.reminders),
                 reminderMinutes = o.optInt("reminderMinutes", d.reminderMinutes).coerceIn(1, 120),
                 homeRow = o.optBoolean("homeRow", d.homeRow),
+                watchNext = o.optBoolean("watchNext", d.watchNext),
                 autoSwitch = o.optBoolean("autoSwitch", d.autoSwitch),
                 goalAlerts = o.optBoolean("goalAlerts", d.goalAlerts),
                 halftimeZap = o.optBoolean("halftimeZap", d.halftimeZap),
@@ -216,6 +219,7 @@ class SportsSettingsStore(context: Context) {
         put("reminders", s.reminders)
         put("reminderMinutes", s.reminderMinutes)
         put("homeRow", s.homeRow)
+        put("watchNext", s.watchNext)
         put("autoSwitch", s.autoSwitch)
         put("halftimeZap", s.halftimeZap)
         put("goalAlerts", s.goalAlerts)

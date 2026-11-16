@@ -34,7 +34,7 @@ class PosterProvider : ContentProvider() {
     companion object {
         const val AUTHORITY = "ro.ak.sportshub.posters"
         const val DIR = "posters"
-        private val NAME = Regex("""p\d+-\d+\.png""")
+        private val NAME = Regex("""[pw]\d+-\d+\.png""")
 
         fun uri(name: String): Uri = Uri.parse("content://$AUTHORITY/$name")
     }

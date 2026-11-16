@@ -32,6 +32,7 @@ import ro.ak.sportshub.R
 import ro.ak.sportshub.core.sports.HomeRow
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchStatus
+import ro.ak.sportshub.core.sports.WatchNextPick
 
 /**
  * Rândul „Meciurile tale de azi” de pe ecranul principal Android TV (Android 8+): meciurile favorite,
@@ -69,6 +70,77 @@ class HomeChannel(private val context: Context, private val container: AppContai
                 if (cards != null) withContext(Dispatchers.IO) { runCatching { sync(cards) } }
             }
         }
+        // F2: rândul „Continuă vizionarea” / „Urmează” al ecranului principal (al tuturor aplicațiilor).
+        container.scope.launch {
+            combine(container.sports.snapshot, container.sportsSettings.settings) { snap, s ->
+                when {
+                    snap.loading -> null
+                    !s.watchNext -> emptyList()
+                    else -> {
+                        val zone = ZoneId.systemDefault()
+                        val counts = snap.matches.associate { it.match.id to it.summary.count }
+                        WatchNextPick.pick(snap.matches.map { it.match }, s.favorites::isFavorite, System.currentTimeMillis())
+                            .map { m -> card(m, counts[m.id] ?: 0, zone) }
+                    }
+                }
+            }.debounce(5_000).distinctUntilChanged().collect { cards ->
+                if (cards != null) withContext(Dispatchers.IO) { runCatching { syncWatchNext(cards) } }
+            }
+        }
+    }
+
+    /**
+     * F2: meciurile din „Continuă vizionarea”: cele noi se adaugă, cele schimbate se rescriu, cele care nu mai sunt
+     * (terminate, nu mai sunt favorite) se scot. Unul scos de tine din rând (nu mai e „browsable”) nu se mai adaugă.
+     * OK pe un meci live pornește sursa recomandată, pe unul care urmează îi deschide fereastra.
+     */
+    @RequiresApi(26)
+    private fun syncWatchNext(cards: List<Card>) {
+        val resolver = context.contentResolver
+        val uri = TvContract.WatchNextPrograms.CONTENT_URI
+        val existing = HashMap<String, Pair<Long, Boolean>>()
+        runCatching {
+            resolver.query(uri, arrayOf("_id", "internal_provider_id", "browsable"), null, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    val key = c.getString(1) ?: continue
+                    existing[key] = c.getLong(0) to (c.getInt(2) != 0)
+                }
+            }
+        }
+        val wanted = cards.associateBy { it.id }
+        for ((key, row) in existing) {
+            if (key !in wanted) runCatching { resolver.delete(TvContract.buildWatchNextProgramUri(row.first), null, null) }
+        }
+        val posters = File(context.filesDir, PosterProvider.DIR).apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        val written = HashSet<String>()
+        cards.forEachIndexed { i, c ->
+            val old = existing[c.id]
+            if (old != null && !old.second) return@forEachIndexed
+            val name = "w$i-${c.id.hashCode().toUInt()}.png"
+            written += name
+            runCatching { File(posters, name).outputStream().use { poster(c).compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            val link = if (c.live) DeepLinks.play(c.id) else DeepLinks.match(c.id)
+            val values = ContentValues().apply {
+                put("type", TYPE_EVENT)
+                put("watch_next_type", if (c.live) WATCH_NEXT_NEW else WATCH_NEXT_NEXT)
+                put("last_engagement_time_utc_millis", now - i)
+                put("title", c.title)
+                put("short_description", c.line)
+                put("poster_art_uri", PosterProvider.uri(name).toString())
+                put("poster_art_aspect_ratio", ASPECT_16_9)
+                put("intent_uri", DeepLinks.intent(context, link).toUri(Intent.URI_INTENT_SCHEME))
+                put("live", if (c.live) 1 else 0)
+                put("start_time_utc_millis", c.start)
+                put("end_time_utc_millis", c.end)
+                put("internal_provider_id", c.id)
+            }
+            runCatching {
+                if (old != null) resolver.update(TvContract.buildWatchNextProgramUri(old.first), values, null, null)
+                else resolver.insert(uri, values)
+            }
+        }
+        posters.listFiles()?.filter { it.name.startsWith("w") && it.name !in written }?.forEach { it.delete() }
     }
 
     private fun card(m: Match, sources: Int, zone: ZoneId): Card {
@@ -91,7 +163,8 @@ class HomeChannel(private val context: Context, private val container: AppContai
         val channelId = ensureChannel() ?: return
         resolver.delete(TvContract.buildPreviewProgramsUriForChannel(channelId), null, null)
         val posters = File(context.filesDir, PosterProvider.DIR).apply { mkdirs() }
-        posters.listFiles()?.forEach { it.delete() }
+        // Doar cardurile rândului aplicației („p…”); cele din „Continuă vizionarea” („w…”) le ține syncWatchNext.
+        posters.listFiles()?.filter { it.name.startsWith("p") }?.forEach { it.delete() }
         cards.forEachIndexed { i, c ->
             val name = "p$i-${c.id.hashCode().toUInt()}.png"
             runCatching { File(posters, name).outputStream().use { poster(c).compress(Bitmap.CompressFormat.PNG, 100, it) } }
@@ -192,6 +265,9 @@ class HomeChannel(private val context: Context, private val container: AppContai
         /** `TvContract.PreviewPrograms.TYPE_EVENT` și `ASPECT_RATIO_16_9`. */
         const val TYPE_EVENT = 5
         const val ASPECT_16_9 = 0
+        /** `TvContract.WatchNextPrograms.WATCH_NEXT_TYPE_NEXT` și `WATCH_NEXT_TYPE_NEW`. */
+        const val WATCH_NEXT_NEXT = 1
+        const val WATCH_NEXT_NEW = 2
         val LIVE = Color.rgb(0xFF, 0x4D, 0x4F)
         val ACCENT = Color.rgb(0xFF, 0xB5, 0x47)
         val TimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("ro"))

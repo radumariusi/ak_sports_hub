@@ -45,7 +45,41 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="aksportshub" />
             </intent-filter>
+            <!-- F1: căutarea cu vocea din Google Assistant și căutarea globală a televizorului. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.actions.SEARCH_ACTION" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.searchable"
+                android:resource="@xml/searchable" />
         </activity>
+
+        <!-- F1: rezultatele aplicației în căutarea televizorului (doar sistemul le poate citi). -->
+        <provider
+            android:name=".home.SearchSuggestionsProvider"
+            android:authorities="ro.ak.sportshub.search"
+            android:exported="true"
+            android:readPermission="android.permission.GLOBAL_SEARCH" />
+
+        <!-- F3: economizorul de ecran cu scorurile meciurilor favorite. -->
+        <service
+            android:name=".home.ScoresDream"
+            android:exported="true"
+            android:label="@string/dream_label"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/dream" />
+        </service>
 
         <receiver
             android:name=".notify.ReminderReceiver"
