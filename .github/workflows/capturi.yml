@@ -44,6 +44,16 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
+      - name: Capturile în jurnal (base64, pentru cine nu poate descărca artefactele)
+        if: always()
+        run: |
+          for f in app/build/outputs/roborazzi/*.png; do
+            [ -f "$f" ] || continue
+            echo "=== CAPTURA $(basename "$f") ==="
+            base64 -w 0 "$f"; echo
+            echo "=== SFARSIT ==="
+          done
+
       - name: Raportul testelor (dacă au picat)
         if: failure()
         uses: actions/upload-artifact@v4

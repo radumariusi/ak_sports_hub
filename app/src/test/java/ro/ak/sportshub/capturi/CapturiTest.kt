@@ -104,9 +104,17 @@ class CapturiTest {
     @Test
     fun sportsHub() {
         home()
-        click("Săptămâna asta")
+        click("Azi")
         waitFor("Arsenal")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/1-sports-hub.png")
+    }
+
+    @Test
+    fun saptamana() {
+        home()
+        click("Toată săptămâna")
+        waitFor("Inter")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/1b-toata-saptamana.png")
     }
 
     @Test
@@ -217,7 +225,7 @@ class CapturiTest {
     fun variantaVerificata() {
         val id = seedObserved()
         compose.setContent { AkTheme { ChannelScreen(channelId = id, onPlay = {}, onOpenSchedule = {}) } }
-        waitFor("în playlist")
+        waitFor("Sky Sports Main Event UHD")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/7-variante-rezolutie-reala.png")
     }
 

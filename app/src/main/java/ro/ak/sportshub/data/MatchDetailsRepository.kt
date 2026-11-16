@@ -243,7 +243,7 @@ class MatchDetailsRepository(
 
     @Volatile private var fotmobPausedUntil = 0L
 
-    /** Pagina meciului FotMob: Live cel mult la 3 minute, Pre-meci la 6 ore; un refuz oprește FotMob 6 ore. */
+    /** Pagina meciului FotMob: Live la un minut (ca ESPN, doar pe tabul Live), Pre-meci la 6 ore; un refuz oprește FotMob 6 ore. */
     private fun fetchFotmob(match: Match, part: DetailsSchedule.Part, force: Boolean) {
         val now = System.currentTimeMillis()
         if (now < fotmobPausedUntil || !settings.current.fotMobEnabled) return
@@ -390,7 +390,7 @@ class MatchDetailsRepository(
         const val REQUEST_GAP_MS = 1_200L
         val LOOKUP_MS = TimeUnit.HOURS.toMillis(6)
         val KEEP_MS = TimeUnit.DAYS.toMillis(3)
-        val FOTMOB_LIVE_MS = TimeUnit.MINUTES.toMillis(3)
+        val FOTMOB_LIVE_MS = TimeUnit.SECONDS.toMillis(60)
         val FOTMOB_PRE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_PAUSE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_LINEUP_BEFORE_MS = TimeUnit.MINUTES.toMillis(90)
