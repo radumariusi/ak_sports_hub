@@ -36,26 +36,26 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.ui.theme.AkColors
-
-/** Cum arată rândul de filtre din Sports Hub (A: doar text; C: iconiță + valoarea, doar când filtrul e pus). */
-enum class FilterRowStyle { TEXT, ICONS }
 
 /** Iconițele rândului de filtre, desenate cu linii (fără emoji, ca să aibă aceeași culoare ca textul). */
 enum class FilterIcon { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY, SOURCES, CLEAR, REFRESH, SETTINGS }
 
 /**
- * Un filtru pe rândul din Sports Hub. Fără valoare arată numele filtrului („Sport”) sau doar iconița; cu valoare
- * arată valoarea („Fotbal”, „UCL”) cu chihlimbar, tăiată cu „…” dacă e prea lungă, ca rândul să încapă pe ecran.
+ * Un filtru pe rândul din Sports Hub (varianta D aleasă de Radu): iconița, apoi numele filtrului („Sport”) sau,
+ * când e pus, valoarea („Fotbal”, „UCL”) cu chihlimbar, tăiată cu „…” dacă e prea lungă. La sport, iconița devine
+ * a sportului ales.
  */
 @Composable
 fun FilterPill(
     icon: FilterIcon,
     label: String,
     value: String?,
-    style: FilterRowStyle,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Sportul ales (doar la [FilterIcon.SPORT]): iconița lui în locul celei generice. */
+    sport: Sport? = null,
     maxWidth: Dp = 190.dp,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -73,27 +73,23 @@ fun FilterPill(
         ),
     ) {
         CompositionLocalProvider(LocalOnFocus provides focused) {
-            val showIcon = style == FilterRowStyle.ICONS
-            val text = if (showIcon) value else (value ?: label)
+            val text = value ?: label
+            val tint = if (value != null) accentText() else LocalContentColor.current
             Row(
-                modifier = Modifier.padding(horizontal = if (showIcon && text == null) 9.dp else 13.dp, vertical = 5.dp),
+                modifier = Modifier.padding(start = 11.dp, end = 13.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (showIcon) {
-                    FilterGlyph(icon, color = if (value != null) accentText() else LocalContentColor.current)
-                }
-                if (text != null) {
-                    Text(
-                        text = text,
-                        fontSize = 15.sp,
-                        fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (value != null) accentText() else LocalContentColor.current,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = maxWidth),
-                    )
-                }
+                if (icon == FilterIcon.SPORT) SportGlyph(sport, color = tint) else FilterGlyph(icon, color = tint)
+                Text(
+                    text = text,
+                    fontSize = 15.sp,
+                    fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Medium,
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = maxWidth),
+                )
             }
         }
     }
@@ -207,6 +203,155 @@ private fun DrawScope.drawGlyph(icon: FilterIcon, color: Color) {
             }
             drawCircle(color, radius = 6.3f * s, center = p(12f, 12f), style = Stroke(width = 3.4f * s))
             drawCircle(color, radius = 2.2f * s, center = p(12f, 12f), style = Stroke(width = 1.6f * s))
+        }
+    }
+}
+
+/** Iconița unui sport, în același stil (linii, o singură culoare); fără sport, o medalie. */
+@Composable
+fun SportGlyph(sport: Sport?, color: Color, size: Dp = 18.dp) {
+    Canvas(Modifier.size(size)) { drawSport(sport, color) }
+}
+
+private fun DrawScope.drawSport(sport: Sport?, color: Color) {
+    val s = this.size.width / 24f
+    val stroke = Stroke(width = 1.9f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    val thin = 1.5f * s
+    fun p(x: Float, y: Float) = Offset(x * s, y * s)
+    fun line(x1: Float, y1: Float, x2: Float, y2: Float, w: Float = 1.9f * s) =
+        drawLine(color, p(x1, y1), p(x2, y2), strokeWidth = w, cap = StrokeCap.Round)
+    fun circle(x: Float, y: Float, r: Float, fill: Boolean = false) =
+        if (fill) drawCircle(color, radius = r * s, center = p(x, y)) else drawCircle(color, radius = r * s, center = p(x, y), style = stroke)
+    fun arc(l: Float, t: Float, w: Float, h: Float, start: Float, sweep: Float, sw: Float = 1.9f * s) =
+        drawArc(color, start, sweep, useCenter = false, topLeft = p(l, t), size = Size(w * s, h * s),
+            style = Stroke(width = sw, cap = StrokeCap.Round))
+    fun path(vararg pts: Pair<Float, Float>, close: Boolean = false) = Path().apply {
+        pts.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * s, y * s) else lineTo(x * s, y * s) }
+        if (close) close()
+    }
+    when (sport) {
+        Sport.FOOTBALL -> drawGlyph(FilterIcon.SPORT, color)
+        Sport.BASKETBALL -> {
+            circle(12f, 12f, 10f)
+            line(12f, 2f, 12f, 22f, thin)
+            line(2f, 12f, 22f, 12f, thin)
+            arc(-3f, 4.5f, 12f, 15f, -50f, 100f, thin)
+            arc(15f, 4.5f, 12f, 15f, 130f, 100f, thin)
+        }
+        Sport.TENNIS -> {
+            circle(12f, 12f, 10f)
+            arc(-6f, 3f, 14f, 18f, -55f, 110f, thin)
+            arc(16f, 3f, 14f, 18f, 125f, 110f, thin)
+        }
+        Sport.ICE_HOCKEY -> {
+            // Crosa și pucul.
+            drawPath(path(15f to 2.5f, 7.5f to 18.5f, 3f to 18.5f), color, style = stroke)
+            line(3f, 18.5f, 3f, 20.5f)
+            drawOval(color, topLeft = p(13f, 17.5f), size = Size(8f * s, 3.5f * s))
+        }
+        Sport.HANDBALL -> {
+            // Mingea de handbal: cercul și panourile curbe.
+            circle(12f, 12f, 10f)
+            arc(5f, -3f, 14f, 14f, 30f, 120f, thin)
+            arc(5f, 13f, 14f, 14f, 210f, 120f, thin)
+            line(12f, 11f, 12f, 13f, thin)
+        }
+        Sport.VOLLEYBALL -> {
+            circle(12f, 12f, 10f)
+            arc(2f, -6f, 22f, 22f, 70f, 90f, thin)
+            arc(4f, 8f, 22f, 22f, 190f, 90f, thin)
+            arc(-2f, 6f, 16f, 16f, -60f, 90f, thin)
+        }
+        Sport.RUGBY, Sport.AMERICAN_FOOTBALL -> {
+            // Mingea ovală, înclinată; rugby = cusătura lungă, fotbal american = șiretul.
+            rotate(-40f, pivot = p(12f, 12f)) {
+                drawOval(color, topLeft = p(2f, 6.5f), size = Size(20f * s, 11f * s), style = stroke)
+                if (sport == Sport.RUGBY) {
+                    line(6f, 12f, 18f, 12f, thin)
+                } else {
+                    line(8.5f, 12f, 15.5f, 12f, thin)
+                    for (x in listOf(9.5f, 12f, 14.5f)) line(x, 10.7f, x, 13.3f, thin)
+                }
+            }
+        }
+        Sport.BASEBALL -> {
+            circle(12f, 12f, 10f)
+            arc(-5f, 4f, 12f, 16f, -60f, 120f, thin)
+            arc(17f, 4f, 12f, 16f, 120f, 120f, thin)
+            for (y in listOf(8.5f, 12f, 15.5f)) {
+                line(5.5f, y, 7.2f, y - 0.6f, 1.2f * s)
+                line(16.8f, y - 0.6f, 18.5f, y, 1.2f * s)
+            }
+        }
+        Sport.WINTER -> {
+            // Fulgul de zăpadă.
+            for (a in listOf(0f, 60f, 120f)) {
+                rotate(a, pivot = p(12f, 12f)) {
+                    line(12f, 2.5f, 12f, 21.5f)
+                    line(12f, 6f, 9.8f, 3.8f, thin); line(12f, 6f, 14.2f, 3.8f, thin)
+                    line(12f, 18f, 9.8f, 20.2f, thin); line(12f, 18f, 14.2f, 20.2f, thin)
+                }
+            }
+        }
+        Sport.MOTORSPORT -> {
+            // Steagul în carouri.
+            line(4.5f, 2.5f, 4.5f, 21.5f)
+            drawRect(color, topLeft = p(5f, 3.5f), size = Size(15f * s, 10f * s), style = stroke)
+            for (r in 0 until 2) for (c in 0 until 3) {
+                if ((r + c) % 2 == 0) drawRect(color, topLeft = p(5f + c * 5f, 3.5f + r * 5f), size = Size(5f * s, 5f * s))
+            }
+        }
+        Sport.FIGHTING -> {
+            // Mănușa de box.
+            drawPath(
+                path(7f to 14f, 5f to 9f, 6f to 4.5f, 10f to 2.5f, 16f to 3f, 19f to 6f, 19f to 11f, 17f to 14f, close = true),
+                color, style = stroke,
+            )
+            drawPath(path(5.5f to 9f, 3.5f to 9.5f, 3.5f to 12f, 6.5f to 13f), color, style = stroke)
+            drawRoundRect(color, topLeft = p(7f, 15.5f), size = Size(10f * s, 5.5f * s),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.2f * s), style = stroke)
+        }
+        Sport.DARTS -> {
+            circle(11f, 13f, 9f)
+            circle(11f, 13f, 5f)
+            circle(11f, 13f, 1.4f, fill = true)
+            line(11f, 13f, 20f, 4f)
+            line(20f, 4f, 22f, 4.5f, thin); line(20f, 4f, 19.5f, 2f, thin)
+        }
+        Sport.SNOOKER -> {
+            circle(7f, 16f, 4.5f)
+            circle(16.5f, 16f, 4.5f)
+            circle(16.5f, 16f, 1.2f, fill = true)
+            line(2.5f, 3f, 14f, 10f)
+        }
+        Sport.CYCLING -> {
+            circle(5.5f, 16f, 4f)
+            circle(18.5f, 16f, 4f)
+            drawPath(path(5.5f to 16f, 9.5f to 8f, 16f to 8f, 18.5f to 16f), color, style = stroke)
+            drawPath(path(9.5f to 8f, 12f to 16f, 16f to 8f), color, style = stroke)
+            line(8f, 6f, 11f, 6f)
+            line(16f, 8f, 15.5f, 5f); line(14.5f, 5f, 17f, 5f)
+        }
+        Sport.GOLF -> {
+            line(10f, 3f, 10f, 19f)
+            drawPath(path(10f to 3f, 18f to 6f, 10f to 9f, close = true), color)
+            drawOval(color, topLeft = p(4f, 18f), size = Size(14f * s, 4f * s), style = stroke)
+        }
+        Sport.CRICKET -> {
+            rotate(35f, pivot = p(12f, 12f)) {
+                drawRoundRect(color, topLeft = p(9.5f, 2f), size = Size(5f * s, 14f * s),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5f * s), style = stroke)
+                line(12f, 16f, 12f, 21f)
+            }
+            circle(19f, 18.5f, 2.6f, fill = true)
+        }
+        null -> {
+            // Generic: medalia cu panglică.
+            drawPath(path(7f to 2.5f, 10.5f to 10f), color, style = stroke)
+            drawPath(path(17f to 2.5f, 13.5f to 10f), color, style = stroke)
+            circle(12f, 15f, 6.5f)
+            drawPath(path(12f to 11.5f, 13f to 13.8f, 15.4f to 14f, 13.6f to 15.6f, 14.1f to 18f, 12f to 16.8f,
+                9.9f to 18f, 10.4f to 15.6f, 8.6f to 14f, 11f to 13.8f, close = true), color)
         }
     }
 }
