@@ -10,7 +10,11 @@ import ro.ak.sportshub.core.common.ChannelNameParser
  * fără spații, fără pluralul englezesc și cu numerele scrise în cifre, ca „Sky Sports Main Event”,
  * „Sky Sport Main Event” și „SkySports MainEvent” să fie același post.
  */
-class StationIndex(groupKeys: Collection<String>) {
+class StationIndex(
+    groupKeys: Collection<String>,
+    /** Grupurile din playlist ale fiecărei chei de grupare („USA | PEACOCK PPV”), pentru rețelele de streaming. */
+    groups: Map<String, Set<String>> = emptyMap(),
+) {
 
     private val byKey: Map<String, List<Pair<String?, String>>> = groupKeys.distinct()
         .map { gk ->
@@ -54,7 +58,11 @@ class StationIndex(groupKeys: Collection<String>) {
         .mapNotNull { gk ->
             val country = gk.substringBefore(':', "").ifEmpty { null }
             val core = if (country != null) gk.substringAfter(':') else gk
-            StreamingServices.ofChannel(core)?.let { (service, n) -> service to Triple(country, gk, n) }
+            StreamingServices.ofChannel(core)?.let { (service, n) -> return@mapNotNull service to Triple(country, gk, n) }
+            // „Event 05” din grupul „USA | PEACOCK PPV”: rețeaua vine din grup, numărul din nume.
+            val n = StreamingServices.genericNumber(core) ?: return@mapNotNull null
+            val service = groups[gk].orEmpty().firstNotNullOfOrNull { StreamingServices.ofGroup(it) } ?: return@mapNotNull null
+            service to Triple(country, gk, n)
         }
         .groupBy({ it.first }, { it.second })
         .mapValues { (_, list) -> list.sortedBy { it.third } }

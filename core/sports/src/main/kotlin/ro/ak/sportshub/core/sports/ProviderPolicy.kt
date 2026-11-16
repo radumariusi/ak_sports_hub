@@ -26,13 +26,13 @@ object ProviderPolicy {
 
     // Aceleași chei ca `SportEvent.provider` (furnizorii LiveSoccerTV și Sofascore au cheile din numele lor).
     private val order = listOf(
-        Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, TheSportsDb.PROVIDER,
+        Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER, TheSportsDb.PROVIDER,
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER,
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER,
     )
 
     fun tier(provider: String): Tier = when (provider) {
-        TheSportsDb.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API -> Tier.OPEN
+        TheSportsDb.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API, Scores365.PROVIDER -> Tier.OPEN
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER -> Tier.SITE
         LiveSoccerTv.PROVIDER, FotMob.PROVIDER, Sofascore.PROVIDER -> Tier.GUARDED
         else -> Tier.SITE
@@ -41,7 +41,7 @@ object ProviderPolicy {
     // Ordinea cererilor: întâi cei care dau multe meciuri dintr-o singură cerere (o pagină), ca lista să apară repede.
     private val fetchOrder = listOf(
         FutbolEnLaTv.PROVIDER, LiveOnSat.PROVIDER, Espn.PROVIDER, EuroLeague.PROVIDER, UsLeagues.NHL_API, UsLeagues.MLB_API,
-        TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
+        Scores365.PROVIDER, TheSportsDb.PROVIDER, FotMob.PROVIDER, LiveSoccerTv.PROVIDER, Sofascore.PROVIDER,
     )
 
     /** Locul furnizorului în runda de cereri (mai mic = mai devreme). */
@@ -66,7 +66,16 @@ object ProviderPolicy {
     val COVERED_BY_OPEN_APIS: Set<Sport> = Espn.leagues.map { it.sport }.toSet() + Sport.BASKETBALL
 
     /** Sporturile cerute de la TheSportsDB, dintre cele alese în setări. */
-    fun sportsDbSports(selected: Collection<Sport>): List<Sport> = selected.filter { it !in COVERED_BY_OPEN_APIS }
+    fun sportsDbSports(selected: Collection<Sport>): List<Sport> =
+        selected.filter { it !in COVERED_BY_OPEN_APIS && it !in SCORES365_SPORTS }
+
+    /**
+     * Sporturile fără ESPN al căror program vine de la 365Scores (toată ziua, nu 3 meciuri ca TheSportsDB gratuit):
+     * handbalul și voleiul (id-uri verificate pe răspunsuri reale).
+     */
+    val SCORES365_SPORTS: Set<Sport> = setOf(Sport.HANDBALL, Sport.VOLLEYBALL)
+
+    fun scores365Sports(selected: Collection<Sport>): List<Sport> = selected.filter { it in SCORES365_SPORTS && it !in COVERED_BY_OPEN_APIS }
 
     val FIRST_PAUSE_MS: Long = 6 * HOUR
     val MAX_PAUSE_MS: Long = 48 * HOUR

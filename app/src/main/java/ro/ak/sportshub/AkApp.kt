@@ -16,6 +16,7 @@ import ro.ak.sportshub.core.playlist.PlaylistDownloader
 import ro.ak.sportshub.core.playlist.PlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import ro.ak.sportshub.data.ApiKeys
 import ro.ak.sportshub.data.AppUpdater
 import ro.ak.sportshub.data.LogoImages
 import ro.ak.sportshub.data.TeamLookStore
@@ -125,6 +126,7 @@ class AppContainer(app: Application) {
 
     /** Siglele, culorile și forma echipelor, învățate din programul furnizorilor. */
     val teamLooks = TeamLookStore(app, scope)
+    val apiKeys = ApiKeys(app)
 
     /** Imaginile siglelor (pe disc, descărcate o dată; nimic cât rulează playerul). */
     val logos = LogoImages(app, http, playing)
@@ -149,7 +151,7 @@ class AppContainer(app: Application) {
     /** Clasamentele (tabul „Clasamente” și Pre-meci), cerute doar cât e deschis tabul sau meciul. */
     val standings = StandingsRepository(app, http, diagnosticLog)
 
-    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor, standings, sports::fotmobEventFor, sports::euroleagueEventFor)
+    val matchDetails = MatchDetailsRepository(app, sportsSettings, http, diagnosticLog, sports::espnEventFor, standings, sports::fotmobEventFor, sports::euroleagueEventFor, teamLooks, { apiKeys.goalApi })
 
     /** Meciul la care te uiți acum în player (pentru alertele de gol: nu pentru meciul de pe ecran). */
     val watchingMatch = MutableStateFlow<String?>(null)

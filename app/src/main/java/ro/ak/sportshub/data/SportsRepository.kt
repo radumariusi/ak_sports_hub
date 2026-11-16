@@ -41,6 +41,7 @@ import ro.ak.sportshub.core.sports.BusyChannels
 import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.FotMob
 import ro.ak.sportshub.core.sports.Highlights
+import ro.ak.sportshub.core.sports.LiveFootballOnTv
 import ro.ak.sportshub.core.sports.LiveOnSat
 import ro.ak.sportshub.core.sports.UsLeagues
 import ro.ak.sportshub.core.sports.SourceDiagnosis
@@ -66,6 +67,7 @@ import ro.ak.sportshub.core.sports.SourceWindow
 import ro.ak.sportshub.core.sports.SourceSummary
 import ro.ak.sportshub.core.sports.SportChannels
 import ro.ak.sportshub.core.sports.SportEvent
+import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.StationIndex
 import ro.ak.sportshub.core.sports.StationNames
 import ro.ak.sportshub.core.sports.TheSportsDb
@@ -381,6 +383,11 @@ class SportsRepository(
                 if (force || isStale(f, fresh(FutbolEnLaTv.PROVIDER, 0))) jobs += Job(site.url, f, html = FutbolEnLaTv::looksValid)
             }
         }
+        // live-footballontv.com (posturile din UK, ca FutbolEnLaTV: doar adaugă surse), doar cu canale din UK.
+        if (s.futbolEnLaTvEnabled && playlistCountries().any { it == "uk" || it == "gb" }) {
+            val f = File(dir, "lfotv-$localToday.html")
+            if (force || isStale(f, fresh(LiveFootballOnTv.PROVIDER, 0))) jobs += Job(LiveFootballOnTv.URL, f, html = LiveFootballOnTv::looksValid)
+        }
         if (s.liveOnSatEnabled) {
             val f = File(dir, "los-$localToday.html")
             if (force || isStale(f, fresh(LiveOnSat.PROVIDER, 0))) jobs += Job(LiveOnSat.URL, f, html = LiveOnSat::looksValid)
@@ -411,6 +418,15 @@ class SportsRepository(
             }
         }
         if (s.sportsDbEnabled) addSportsDbJobs(s, today, force, jobs)
+        // 365Scores: programul complet al zilei (UTC) pentru handbal și volei, azi și mâine.
+        for (sport in ProviderPolicy.scores365Sports(s.sports)) {
+            val id = Scores365.sportId(sport) ?: continue
+            for (offset in 0..1) {
+                val day = today.plusDays(offset.toLong())
+                val f = File(dir, "s365-${sport.name}-$day.json")
+                if (force || isStale(f, fresh(Scores365.PROVIDER, offset))) jobs += Job(Scores365.scheduleUrl(id, day), f)
+            }
+        }
         // Întâi furnizorii deschiși și site-urile simple; lista se reface din ei, apoi (rar) cei protejați anti-robot.
         val (guarded, open) = jobs.partition { ProviderPolicy.tier(providerOf(it.url)) == ProviderPolicy.Tier.GUARDED }
         val (ok, failed) = runJobs(open.sortedBy { ProviderPolicy.fetchRank(providerOf(it.url)) }, "Se descarcă programul meciurilor", force)
@@ -604,7 +620,7 @@ class SportsRepository(
     }
 
     private suspend fun playlistCountries(): Set<String> =
-        (stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }).countries()
+        (stationIndexCache ?: stationIndex().also { stationIndexCache = it }).countries()
 
     /**
      * Posturile pe țară pentru cel mult [SOFA_TV_PER_ROUND] meciuri Sofascore (favoritele, apoi cele fără sursă sigură),
@@ -1056,6 +1072,9 @@ class SportsRepository(
                 events += parsed(f) { FutbolEnLaTv.parse(it, day, site) }
             }
         }
+        if (s.futbolEnLaTvEnabled) {
+            files.filter { it.name.startsWith("lfotv-") && it.name.endsWith(".html") }.forEach { f -> events += parsed(f) { LiveFootballOnTv.parse(it) } }
+        }
         if (s.liveOnSatEnabled) {
             files.filter { it.name.startsWith("los-") && it.name.endsWith(".html") }.forEach { f ->
                 val day = DAY_IN_NAME.find(f.name)?.value?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@forEach
@@ -1085,6 +1104,10 @@ class SportsRepository(
                     else -> if (Sport.BASEBALL in s.sports) parsed(f) { UsLeagues.parseMlb(it) } else emptyList()
                 }
             }
+        }
+        files.filter { it.name.startsWith("s365-") && it.name.endsWith(".json") }.forEach { f ->
+            val sport = f.name.split('-').getOrNull(1)?.let(Sport::fromName)?.takeIf { it in s.sports } ?: return@forEach
+            events += parsed(f) { Scores365.parseScheduleFor(it, sport) }
         }
         if (s.euroLeagueEnabled && Sport.BASKETBALL in s.sports) {
             files.filter { it.name.startsWith("euroleague-") && it.name.endsWith(".json") }.forEach { f ->
@@ -1152,6 +1175,13 @@ class SportsRepository(
             .flatMap { it.value.second.asSequence() }
             .toList()
         return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
+    }
+
+    /** Indexul posturilor: cheile de grupare ale canalelor, plus grupul lor (rețelele de streaming după grup). */
+    private suspend fun stationIndex(): StationIndex {
+        val rows = db.channels().activeGroupKeyGroups()
+        val groups = rows.groupBy({ it.groupKey }, { it.groupName }).mapValues { it.value.toSet() }
+        return StationIndex(groups.keys, groups)
     }
 
     /** Meciul EuroLeague / EuroCup („E2026_379”) din programul oficial deja descărcat; null dacă nu e. */
@@ -1397,7 +1427,7 @@ class SportsRepository(
         val epgChannelIds = channelsByEpg.values.flatten().distinct()
         val epgChannels = epgChannelIds.chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.associateBy { it.id }
 
-        val index = stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }
+        val index = stationIndexCache ?: stationIndex().also { stationIndexCache = it }
         val finder = SourceFinder(index, knowledge.current)
 
         // C3: ce meci arată EPG-ul fiecărui canal (cheia de grupare) și când; un post anunțat care arată alt meci nu e sursă probabilă.
@@ -1657,7 +1687,7 @@ class SportsRepository(
     /** „De ce nu are sursă?” pentru meciul [id] (null dacă nu mai e în listă). */
     suspend fun diagnose(id: String): SourceDiagnosis? = withContext(Dispatchers.IO) {
         val m = find(id)?.match ?: return@withContext null
-        val index = stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }
+        val index = stationIndexCache ?: stationIndex().also { stationIndexCache = it }
         SourceDiagnostics.diagnose(m, index, knowledge.current)
     }
 
@@ -1866,7 +1896,7 @@ class SportsRepository(
         private const val LIVE_SCORES_MAX_LEAGUES = 8
 
         /** Furnizorii care doar găsesc surse (posturi, canale), fără să adauge meciuri în listă. */
-        val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER)
+        val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER, LiveFootballOnTv.PROVIDER)
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
@@ -1934,7 +1964,9 @@ fun providerOf(url: String): String {
         "sofascore" in u -> "sofascore"
         FutbolEnLaTv.isSite(u) -> FutbolEnLaTv.PROVIDER
         "euroleague" in u -> EuroLeague.PROVIDER
+        "365scores" in u -> Scores365.PROVIDER
         "liveonsat" in u -> LiveOnSat.PROVIDER
+        "live-footballontv" in u -> LiveFootballOnTv.PROVIDER
         "fotmob" in u -> FotMob.PROVIDER
         "espn.com" in u -> UsLeagues.ESPN
         "nhle.com" in u -> UsLeagues.NHL_API
@@ -1949,9 +1981,11 @@ fun providerLabel(provider: String): String = when (provider) {
     "sofascore" -> "Sofascore"
     FutbolEnLaTv.PROVIDER -> "FutbolEnLaTV"
     LiveOnSat.PROVIDER -> "LiveOnSat"
+    LiveFootballOnTv.PROVIDER -> "Live Football On TV"
     FotMob.PROVIDER -> "FotMob"
     UsLeagues.ESPN -> "ESPN"
     EuroLeague.PROVIDER -> "EuroLeague"
+    Scores365.PROVIDER -> "365Scores"
     UsLeagues.NHL_API -> "NHL"
     UsLeagues.MLB_API -> "MLB"
     FollowedNames.PROVIDER -> "Nume urmărit (EPG)"

@@ -17,6 +17,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.Espn
+import ro.ak.sportshub.core.sports.GoalApi
 import ro.ak.sportshub.core.sports.EuroLeague
 import ro.ak.sportshub.core.sports.LiveDelay
 import ro.ak.sportshub.core.sports.LiveScoreCom
@@ -30,6 +31,8 @@ import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.OfficialStats
 import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.TheSportsDbDetails
+import ro.ak.sportshub.core.sports.SportEvent
+import ro.ak.sportshub.core.sports.TheSportsDb
 
 /** Detaliile unui meci, cu starea cererilor. */
 data class MatchDetailsState(
@@ -60,6 +63,10 @@ class MatchDetailsRepository(
     private val fotmobEventFor: (Match) -> String? = { null },
     /** Meciul EuroLeague / EuroCup din programul oficial („E2026_379”), pentru statisticile oficiale; null dacă nu e. */
     private val euroleagueEventFor: (Match) -> String? = { null },
+    /** Siglele și culorile echipelor; echipele fără siglă se caută o dată la TheSportsDB. */
+    private val teamLooks: TeamLookStore? = null,
+    /** Cheia GOAL API (a cincea sursă la fotbal); null = sursa nu se folosește. */
+    private val goalApiKey: () -> String? = { null },
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -103,6 +110,7 @@ class MatchDetailsRepository(
                 dir.mkdirs()
                 cleanup()
                 set(match.id) { it.copy(details = read(match), loading = true) }
+                if (s.sportsDbEnabled) fillTeamLooks(match, s.sportsDbKey)
                 // Meciul nu e în programul ESPN descărcat (azi și mâine): îl caut în programul ligii, în ziua lui.
                 val espn = espnRef(match) ?: lookupEspn(match)
                 // NBA, NHL, MLB: statisticile oficiale ale ligii completează ce nu are ESPN (sau îl înlocuiesc).
@@ -110,6 +118,7 @@ class MatchDetailsRepository(
                 if (espn == null && !s.sportsDbEnabled) {
                     if (gaps365(match, part)) fetch365(match, part, force)
                     if (isFootball(match) && gaps365(match, part)) fetchLiveScore(match, force)
+                    if (isFootball(match) && gaps365(match, part)) fetchGoal(match, force)
                     set(match.id) {
                         it.copy(
                             details = read(match),
@@ -163,6 +172,8 @@ class MatchDetailsRepository(
                 if (gaps365(match, part)) fetch365(match, part, force)
                 // Tot lipsește ceva la fotbal: LiveScore.com, a patra sursă.
                 if (isFootball(match) && gaps365(match, part)) fetchLiveScore(match, force)
+                // Și tot lipsește: GOAL API, doar cu cheia ta (1.000 de cereri pe zi pe planul gratuit).
+                if (isFootball(match) && gaps365(match, part)) fetchGoal(match, force)
                 val fresh = read(match)
                 if (part == DetailsSchedule.Part.LIVE) delays.getOrPut(match.id) { LiveDelay() }.observe(System.currentTimeMillis(), fresh)
                 set(match.id) {
@@ -439,6 +450,61 @@ class MatchDetailsRepository(
         keepIfGood(LiveScoreCom.lineupsUrl(id), lineupFile) { LiveScoreCom.parseLineup(it).isNotEmpty() }
     }
 
+    @Volatile private var pausedUntilGoal = 0L
+
+    /** GOAL API: programul zilei UTC (id-ul în `-goalref.txt`), apoi statisticile și formațiile, ca la LiveScore; cheia în antet. */
+    private fun fetchGoal(match: Match, force: Boolean) {
+        val key = runCatching { goalApiKey() }.getOrNull() ?: return
+        val now = System.currentTimeMillis()
+        if (now < pausedUntilGoal) return
+        val b = base(match)
+        val stamp = File(dir, "$b-goal.stamp")
+        val statsFile = File(dir, "$b-goalstats.json")
+        val lineupFile = File(dir, "$b-goallineup.json")
+        val last = stamp.lastModifiedOrZero()
+        if (!force) {
+            if (now - last < (if (match.status == MatchStatus.LIVE) OFFICIAL_LIVE_MS else FOTMOB_PRE_MS)) return
+            if (match.status == MatchStatus.FINISHED && statsFile.exists() && last > match.end + OFFICIAL_LIVE_MS) return
+        }
+        runCatching { stamp.writeText(now.toString()) }
+        val ref = File(dir, "$b-goalref.txt")
+        var id = ref.takeIf { it.exists() }?.readText()?.trim()?.ifEmpty { null }
+        if (id == null) {
+            // Programul zilei vine pe pagini de câte 100 (~800 de meciuri): paginile se păstrează 6 ore, căutarea se
+            // oprește la pagina cu meciul, deci de obicei câteva cereri pe zi pentru toate meciurile.
+            val day = Scores365.gameDay(match.start)
+            set(match.id) { it.copy(status = "Se caută meciul la GOAL API…") }
+            for (page in 0 until GOAL_MAX_PAGES) {
+                val sched = File(dir, "goal-$day-p$page.json")
+                if (!sched.exists() || now - sched.lastModified() > FOTMOB_PRE_MS) {
+                    if (!download(GoalApi.fixturesUrl(day, page), sched, bearer = key)) {
+                        pausedUntilGoal = now + FOTMOB_PAUSE_MS
+                        log?.log("statistici", "GOAL API a refuzat programul (cheie greșită sau limită atinsă?); pauză 6 h")
+                        return
+                    }
+                }
+                val body = runCatching { sched.readText() }.getOrNull() ?: return
+                val games = runCatching { GoalApi.parseFixtures(body) }.getOrDefault(emptyList())
+                id = MatchInsights.pickEvent(games, match.home, match.away, match.start)?.providerId
+                if (id != null || !GoalApi.hasMore(body)) break
+            }
+            if (id == null) return
+            runCatching { ref.writeText(id) }
+        }
+        set(match.id) { it.copy(status = "Se cer statisticile și formațiile (GOAL API)…") }
+        if (match.status != MatchStatus.SCHEDULED) {
+            keepIfGood(GoalApi.statisticsUrl(id), statsFile, bearer = key) { GoalApi.parseStatistics(it).isNotEmpty() }
+        }
+        keepIfGood(GoalApi.lineupsUrl(id), lineupFile, bearer = key) { GoalApi.parseLineups(it).isNotEmpty() }
+    }
+
+    private fun readGoal(match: Match): MatchDetails? {
+        val b = base(match)
+        val stats = parseFile("$b-goalstats.json") { GoalApi.parseStatistics(it) }.orEmpty()
+        val lineup = parseFile("$b-goallineup.json") { GoalApi.parseLineups(it) }.orEmpty()
+        return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
+    }
+
     private fun readLiveScore(match: Match): MatchDetails? {
         val b = base(match)
         val stats = parseFile("$b-lsstats.json") { LiveScoreCom.parseStats(it) }.orEmpty()
@@ -446,10 +512,37 @@ class MatchDetailsRepository(
         return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
     }
 
+    private val teamsDir = File(context.noBackupFilesDir, "sports/echipe")
+
+    /**
+     * Echipele meciului fără siglă în carte (de obicei cele pe care ESPN nu le are): TheSportsDB `searchteams`
+     * (gratuit, un rezultat), cel mult o dată la 30 de zile pe echipă; sigla, culorile și prescurtarea intră în carte.
+     */
+    private fun fillTeamLooks(match: Match, key: String) {
+        val store = teamLooks ?: return
+        if (match.away.isBlank()) return
+        teamsDir.mkdirs()
+        val now = System.currentTimeMillis()
+        for (name in listOf(match.home, match.away)) {
+            if (store.book.value.team(name)?.logo != null) continue
+            val f = File(teamsDir, sha(TeamNames.key(name).ifBlank { name }) + ".json")
+            if (f.exists() && now - f.lastModified() < TEAM_LOOK_MS) continue
+            // Fișierul se scrie și când nu s-a găsit nimic, ca echipa să nu se mai ceară luna asta.
+            if (!download(TheSportsDb.searchTeamUrl(key, name), f)) runCatching { f.writeText("{}") }
+            val look = parseFile0(f) { TheSportsDb.parseTeamLook(it, name) } ?: continue
+            store.learnLooks(listOf(SportEvent(TheSportsDb.PROVIDER, "team", null, null, name, "", 0L, homeLook = look)))
+        }
+    }
+
+    private fun <T> parseFile0(f: File, parse: (String) -> T): T? = if (!f.exists()) null else runCatching { parse(f.readText()) }.getOrNull()
+
+    private fun sha(text: String): String =
+        MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+
     /** Descarcă într-un fișier temporar și îl păstrează doar dacă are date (un răspuns gol nu înlocuiește unul bun). */
-    private fun keepIfGood(url: String, target: File, good: (String) -> Boolean) {
+    private fun keepIfGood(url: String, target: File, bearer: String? = null, good: (String) -> Boolean) {
         val tmp = File(dir, target.name + ".new")
-        if (download(url, tmp)) {
+        if (download(url, tmp, bearer = bearer)) {
             val ok = runCatching { good(tmp.readText()) }.getOrDefault(false)
             if (ok && !tmp.renameTo(target)) { target.delete(); tmp.renameTo(target) }
         }
@@ -493,11 +586,12 @@ class MatchDetailsRepository(
         val off = official(match)
         val s365 = read365(match)
         val ls = readLiveScore(match)
+        val goal = readGoal(match)
         if (espn == null) {
-            if (off == null && s365 == null && ls == null) return db
+            if (off == null && s365 == null && ls == null && goal == null) return db
             return db.copy(
-                stats = off?.stats.orEmpty().ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { db.stats },
-                lineup = off?.lineup.orEmpty().ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { db.lineup },
+                stats = off?.stats.orEmpty().ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { goal?.stats.orEmpty() }.ifEmpty { db.stats },
+                lineup = off?.lineup.orEmpty().ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { goal?.lineup.orEmpty() }.ifEmpty { db.lineup },
             )
         }
         val fm = parseFile("${base(match)}-fotmob.html") { ro.ak.sportshub.core.sports.FotMobDetails.parse(it) }
@@ -508,10 +602,10 @@ class MatchDetailsRepository(
             awayRecent = espn.awayRecent.ifEmpty { db.awayRecent },
             headToHead = espn.headToHead.ifEmpty { db.headToHead },
             table = espn.table.ifEmpty { espnTable(match) }.ifEmpty { db.table },
-            lineup = espn.lineup.ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { off?.lineup.orEmpty() }.ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { db.lineup },
+            lineup = espn.lineup.ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { off?.lineup.orEmpty() }.ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { goal?.lineup.orEmpty() }.ifEmpty { db.lineup },
             timeline = espn.timeline.ifEmpty { db.timeline },
             // Statisticile după start (înainte de meci ESPN pune sezonul în `seasonStats`).
-            stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { off?.stats.orEmpty() }.ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { db.stats },
+            stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { off?.stats.orEmpty() }.ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { goal?.stats.orEmpty() }.ifEmpty { db.stats },
         )
     }
 
@@ -540,12 +634,12 @@ class MatchDetailsRepository(
     private fun set(id: String, transform: (MatchDetailsState) -> MatchDetailsState) =
         _states.update { it + (id to transform(it[id] ?: MatchDetailsState())) }
 
-    private fun download(url: String, target: File, html: Boolean = false): Boolean {
+    private fun download(url: String, target: File, html: Boolean = false, bearer: String? = null): Boolean {
         val started = System.currentTimeMillis()
         var code: Int? = null
         var bytes: Int? = null
         var outcome = "ok"
-        val ok = runCatching { fetch(url, target, { code = it }, { bytes = it }, { outcome = it }, html) }
+        val ok = runCatching { fetch(url, target, { code = it }, { bytes = it }, { outcome = it }, html, bearer) }
             .onFailure { outcome = "EȘEC: ${it.javaClass.simpleName}" }
             .getOrDefault(false)
         // Jurnalul statisticilor: ce endpoint, ce cod și cât de mare (un `null` de la TheSportsDB = fără date).
@@ -553,10 +647,14 @@ class MatchDetailsRepository(
         return ok
     }
 
-    private fun fetch(url: String, target: File, code: (Int) -> Unit, bytes: (Int) -> Unit, outcome: (String) -> Unit, html: Boolean = false): Boolean {
+    private fun fetch(
+        url: String, target: File, code: (Int) -> Unit, bytes: (Int) -> Unit, outcome: (String) -> Unit,
+        html: Boolean = false, bearer: String? = null,
+    ): Boolean {
         val request = Request.Builder().url(url)
             .header("Accept", if (html) "text/html" else "application/json")
             .apply { if (html) header("User-Agent", SportsRepository.BROWSER_UA) }
+            .apply { if (bearer != null) header("Authorization", "Bearer $bearer") }
             .build()
         return http.newCall(request).execute().use { r ->
             code(r.code)
@@ -576,6 +674,8 @@ class MatchDetailsRepository(
                 return false
             }
             if (trimmed.length < 200) outcome("ok: " + trimmed.replace('\n', ' '))
+            // GOAL API: forma răspunsului nu e documentată; începutul lui (fără cheie) ajunge în jurnal.
+            else if (bearer != null) outcome("ok: " + trimmed.take(400).replace('\n', ' '))
             val tmp = File(target.parentFile, target.name + ".tmp")
             tmp.writeText(body)
             if (!tmp.renameTo(target)) {
@@ -607,6 +707,8 @@ class MatchDetailsRepository(
         val FOTMOB_LIVE_MS = TimeUnit.SECONDS.toMillis(60)
         val OFFICIAL_LIVE_MS = TimeUnit.SECONDS.toMillis(60)
         val OFFICIAL_SCHEDULE_MS = TimeUnit.MINUTES.toMillis(30)
+        val TEAM_LOOK_MS = TimeUnit.DAYS.toMillis(30)
+        const val GOAL_MAX_PAGES = 10
         val FOTMOB_PRE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_PAUSE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_LINEUP_BEFORE_MS = TimeUnit.MINUTES.toMillis(90)

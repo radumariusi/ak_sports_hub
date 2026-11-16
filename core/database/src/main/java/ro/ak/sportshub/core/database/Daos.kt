@@ -161,6 +161,10 @@ interface ChannelDao {
     @Query("SELECT DISTINCT c.groupKey FROM channels c JOIN playlists p ON p.id = c.playlistId WHERE p.enabled = 1")
     suspend fun activeGroupKeys(): List<String>
 
+    /** Cheile de grupare cu grupul lor, din playlisturile active (o pereche o dată). */
+    @Query("SELECT DISTINCT c.groupKey, c.groupName FROM channels c JOIN playlists p ON p.id = c.playlistId WHERE p.enabled = 1")
+    suspend fun activeGroupKeyGroups(): List<GroupKeyRow>
+
     /**
      * Numele și grupurile canalelor active, pe pagini, după [afterId] (filtrul de sport e `SportChannels`).
      * Fără lanțuri lungi de OR în SQL: parserul de interogări al Room se blochează pe ele la compilare.
