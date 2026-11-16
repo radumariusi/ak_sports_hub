@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,7 +67,6 @@ import kotlinx.coroutines.delay
 import ro.ak.sportshub.core.common.player.DropAdapter
 import ro.ak.sportshub.R
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import kotlinx.coroutines.launch
 import ro.ak.sportshub.core.playlist.Catchup
@@ -551,6 +554,50 @@ fun PlayerScreen(
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
         ) }
+
+        // Pe telefon, gesturile în locul telecomenzii (pe televizor nu vine nicio atingere): atingere în mijloc = OK
+        // (informațiile, reîncercarea), în treimea stângă = lista canalelor, în cea dreaptă = panoul meciului sau
+        // meniul, apăsare lungă = meniul rapid, glisare sus / jos = canalul următor / anterior. Cu un panou deschis,
+        // atingerea în afara lui îl închide. Panourile sunt deasupra, deci rândurile lor își primesc singure atingerea.
+        val touchHasMatch by rememberUpdatedState(linkedMatch != null)
+        val touchOk by rememberUpdatedState({ shortOk() })
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { pos ->
+                            val third = size.width / 3f
+                            when {
+                                panel != Panel.None -> {
+                                    panelDialog = null
+                                    panel = Panel.None
+                                }
+                                pos.x < third -> panel = Panel.Channels
+                                pos.x > 2 * third -> panel = if (touchHasMatch) Panel.Match else Panel.Menu
+                                else -> touchOk()
+                            }
+                        },
+                        onLongPress = { if (panel == Panel.None) panel = Panel.Quick },
+                    )
+                }
+                .pointerInput(Unit) {
+                    var drag = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { drag = 0f },
+                        onDragEnd = {
+                            if (panel == Panel.None && kotlin.math.abs(drag) > 80.dp.toPx()) {
+                                // Ca pe telefon: tragi în sus = canalul următor (ca săgeata sus).
+                                controller.zap(if (drag < 0) 1 else -1)
+                            }
+                        },
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            drag += amount
+                        },
+                    )
+                },
+        )
 
         StatusOverlay(state.status, Modifier.align(Alignment.Center))
 
