@@ -29,7 +29,7 @@ private sealed interface ScheduleState {
     data class Ready(val channel: PlayableChannel?, val programmes: List<Programme>?) : ScheduleState
 }
 
-/** Programul unui canal, deschis din Live TV (OK ținut apăsat pe canal). */
+/** Programul unui canal, deschis din Live TV (OK lung pe canal). */
 @Composable
 fun ScheduleScreen(channelId: Long, onPlay: (Long) -> Unit, onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> }) {
     val container = appContainer()

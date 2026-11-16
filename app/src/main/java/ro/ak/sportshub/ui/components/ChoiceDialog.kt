@@ -16,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -36,10 +38,14 @@ fun ChoiceDialog(
     val start = selectedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = start)
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // Deschisă cu OK lung: tasta e încă apăsată, iar ridicarea ei ar alege prima opțiune.
+    // OK/Enter contează abia după o apăsare nouă, făcută în fereastră.
+    val armed = remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
+                .onPreviewKeyEvent { e -> heldConfirm(e.nativeKeyEvent, armed) }
                 .width(560.dp)
                 .background(AkColors.Panel, RoundedCornerShape(10.dp))
                 .padding(20.dp),
@@ -69,4 +75,21 @@ fun ChoiceDialog(
             }
         }
     }
+}
+
+/** true = evenimentul OK/Enter rămas de la apăsarea care a deschis fereastra (se înghite). */
+internal fun heldConfirm(e: android.view.KeyEvent, armed: androidx.compose.runtime.MutableState<Boolean>): Boolean {
+    val confirm = e.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+        e.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        e.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+    if (!confirm) {
+        if (e.action == android.view.KeyEvent.ACTION_DOWN) armed.value = true
+        return false
+    }
+    if (armed.value) return false
+    if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+        armed.value = true
+        return false
+    }
+    return true
 }

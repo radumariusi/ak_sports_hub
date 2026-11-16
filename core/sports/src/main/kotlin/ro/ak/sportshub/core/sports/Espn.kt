@@ -670,7 +670,7 @@ object Espn {
                     val key = s.text("name") ?: s.text("label") ?: return@mapNotNull null
                     val other = away[key] ?: return@mapNotNull null
                     StatLine(statLabel(key, s.text("label")), s.text("displayValue") ?: return@mapNotNull null, other.text("displayValue") ?: "0")
-                }
+                }.distinctBy { it.name }
             }
         }
 

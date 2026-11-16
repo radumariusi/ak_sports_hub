@@ -12,7 +12,7 @@ object StatGroups {
             get() {
                 val h = homeValue ?: return null
                 val a = awayValue ?: return null
-                if (h < 0 || a < 0) return null
+                if (h < 0 || a < 0 || !h.isFinite() || !a.isFinite()) return null
                 val total = h + a
                 return if (total <= 0.0) 0.5f else (h / total).toFloat()
             }

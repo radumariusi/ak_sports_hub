@@ -150,7 +150,7 @@ fun ListRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     selected: Boolean = false,
-    /** OK ținut apăsat (de exemplu programul canalului). */
+    /** OK lung (de exemplu programul canalului). */
     onLongClick: (() -> Unit)? = null,
     /** Cât s-a scurs din emisiunea curentă (0–1); o linie subțire sub text. */
     progress: Float? = null,
@@ -300,8 +300,7 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
         }
         QualityTag(text = view.label + if (view.verified) " ✓" else "", quality = view.quality)
         view.playlistLabel?.let { old ->
-            Text(text = ", în playlist ", fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
-            Text(text = old, fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, textDecoration = TextDecoration.LineThrough)
+            Text(text = old, fontSize = 13.sp, color = dimText(), maxLines = 1, softWrap = false, textDecoration = TextDecoration.LineThrough, modifier = Modifier.padding(start = 6.dp))
         }
     }
 }

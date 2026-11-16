@@ -32,7 +32,7 @@ internal val AnnouncedKickoffs: MutableSet<String> = Collections.synchronizedSet
 private val Hour = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
- * Meniul rapid (OK ținut apăsat în player): meciul anunțat, meciurile urmărite (favorite) care se joacă
+ * Meniul rapid (OK lung în player): meciul anunțat, meciurile urmărite (favorite) care se joacă
  * acum, alte meciuri live cu surse și canalul anterior. Fără scoruri (nimic de spoilat). Alegerea unui meci
  * oprește stream-ul curent și pornește sursa recomandată a meciului.
  */

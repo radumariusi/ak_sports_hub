@@ -33,7 +33,7 @@ import ro.ak.sportshub.ui.appContainer
 import ro.ak.sportshub.ui.theme.AkColors
 
 /**
- * Fereastra video din Sports Hub (F5, OK ținut pe un meci): același player ca pe tot ecranul (un singur ExoPlayer,
+ * Fereastra video din Sports Hub (F5, OK lung pe un meci): același player ca pe tot ecranul (un singur ExoPlayer,
  * permisul playlistului prin `StreamLease`, failover-ul variantelor), doar mai mic. Cât e pe ecran, lucrul greu din
  * fundal așteaptă (`AppContainer.playing`); la ieșire (Back, alt meci, alt ecran) stream-ul se oprește și permisul se
  * eliberează. Nu e o preîncărcare: pornește doar la cererea ta.

@@ -129,7 +129,7 @@ private val NavigationKeys = setOf(
  * ▶ / Meniu pistele audio, subtitrările și restul opțiunilor, OK informații (sau reîncearcă după o eroare),
  * Ghid / EPG programul canalului,
  * cifrele numărul canalului, butonul „ultimul canal” comută între ultimele două canale, Back iese.
- * OK ținut apăsat: meniul rapid (meciurile tale de acum, alte meciuri live, canalul anterior).
+ * OK lung: meniul rapid (meciurile tale de acum, alte meciuri live, canalul anterior).
  * Când pe canal e un meci ([matchId] sau găsit după sursele lui), meniul are și panoul meciului.
  */
 @Composable
@@ -627,7 +627,7 @@ fun PlayerScreen(
                 ) {
                     Text(text = "★ A început meciul favorit", fontSize = 13.sp, color = AkColors.Accent)
                     Text(text = k.match.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                    Text(text = "OK ținut apăsat: mută pe meci", fontSize = 13.sp, color = AkColors.TextDim)
+                    Text(text = "OK lung: mută pe meci", fontSize = 13.sp, color = AkColors.TextDim)
                 }
             }
         }
@@ -980,9 +980,9 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, rateMatchOn: Boole
                 Text(
                     // Pe un meci, ▶ deschide panoul meciului; variantele, audio și subtitrările sunt în meniu.
                     text = if (matchLine != null) {
-                        "▲▼ canale · ◀ lista grupului · ▶ meciul: Live, Statistici, Formații, Pre · Meniu: variante, audio, subtitrări · OK ascunde · OK ținut: meniu rapid"
+                        "▲▼ canale · ◀ lista grupului · ▶ meciul: Live, Statistici, Formații, Pre · Meniu: variante, audio, subtitrări · OK ascunde · OK lung: meniu rapid"
                     } else {
-                        "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK ținut: meniu rapid"
+                        "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK lung: meniu rapid"
                     },
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
@@ -1107,7 +1107,7 @@ private fun MenuPanel(
                     ListRow(title = "Alte surse pentru meci", subtitle = "$sourceCount surse, în ordinea din Sports Hub", onClick = onSources)
                 }
             }
-            ListRow(title = "Meniu rapid", subtitle = "Meciurile de acum (și cu OK ținut apăsat)", onClick = onQuick)
+            ListRow(title = "Meniu rapid", subtitle = "Meciurile de acum (și cu OK lung)", onClick = onQuick)
             ListRow(
                 title = "Pistă audio",
                 subtitle = if (state.audioTracks > 1) "${state.audioTracks} piste" else "o singură pistă",
