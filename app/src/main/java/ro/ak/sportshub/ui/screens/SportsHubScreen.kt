@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -290,7 +291,20 @@ fun SportsHubScreen(
             val all = calendar.flatMap { it.second } + otherFavorites
             val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                // Dublu-clic sus / jos: primul / ultimul meci din listă.
+                val jump = ro.ak.sportshub.ui.components.rememberListJump()
+                val firstKey = if (nextFavorite != null) "next-favorite" else calendar.firstNotNullOfOrNull { (team, es) -> es.firstOrNull()?.let { "team:$team:" + it.match.id } }
+                    ?: otherFavorites.firstOrNull()?.match?.id
+                val lastKey = otherFavorites.lastOrNull()?.match?.id
+                    ?: calendar.lastOrNull { it.second.isNotEmpty() }?.let { (team, es) -> "team:$team:" + es.last().match.id }
+                val itemCount = (if (nextFavorite != null) 1 else 0) + calendar.sumOf { 1 + maxOf(1, it.second.size) } +
+                    (if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) 1 else 0) + otherFavorites.size
+                fun jumpOn(key: String): Modifier = when (key) {
+                    firstKey -> if (key == lastKey) Modifier.focusRequester(jump.first).focusRequester(jump.last) else Modifier.focusRequester(jump.first)
+                    lastKey -> Modifier.focusRequester(jump.last)
+                    else -> Modifier
+                }
+                LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f).then(jump.modifier(itemCount))) {
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -300,7 +314,7 @@ fun SportsHubScreen(
                                 zone = zone,
                                 onClick = { returnFocus.clicked("next-favorite"); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
-                                modifier = returnFocus.on("next-favorite").padding(bottom = 6.dp),
+                                modifier = returnFocus.on("next-favorite").then(jumpOn("next-favorite")).padding(bottom = 6.dp),
                             )
                         }
                     }
@@ -327,7 +341,7 @@ fun SportsHubScreen(
                                 onClick = { returnFocus.clicked("team:$team:" + entry.match.id); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
                                 onLongClick = { toggleVideo(entry) },
-                                modifier = returnFocus.on("team:$team:" + entry.match.id),
+                                modifier = returnFocus.on("team:$team:" + entry.match.id).then(jumpOn("team:$team:" + entry.match.id)),
                             )
                         }
                     }
@@ -345,7 +359,7 @@ fun SportsHubScreen(
                             onClick = { returnFocus.clicked(entry.match.id); onOpenMatch(entry.match.id) },
                             onFocused = { focusedId = entry.match.id },
                             onLongClick = { toggleVideo(entry) },
-                            modifier = returnFocus.on(entry.match.id),
+                            modifier = returnFocus.on(entry.match.id).then(jumpOn(entry.match.id)),
                         )
                     }
                 }

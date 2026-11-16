@@ -828,6 +828,19 @@ fun PlayerScreen(
                     onMatchPanel = if (linked != null) ({ panel = Panel.Match }) else null,
                     onPlayMatch = { playMatch(it) },
                     modifier = Modifier.align(Alignment.CenterEnd),
+                    sourceCount = linked?.sources?.size ?: 0,
+                    onSources = { panel = Panel.Sources },
+                    onVariants = { panel = Panel.Variants },
+                    onSchedule = { panel = Panel.Schedule },
+                    suspect = state.channel?.let { c -> container.suspectChannels.contains(c.playlistId, c.name) } == true,
+                    onSuspect = {
+                        panel = Panel.None
+                        state.channel?.let { c ->
+                            val marked = container.suspectChannels.toggle(c.playlistId, c.name)
+                            toast = if (marked) "${c.name}: semnalat „canal posibil greșit”. Rămâne în surse, cu eticheta asta."
+                            else "${c.name}: semnalarea a fost scoasă."
+                        }
+                    },
                 )
             }
             Panel.None -> Unit

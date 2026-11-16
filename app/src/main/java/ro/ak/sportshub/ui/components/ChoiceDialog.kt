@@ -37,6 +37,7 @@ fun ChoiceDialog(
     val focus = remember { FocusRequester() }
     val start = selectedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = start)
+    val jump = rememberListJump(listState)
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     // Deschisă cu OK lung: tasta e încă apăsată, iar ridicarea ei ar alege prima opțiune.
     // OK/Enter contează abia după o apăsare nouă, făcută în fereastră.
@@ -54,9 +55,9 @@ fun ChoiceDialog(
             if (hint != null) {
                 Text(text = hint, fontSize = 13.sp, color = AkColors.TextDim, modifier = Modifier.padding(top = 4.dp))
             }
-            LazyColumn(contentPadding = ListPadding, 
+            LazyColumn(contentPadding = ListPadding,
                 state = listState,
-                modifier = Modifier.padding(top = 12.dp).heightIn(max = 420.dp),
+                modifier = Modifier.padding(top = 12.dp).heightIn(max = 420.dp).then(jump.modifier(options.size)),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 itemsIndexed(options) { index, option ->
@@ -64,7 +65,7 @@ fun ChoiceDialog(
                         title = option,
                         selected = index == selectedIndex,
                         onClick = { onSelect(index) },
-                        modifier = if (index == start) Modifier.focusRequester(focus) else Modifier,
+                        modifier = (if (index == start) Modifier.focusRequester(focus) else Modifier).then(jump.row(index, options.size)),
                         trailing = if (index == selectedIndex) {
                             { Text(text = "✓", fontSize = 16.sp, color = ro.ak.sportshub.ui.components.accentText()) }
                         } else {
