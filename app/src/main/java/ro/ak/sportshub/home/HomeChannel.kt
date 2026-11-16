@@ -146,7 +146,7 @@ class HomeChannel(private val context: Context, private val container: AppContai
         val size = 160
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
-        val drawable = context.getDrawable(R.drawable.ic_app) ?: return bmp
+        val drawable = context.getDrawable(R.drawable.ic_app_rotund) ?: return bmp
         drawable.setBounds(0, 0, size, size)
         drawable.draw(canvas)
         return bmp
