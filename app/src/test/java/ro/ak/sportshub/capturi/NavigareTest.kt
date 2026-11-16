@@ -29,9 +29,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import ro.ak.sportshub.ui.components.SportGlyph
-import ro.ak.sportshub.ui.components.SportGlyphVariant
-import ro.ak.sportshub.ui.components.SportGlyphVariants
 import ro.ak.sportshub.ui.screens.HomeScreen
 import ro.ak.sportshub.ui.theme.AkColors
 import ro.ak.sportshub.ui.theme.AkTheme
@@ -139,30 +136,5 @@ class NavigareTest {
         File("build/outputs/roborazzi").mkdirs()
         File("build/outputs/roborazzi/navigare.txt").writeText(log.toString() + "\nProbleme:\n" + problems.joinToString("\n"))
         assertTrue("Navigarea a sărit:\n" + problems.joinToString("\n") + "\n\nDrumul:\n$log", problems.isEmpty())
-    }
-
-
-    /** Variantele noi pentru iconițele de fotbal, handbal, volei și snooker, mari, cu numele lor. */
-    @Test
-    fun iconiteVariante() {
-        compose.setContent {
-            AkTheme {
-                Column(modifier = Modifier.padding(36.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    SportGlyphVariants.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
-                            row.forEach { key ->
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    SportGlyphVariant(key, AkColors.Text, 52.dp)
-                                    SportGlyphVariant(key, AkColors.Accent, 20.dp)
-                                    Text(text = key, fontSize = 18.sp, color = AkColors.TextDim)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        compose.waitForIdle()
-        compose.onRoot().captureRoboImage("build/outputs/roborazzi/11-iconite-variante.png")
     }
 }
