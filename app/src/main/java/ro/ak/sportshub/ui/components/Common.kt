@@ -394,6 +394,12 @@ fun ActionButton(
  * rândul apăsat, nu pe primul element (care, în bara de sus, ar schimba secțiunea). Cheia rândului se ține în
  * starea salvată a ecranului, deci rezistă și când Android refăcea ecranul.
  */
+/**
+ * Adevărat când secțiunea ecranului principal a apărut prin meniul de sus (nu la întoarcerea de pe alt ecran):
+ * atunci focusul rămâne în meniu, nu coboară pe rândul ținut minte (cererea lui Radu, după v1.1.172).
+ */
+val LocalSectionSwitched = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 class ReturnFocus internal constructor(private val saved: androidx.compose.runtime.MutableState<String?>) {
     internal val requester = FocusRequester()
 
@@ -413,8 +419,9 @@ class ReturnFocus internal constructor(private val saved: androidx.compose.runti
 fun rememberReturnFocus(): ReturnFocus {
     val saved = androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val rf = remember { ReturnFocus(saved) }
+    val sectionSwitched = LocalSectionSwitched.current
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        if (saved.value == null) return@LaunchedEffect
+        if (saved.value == null || sectionSwitched) return@LaunchedEffect
         // Lista apare după câteva cadre (datele vin din bază): încearcă până la ~1,5 s.
         repeat(90) {
             androidx.compose.runtime.withFrameNanos { }

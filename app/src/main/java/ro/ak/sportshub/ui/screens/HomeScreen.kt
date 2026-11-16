@@ -56,6 +56,9 @@ fun HomeScreen(
     val sportsTabs = remember { FocusRequester() }
     // Fiecare secțiune își păstrează starea (căutarea din Live TV, tabul din Sports Hub) când treci prin celelalte.
     val sectionStates = rememberSaveableStateHolder()
+    // Trecerea prin meniul de sus (Sports Hub ↔ Live TV ↔ Setări) nu coboară focusul pe rândul ținut minte;
+    // doar întoarcerea de pe alt ecran (player, meci, canal) o face. Se uită la refacerea ecranului principal.
+    var switchedSection by remember { mutableStateOf(false) }
     var confirmExit by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -77,7 +80,7 @@ fun HomeScreen(
             TabStrip(
                 tabs = Sections,
                 selectedIndex = section,
-                onSelect = { section = it },
+                onSelect = { if (it != section) switchedSection = true; section = it },
                 firstTabModifier = Modifier.focusRequester(firstTab),
                 fontSize = 21.sp,
                 selectedTabRequester = topSelected,
@@ -88,6 +91,7 @@ fun HomeScreen(
             HeaderClock()
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {
+            androidx.compose.runtime.CompositionLocalProvider(ro.ak.sportshub.ui.components.LocalSectionSwitched provides switchedSection) {
             sectionStates.SaveableStateProvider(section) { when (section) {
                 0 -> SportsHubScreen(
                     topMenu = topSelected,
@@ -106,6 +110,7 @@ fun HomeScreen(
                     onOpenQrSetup = onOpenQrSetup,
                 )
             } }
+            }
         }
     }
 
