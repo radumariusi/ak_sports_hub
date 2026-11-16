@@ -70,5 +70,40 @@ object StreamingServices {
         return null
     }
 
+    /** Formele prea comune ca să recunoască o rețea doar din numele grupului („Max”, „Prime”, „Stan”, „Amazon”). */
+    private val ambiguousInGroup = setOf("max", "prime", "stan", "amazon")
+
+    /**
+     * Rețeaua din numele unui grup de playlist („USA | PEACOCK PPV”, „UK: DAZN EVENTS”), sau null. Se caută cea mai
+     * lungă formă a rețelei ca șir de cuvinte întregi din grup.
+     */
+    fun ofGroup(group: String): String? {
+        val w = words(group)
+        if (w.isEmpty()) return null
+        var best: Pair<Int, String>? = null
+        for (start in w.indices) {
+            for (n in minOf(4, w.size - start) downTo 1) {
+                val form = w.subList(start, start + n).joinToString(" ")
+                if (form in ambiguousInGroup) continue
+                val service = byForm[form] ?: continue
+                if (best == null || n > best.first) best = n to service
+                break
+            }
+        }
+        return best?.second
+    }
+
+    /**
+     * Numărul unui canal fără nume propriu („Event 05”, „PPV 5”, „05”, „Live 12”): doar cuvinte de umplutură și un
+     * număr la final; null pentru orice alt nume (atunci canalul nu e un canal generic al rețelei).
+     */
+    fun genericNumber(core: String): Int? {
+        val w = words(core)
+        if (w.isEmpty()) return null
+        val last = w.last()
+        if (!last.all { it.isDigit() } || last.length > 3) return null
+        return if (w.dropLast(1).all { it in fillers }) last.toInt() else null
+    }
+
     const val MAX_CHANNELS = 12
 }

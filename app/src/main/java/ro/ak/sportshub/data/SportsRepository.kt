@@ -604,7 +604,7 @@ class SportsRepository(
     }
 
     private suspend fun playlistCountries(): Set<String> =
-        (stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }).countries()
+        (stationIndexCache ?: stationIndex().also { stationIndexCache = it }).countries()
 
     /**
      * Posturile pe țară pentru cel mult [SOFA_TV_PER_ROUND] meciuri Sofascore (favoritele, apoi cele fără sursă sigură),
@@ -1154,6 +1154,13 @@ class SportsRepository(
         return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
     }
 
+    /** Indexul posturilor: cheile de grupare ale canalelor, plus grupul lor (rețelele de streaming după grup). */
+    private suspend fun stationIndex(): StationIndex {
+        val rows = db.channels().activeGroupKeyGroups()
+        val groups = rows.groupBy({ it.groupKey }, { it.groupName }).mapValues { it.value.toSet() }
+        return StationIndex(groups.keys, groups)
+    }
+
     /** Meciul EuroLeague / EuroCup („E2026_379”) din programul oficial deja descărcat; null dacă nu e. */
     fun euroleagueEventFor(match: Match): String? {
         if (match.away.isBlank() || (match.sport != null && match.sport != Sport.BASKETBALL)) return null
@@ -1397,7 +1404,7 @@ class SportsRepository(
         val epgChannelIds = channelsByEpg.values.flatten().distinct()
         val epgChannels = epgChannelIds.chunked(IN_CHUNK).flatMap { db.channels().byIds(it) }.associateBy { it.id }
 
-        val index = stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }
+        val index = stationIndexCache ?: stationIndex().also { stationIndexCache = it }
         val finder = SourceFinder(index, knowledge.current)
 
         // C3: ce meci arată EPG-ul fiecărui canal (cheia de grupare) și când; un post anunțat care arată alt meci nu e sursă probabilă.
@@ -1657,7 +1664,7 @@ class SportsRepository(
     /** „De ce nu are sursă?” pentru meciul [id] (null dacă nu mai e în listă). */
     suspend fun diagnose(id: String): SourceDiagnosis? = withContext(Dispatchers.IO) {
         val m = find(id)?.match ?: return@withContext null
-        val index = stationIndexCache ?: StationIndex(db.channels().activeGroupKeys()).also { stationIndexCache = it }
+        val index = stationIndexCache ?: stationIndex().also { stationIndexCache = it }
         SourceDiagnostics.diagnose(m, index, knowledge.current)
     }
 

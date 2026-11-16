@@ -163,6 +163,12 @@ data class ChannelEpgRow(
 )
 
 /** Numele și grupul unui canal (pentru recunoașterea canalelor de sport). */
+/** Cheia de grupare și grupul din playlist (rețelele de streaming recunoscute după grup: „USA | PEACOCK PPV”). */
+data class GroupKeyRow(
+    val groupKey: String,
+    val groupName: String,
+)
+
 data class ChannelNameRow(
     val id: Long,
     val name: String,

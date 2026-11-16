@@ -55,6 +55,22 @@ class SourcesWindowStreamingTest {
     }
 
     @Test
+    fun `reteaua recunoscuta dupa grupul din playlist`() {
+        assertEquals("peacock", StreamingServices.ofGroup("USA | PEACOCK PPV"))
+        assertEquals("dazn", StreamingServices.ofGroup("UK: DAZN EVENTS"))
+        assertNull(StreamingServices.ofGroup("PRIME SPORTS"))
+        assertNull(StreamingServices.ofGroup("USA SPORTS"))
+        assertEquals(5, StreamingServices.genericNumber("event 05"))
+        assertEquals(12, StreamingServices.genericNumber("ppv 12"))
+        assertNull(StreamingServices.genericNumber("espn 2"))
+        val index = StationIndex(
+            listOf("us:event 01", "us:event 02", "us:espn 2"),
+            mapOf("us:event 01" to setOf("USA | PEACOCK PPV"), "us:event 02" to setOf("USA | PEACOCK PPV"), "us:espn 2" to setOf("USA | PEACOCK PPV")),
+        )
+        assertEquals(listOf("us:event 01", "us:event 02"), index.streamingChannels(TvStation("Peacock", "USA")))
+    }
+
+    @Test
     fun `nu transmite meciul - ramane sursa nesigura, fara invatare`() {
         val index = StationIndex(listOf("uk:sky sport main event"))
         val m = match(at("2026-11-16T21:00:00"), stations = listOf(TvStation("Sky Sports Main Event", "UK")))
