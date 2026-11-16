@@ -225,7 +225,7 @@ class CapturiTest {
     fun variantaVerificata() {
         val id = seedObserved()
         compose.setContent { AkTheme { ChannelScreen(channelId = id, onPlay = {}, onOpenSchedule = {}) } }
-        waitFor("FHD ✓")
+        waitFor("Sky Sports Main Event UHD")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/7-variante-rezolutie-reala.png")
     }
 
