@@ -13,6 +13,7 @@ import ro.ak.sportshub.data.bestSource
 import ro.ak.sportshub.player.Archive
 import ro.ak.sportshub.ui.screens.BackupScreen
 import ro.ak.sportshub.ui.screens.QrSetupScreen
+import ro.ak.sportshub.ui.screens.SecondScreenScreen
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -43,6 +44,7 @@ private const val SPORTS_SETTINGS = "sports-settings"
 private const val SPORTS_KNOWLEDGE = "sports-knowledge"
 private const val BACKUP = "backup"
 private const val QR_SETUP = "qr-setup"
+private const val SECOND_SCREEN = "second-screen"
 private const val SEARCH = "search?q={q}&voice={voice}"
 
 /** Căutarea (F1): cu textul [query] sau, cu [voice], pornind direct ascultarea. */
@@ -89,6 +91,14 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
         deepLink.value = null
     }
 
+    // F4: „Pornește pe televizor” din telefon: în player pe calea schimbării canalului, altfel ca legătura „play”.
+    LaunchedEffect(Unit) {
+        container.phonePlay.collect { matchId ->
+            val handled = container.playerRemote?.invoke(matchId) == true
+            if (!handled) deepLink.value = DeepLinks.Target.Play(matchId)
+        }
+    }
+
     // Comutarea automată pe meciul favorit și alertele de gol, peste toate ecranele.
     MatchAlertsHost(onPlayMatch = { id, matchId -> nav.navigate(matchPlayerRoute(id, matchId)) { launchSingleTop = true } }) {
         NavHost(navController = nav, startDestination = HOME) {
@@ -104,6 +114,7 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
                     onOpenBackup = { nav.navigate(BACKUP) },
                     onPlayArchive = { id, start, end -> nav.navigate(archiveRoute(id, start, end)) { launchSingleTop = true } },
                     onOpenQrSetup = { nav.navigate(QR_SETUP) },
+                    onOpenSecondScreen = { nav.navigate(SECOND_SCREEN) },
                     onOpenSearch = { nav.navigate(searchRoute("", voice = false)) },
                 )
             }
@@ -123,6 +134,7 @@ fun AppNavigation(deepLink: MutableStateFlow<DeepLinks.Target?> = MutableStateFl
             }
             composable(BACKUP) { BackupScreen() }
             composable(QR_SETUP) { QrSetupScreen(onDone = { nav.popBackStack() }) }
+            composable(SECOND_SCREEN) { SecondScreenScreen(onDone = { nav.popBackStack() }) }
             composable(CHANNEL, arguments = listOf(navArgument("channelId") { type = NavType.LongType })) { entry ->
                 ChannelScreen(
                     channelId = entry.arguments?.getLong("channelId") ?: 0L,

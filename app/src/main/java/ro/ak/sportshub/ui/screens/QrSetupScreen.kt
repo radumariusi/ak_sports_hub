@@ -135,7 +135,7 @@ private fun hostOf(url: String): String? =
     runCatching { Uri.parse(if (url.contains("://")) url else "http://$url").host }.getOrNull()?.ifEmpty { null }
 
 /** Codul QR al adresei [text], negru pe alb. */
-private fun qrBitmap(text: String, size: Int = 512): ImageBitmap {
+internal fun qrBitmap(text: String, size: Int = 512): ImageBitmap {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
     val pixels = IntArray(size * size) { i -> if (matrix.get(i % size, i / size)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
