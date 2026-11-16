@@ -1,8 +1,8 @@
 package ro.ak.sportshub.core.sports
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 
 class MatchFilterSportTest {
     private fun m(id: String, sport: Sport, comp: String, home: String, away: String = "") =
