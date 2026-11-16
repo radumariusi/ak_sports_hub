@@ -1,6 +1,8 @@
 package ro.ak.sportshub.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -84,6 +86,8 @@ fun TabStrip(
     fontSize: TextUnit = 18.sp,
     /** Crește-l ca focusul să sară pe tabul selectat (de exemplu după ◀ ▶ din conținutul tabului). */
     focusSignal: Int = 0,
+    /** Poziția fiecărui tab pe ecran (x în px, față de fereastră), ca alt rând să se alinieze sub el. */
+    onTabX: ((Int, Float) -> Unit)? = null,
 ) {
     // Când intri în rândul de taburi (din listă sau din bara de sus), focusul vine pe tabul curent, nu pe cel aflat
     // dedesubt: focusRestorer ține minte ultimul tab, iar dacă ecranul a fost refăcut, merge pe tabul selectat.
@@ -105,7 +109,8 @@ fun TabStrip(
                 onClick = { onSelect(index) },
                 modifier = (if (index == 0) firstTabModifier else Modifier)
                     .focusRequester(requesters[index])
-                    .onFocusChanged { if (it.isFocused) onSelect(index) },
+                    .onFocusChanged { if (it.isFocused) onSelect(index) }
+                    .then(if (onTabX != null) Modifier.onGloballyPositioned { onTabX(index, it.positionInWindow().x) } else Modifier),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                 colors = ClickableSurfaceDefaults.colors(
