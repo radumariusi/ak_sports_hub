@@ -78,12 +78,10 @@ object Espn {
         soccer("EFLCUP", "eng.league_cup", "English Carabao Cup"),
         soccer("EFLTROPHY", "eng.trophy", "English EFL Trophy"),
         soccer("WSL", "eng.w.1", "English Women's Super League"),
-        soccer("WCHAMP", "eng.w.2", "English Women's Championship"),
         // Fotbal feminin în afara Angliei: doar pentru echipele favorite („Barcelona” cuprinde și echipa feminină).
+        // Slug-urile verificate pe 16.11.2026; Frauen-Bundesliga și Serie A feminină nu sunt la ESPN (prima vine din OpenLigaDB).
         soccer("LIGAF", "esp.w.1", "Spanish Liga F Women", forFavorites = true),
-        soccer("FRAUENBL", "ger.w.1", "German Frauen-Bundesliga", forFavorites = true),
         soccer("D1F", "fra.w.1", "French Premiere Ligue Feminine", forFavorites = true),
-        soccer("SERIEAW", "ita.w.1", "Italian Serie A Femminile", forFavorites = true),
         soccer("UWCL", "uefa.wchampions", "UEFA Women's Champions League", forFavorites = true),
         soccer("NWSL", "usa.nwsl", "American NWSL Women", forFavorites = true),
         soccer("WEURO", "uefa.weuro", "UEFA Women's European Championship"),
@@ -105,7 +103,6 @@ object Espn {
         soccer("CDF", "fra.coupe_de_france", "French Coupe de France"),
         // Restul Europei
         soccer("PORTUGAL", "por.1", "Portuguese Primeira Liga"),
-        soccer("PORTUGAL2", "por.2", "Portuguese Liga Portugal 2"),
         soccer("TACA", "por.taca.portugal", "Portuguese Taca de Portugal"),
         soccer("EREDIVISIE", "ned.1", "Dutch Eredivisie"),
         soccer("EERSTE", "ned.2", "Dutch Eerste Divisie"),
@@ -124,7 +121,6 @@ object Espn {
         soccer("NORWAY", "nor.1", "Norwegian Eliteserien"),
         soccer("ROMANIA", "rou.1", "Romanian Liga I"),
         soccer("RUSSIA", "rus.1", "Russian Premier League"),
-        soccer("POLAND", "pol.1", "Polish Ekstraklasa"),
         soccer("CZECH", "cze.1", "Czech First League"),
         // Cupele europene și naționalele
         soccer("UCL", "uefa.champions", "UEFA Champions League"),
@@ -161,7 +157,6 @@ object Espn {
         soccer("SAUDI", "ksa.1", "Saudi Pro League"),
         soccer("JAPAN", "jpn.1", "Japanese J1 League"),
         soccer("CHINA", "chn.1", "Chinese Super League"),
-        soccer("KOREA", "kor.1", "K League 1"),
         soccer("ALEAGUE", "aus.1", "Australian A-League Men"),
         soccer("AFCCL", "afc.champions", "AFC Champions League Elite"),
         // Ligile americane
@@ -210,7 +205,6 @@ object Espn {
         "SERIEB" to listOf("serie bkt", "italy serie b"),
         "BUNDESLIGA2" to listOf("2 bundesliga", "zweite bundesliga"),
         "PORTUGAL" to listOf("liga portugal", "primeira liga", "liga portugal betclic"),
-        "PORTUGAL2" to listOf("liga portugal 2", "segunda liga"),
         "BRAZIL" to listOf("brasileirao", "campeonato brasileiro"),
         "ROMANIA" to listOf("superliga romania", "romania superliga", "liga 1 romania"),
         "TURKEY" to listOf("super lig", "trendyol super lig"),
@@ -617,7 +611,7 @@ object Espn {
             awayScore = away?.text("score")?.toIntOrNull().takeIf { status != MatchStatus.SCHEDULED },
             venue = info?.obj("venue")?.text("fullName"),
             city = info?.obj("venue")?.obj("address")?.text("city"),
-            referee = info?.arr("officials")?.filterIsInstance<JsonObject>()?.firstOrNull()?.let { it.text("displayName") ?: it.text("fullName") },
+            referee = referee(info),
             spectators = info?.text("attendance")?.toIntOrNull()?.takeIf { it > 0 },
         )
         fun isHome(teamId: String?, homeAway: String?): Boolean =
@@ -695,8 +689,31 @@ object Espn {
             if (h == null || a == null) emptyList() else leaderLines(h, a)
         }
 
+        val absent = (root["injuries"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().flatMap { t ->
+            val h = isHome(t.obj("team")?.text("id"), null)
+            t.arr("injuries").filterIsInstance<JsonObject>().mapNotNull { i ->
+                val name = i.obj("athlete")?.let { it.text("displayName") ?: it.text("fullName") } ?: return@mapNotNull null
+                val details = i.obj("details")
+                val kind = MatchExtras.espnKind(i.text("status"), i.obj("type")?.text("description"))
+                val what = MatchExtras.injuryText(details?.text("type"))
+                AbsentPlayer(name, h, kind, listOfNotNull(what, i.text("status")?.takeIf { kind == AbsenceKind.DOUBTFUL }).joinToString(" · ").ifEmpty { null })
+            }
+        }
+
         return MatchDetails(
             event = event,
+            winProbability = winProbability(root, homeId, awayId, status),
+            absent = MatchExtras.sorted(absent),
+            venue = VenueInfo(
+                stadium = event?.venue,
+                city = event?.city,
+                referee = event?.referee,
+                attendance = event?.spectators,
+                weather = info?.obj("weather")?.let { w ->
+                    val f = w.text("temperature")?.toDoubleOrNull()
+                    Weather(f?.let(MatchExtras::celsius), MatchExtras.weatherText(w.text("displayValue") ?: w.text("conditionText")), w.text("precipitation")?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 })
+                },
+            ).takeIf { !it.isEmpty },
             seasonStats = if (season) stats + leaders else leaders,
             homeRecent = homeForm?.let(::pastGames).orEmpty(),
             awayRecent = awayForm?.let(::pastGames).orEmpty(),
@@ -706,6 +723,40 @@ object Espn {
             timeline = timeline,
             stats = if (season) emptyList() else stats,
         )
+    }
+
+    /** Arbitrul principal: oficialul cu postul „Referee” (la NFL primul din listă e alt arbitru), altfel primul. */
+    private fun referee(info: JsonObject?): String? {
+        val all = info?.arr("officials")?.filterIsInstance<JsonObject>().orEmpty()
+        val main = all.firstOrNull { it.obj("position")?.text("name").equals("Referee", ignoreCase = true) } ?: all.firstOrNull()
+        return main?.let { it.text("displayName") ?: it.text("fullName") }
+    }
+
+    /**
+     * Șansele de câștig: `winprobability` (șansele gazdelor după fiecare fază, văzut la NBA și NFL), altfel
+     * previziunea de dinainte de meci (`predictor`, „gameProjection” în procente). Fotbalul ESPN nu le are.
+     */
+    private fun winProbability(root: JsonObject, homeId: String?, awayId: String?, status: MatchStatus?): WinProbability? {
+        val series = root.arr("winprobability").filterIsInstance<JsonObject>().mapNotNull { it.text("homeWinPercentage")?.toFloatOrNull() }
+        if (series.isNotEmpty() && status != null && status != MatchStatus.SCHEDULED) {
+            val last = root.arr("winprobability").filterIsInstance<JsonObject>().last()
+            val home = series.last().coerceIn(0f, 1f)
+            val tie = last.text("tiePercentage")?.toFloatOrNull()?.takeIf { it > 0.005f }
+            return WinProbability(home, tie, (1f - home - (tie ?: 0f)).coerceAtLeast(0f), series)
+        }
+        val p = root.obj("predictor") ?: return null
+        fun team(o: JsonObject?): Float? = o?.text("gameProjection")?.toFloatOrNull()?.div(100f)
+        var h = team(p.obj("homeTeam"))
+        var a = team(p.obj("awayTeam"))
+        // Echipele sunt date cu id-ul lor; dacă „homeTeam” e de fapt oaspeții, le întoarcem.
+        if (p.obj("homeTeam")?.text("id") != null && p.obj("homeTeam")?.text("id") == awayId && p.obj("awayTeam")?.text("id") == homeId) {
+            val t = h; h = a; a = t
+        }
+        if (h == null && a == null) return null
+        val home = (h ?: (1f - a!!)).coerceIn(0f, 1f)
+        val away = (a ?: (1f - home)).coerceIn(0f, 1f)
+        val draw = (1f - home - away).takeIf { it > 0.02f }
+        return WinProbability(home, draw, away, forecast = true)
     }
 
     /** Cei mai buni jucători ai sezonului (`leaders`): „Goluri: Panichelli 9 – Ely 4”. */

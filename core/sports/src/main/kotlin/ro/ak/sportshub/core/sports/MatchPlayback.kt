@@ -155,7 +155,9 @@ class LiveDelay {
         val last = seen.lastOrNull()?.details
         val baseline = seen.isEmpty()
         details.timeline.forEach { t -> if (t !in firstSeen) firstSeen[t] = if (baseline) 0L else at }
-        if (last == null || last.event != details.event || last.timeline != details.timeline || last.stats != details.stats) {
+        if (last == null || last.event != details.event || last.timeline != details.timeline || last.stats != details.stats ||
+            last.winProbability != details.winProbability || last.momentum != details.momentum || last.shots != details.shots
+        ) {
             seen += Seen(if (baseline) 0L else at, details, at)
             // Păstrăm puțin: doar cât e nevoie pentru întârzierea maximă.
             while (seen.size > MAX_SNAPSHOTS) seen.removeAt(0)
@@ -179,6 +181,10 @@ class LiveDelay {
             event = visible.details.event,
             timeline = latest.timeline.filter { (firstSeen[it] ?: 0L) <= cutoff },
             stats = visible.details.stats,
+            // Șansele, presiunea și șuturile spun și ele ce s-a întâmplat: tot cu întârzierea stream-ului.
+            winProbability = visible.details.winProbability,
+            momentum = visible.details.momentum,
+            shots = visible.details.shots,
         )
     }
 

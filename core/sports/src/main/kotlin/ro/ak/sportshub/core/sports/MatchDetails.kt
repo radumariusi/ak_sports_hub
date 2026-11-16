@@ -93,10 +93,21 @@ data class MatchDetails(
     val lineup: List<LineupPlayer> = emptyList(),
     val timeline: List<TimelineEntry> = emptyList(),
     val stats: List<StatLine> = emptyList(),
+    /** Șansele de câștig (ESPN: previziunea înainte de meci, apoi seria live). */
+    val winProbability: WinProbability? = null,
+    /** Presiunea pe minute (FotMob): pozitiv = gazdele, negativ = oaspeții, între -100 și 100. */
+    val momentum: List<MomentumPoint> = emptyList(),
+    /** Șuturile cu locul lor pe teren (FotMob). */
+    val shots: List<Shot> = emptyList(),
+    /** Jucătorii indisponibili: accidentați, suspendați, incerți (ESPN la sporturile americane, FotMob la fotbal). */
+    val absent: List<AbsentPlayer> = emptyList(),
+    /** Stadionul, arbitrul și vremea, completate din FotMob când ESPN nu le are. */
+    val venue: VenueInfo? = null,
 ) {
     val isEmpty: Boolean
         get() = event == null && homeRecent.isEmpty() && awayRecent.isEmpty() && headToHead.isEmpty() &&
-            table.isEmpty() && lineup.isEmpty() && timeline.isEmpty() && stats.isEmpty() && seasonStats.isEmpty()
+            table.isEmpty() && lineup.isEmpty() && timeline.isEmpty() && stats.isEmpty() && seasonStats.isEmpty() &&
+            winProbability == null && momentum.isEmpty() && shots.isEmpty() && absent.isEmpty() && venue == null
 }
 
 /** Rezultatul unei echipe într-un meci trecut. */
@@ -241,6 +252,58 @@ object TheSportsDbDetails {
         "passes %" to "Precizia paselor (%)",
         "expected_goals" to "Goluri așteptate (xG)",
         "expected goals" to "Goluri așteptate (xG)",
+        // Numele FotMob și 365Scores, văzute pe răspunsuri reale (16.11.2026).
+        "possession" to "Posesie (%)",
+        "expected goals (xg)" to "Goluri așteptate (xG)",
+        "shots on target" to "Șuturi pe poartă",
+        "shots off target" to "Șuturi pe lângă",
+        "shots blocked" to "Șuturi blocate",
+        "shots inside box" to "Șuturi din careu",
+        "shots inside the box" to "Șuturi din careu",
+        "shots outside box" to "Șuturi din afara careului",
+        "shots outside the box" to "Șuturi din afara careului",
+        "hit woodwork" to "Șuturi în bară",
+        "big chances" to "Ocazii mari",
+        "big chances created" to "Ocazii mari",
+        "big chances missed" to "Ocazii mari ratate",
+        "xg on target (xgot)" to "xG pe poartă (xGOT)",
+        "expected goals on target" to "xG pe poartă (xGOT)",
+        "xg open play" to "xG din joc",
+        "xg set play" to "xG din faze fixe",
+        "xg non-penalty" to "xG fără penalty",
+        "expected assists" to "Pase de gol așteptate (xA)",
+        "touches in opposition box" to "Atingeri în careul advers",
+        "corners" to "Cornere",
+        "free kicks" to "Lovituri libere",
+        "attacks" to "Atacuri",
+        "passes" to "Pase",
+        "accurate passes" to "Pase reușite",
+        "passes completed" to "Pase reușite",
+        "own half" to "Pase în propria jumătate",
+        "passes own half" to "Pase în propria jumătate",
+        "opposition half" to "Pase în jumătatea adversă",
+        "passes opposition half" to "Pase în jumătatea adversă",
+        "accurate long balls" to "Pase lungi reușite",
+        "long passes completed" to "Pase lungi reușite",
+        "accurate crosses" to "Centrări reușite",
+        "crosses completed" to "Centrări reușite",
+        "key passes" to "Pase cheie",
+        "throws" to "Aruncări de la margine",
+        "throw-ins" to "Aruncări de la margine",
+        "tackles" to "Deposedări",
+        "tackles won" to "Deposedări reușite",
+        "interceptions" to "Intercepții",
+        "blocks" to "Blocaje",
+        "clearances" to "Degajări",
+        "keeper saves" to "Parade",
+        "duels won" to "Dueluri câștigate",
+        "ground duels won" to "Dueluri la sol câștigate",
+        "aerial duels won" to "Dueluri aeriene câștigate",
+        "successful dribbles" to "Driblinguri reușite",
+        "fouls committed" to "Faulturi",
+        "was fouled" to "Faulturi suferite",
+        "possession lost" to "Mingi pierdute",
+        "distance covered" to "Distanță parcursă",
     )
 
     /** Numele statisticii în română, când îl știm; altfel cel primit. */

@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -27,10 +28,10 @@ import androidx.tv.material3.Text
 import ro.ak.sportshub.core.sports.Formation
 import ro.ak.sportshub.core.sports.LineupPlayer
 
-private val Grass = Color(0xFF1E5E35)
+internal val Grass = Color(0xFF1E5E35)
 private val Chalk = Color(0x99FFFFFF)
-private val HomeShirt = Color(0xFFFFB547)
-private val AwayShirt = Color(0xFFEEF1F4)
+internal val HomeShirt = Color(0xFFFFB547)
+internal val AwayShirt = Color(0xFFEEF1F4)
 
 /**
  * Terenul desenat cu formațiile celor două echipe: gazdele în stânga (portarul la margine), oaspeții în dreapta.
@@ -45,22 +46,7 @@ fun PitchView(home: Formation, away: Formation, modifier: Modifier = Modifier, h
             .background(Grass, RoundedCornerShape(10.dp))
             .focusable(),
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(10.dp)) {
-            val stroke = Stroke(width = 2.dp.toPx())
-            val w = size.width
-            val h = size.height
-            drawRect(Chalk, style = stroke)
-            drawLine(Chalk, Offset(w / 2, 0f), Offset(w / 2, h), strokeWidth = stroke.width)
-            drawCircle(Chalk, radius = h * 0.15f, center = Offset(w / 2, h / 2), style = stroke)
-            val boxW = w * 0.13f
-            val boxH = h * 0.56f
-            drawRect(Chalk, topLeft = Offset(0f, (h - boxH) / 2), size = Size(boxW, boxH), style = stroke)
-            drawRect(Chalk, topLeft = Offset(w - boxW, (h - boxH) / 2), size = Size(boxW, boxH), style = stroke)
-            val smallW = w * 0.05f
-            val smallH = h * 0.26f
-            drawRect(Chalk, topLeft = Offset(0f, (h - smallH) / 2), size = Size(smallW, smallH), style = stroke)
-            drawRect(Chalk, topLeft = Offset(w - smallW, (h - smallH) / 2), size = Size(smallW, smallH), style = stroke)
-        }
+        Canvas(modifier = Modifier.fillMaxSize().padding(10.dp)) { drawPitchLines() }
         Row(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 14.dp)) {
             home.lines.forEach { line -> PitchLineColumn(line, HomeShirt, Modifier.weight(1f)) }
             away.lines.reversed().forEach { line -> PitchLineColumn(line, AwayShirt, Modifier.weight(1f)) }
@@ -88,6 +74,24 @@ private fun PitchLineColumn(players: List<LineupPlayer>, shirt: Color, modifier:
             }
         }
     }
+}
+
+/** Liniile terenului (marginea, mijlocul, cercul, careurile), pe toată suprafața desenului. */
+internal fun DrawScope.drawPitchLines() {
+    val stroke = Stroke(width = 2.dp.toPx())
+    val w = size.width
+    val h = size.height
+    drawRect(Chalk, style = stroke)
+    drawLine(Chalk, Offset(w / 2, 0f), Offset(w / 2, h), strokeWidth = stroke.width)
+    drawCircle(Chalk, radius = h * 0.15f, center = Offset(w / 2, h / 2), style = stroke)
+    val boxW = w * 0.13f
+    val boxH = h * 0.56f
+    drawRect(Chalk, topLeft = Offset(0f, (h - boxH) / 2), size = Size(boxW, boxH), style = stroke)
+    drawRect(Chalk, topLeft = Offset(w - boxW, (h - boxH) / 2), size = Size(boxW, boxH), style = stroke)
+    val smallW = w * 0.05f
+    val smallH = h * 0.26f
+    drawRect(Chalk, topLeft = Offset(0f, (h - smallH) / 2), size = Size(smallW, smallH), style = stroke)
+    drawRect(Chalk, topLeft = Offset(w - smallW, (h - smallH) / 2), size = Size(smallW, smallH), style = stroke)
 }
 
 /** „Bukayo Saka” → „Saka”; numele scurte rămân întregi. */

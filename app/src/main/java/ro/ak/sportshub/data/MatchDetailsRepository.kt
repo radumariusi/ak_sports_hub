@@ -33,6 +33,7 @@ import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.TheSportsDbDetails
 import ro.ak.sportshub.core.sports.SportEvent
 import ro.ak.sportshub.core.sports.TheSportsDb
+import ro.ak.sportshub.core.sports.VenueInfo
 
 /** Detaliile unui meci, cu starea cererilor. */
 data class MatchDetailsState(
@@ -113,6 +114,9 @@ class MatchDetailsRepository(
                 if (s.sportsDbEnabled) fillTeamLooks(match, s.sportsDbKey)
                 // Meciul nu e în programul ESPN descărcat (azi și mâine): îl caut în programul ligii, în ziua lui.
                 val espn = espnRef(match) ?: lookupEspn(match)
+                // Fotbal: FotMob dă presiunea, harta șuturilor, absenții, arbitrul și vremea (și completează ce n-are
+                // ESPN). Rar: e un site protejat anti-robot.
+                if (fotmobWanted(match, part)) fetchFotmob(match, part, force)
                 // NBA, NHL, MLB: statisticile oficiale ale ligii completează ce nu are ESPN (sau îl înlocuiesc).
                 if (officialGaps(match, espn != null)) fetchOfficial(match, force)
                 if (espn == null && !s.sportsDbEnabled) {
@@ -145,9 +149,6 @@ class MatchDetailsRepository(
                 if (espn != null && part == DetailsSchedule.Part.PRE_MATCH && espnDetails(match)?.table.isNullOrEmpty()) {
                     runCatching { standings?.load(espn.first) }
                 }
-                // ESPN fără statistici sau formații (fotbal): FotMob completează, iar `read` le amestecă
-                // (ce are ESPN rămâne de la ESPN). Rar: e un site protejat anti-robot.
-                if (espn != null && espnGaps(match, part)) fetchFotmob(match, part, force)
                 // Fără ESPN (sau dacă ESPN n-a dat nimic): TheSportsDB, ca înainte (e lent și dă puțin cu cheia gratuită).
                 if (due && s.sportsDbEnabled && (espn == null || espnDetails(match) == null)) {
                     val requests = plan(match, part, s.sportsDbKey)
@@ -278,15 +279,27 @@ class MatchDetailsRepository(
         if (now < fotmobPausedUntil || !settings.current.fotMobEnabled) return
         val id = runCatching { fotmobEventFor(match) }.getOrNull() ?: return
         val stamp = File(dir, "${base(match)}-fotmob.stamp")
-        val every = if (part == DetailsSchedule.Part.LIVE && match.status == MatchStatus.LIVE) FOTMOB_LIVE_MS else FOTMOB_PRE_MS
-        if (!force && now - stamp.lastModifiedOrZero() < every) return
+        val last = stamp.lastModifiedOrZero()
+        val every = when {
+            // Live, pe tabul Live: la un minut când ESPN n-are statistici/formații, altfel la 3 minute (presiunea, șuturile).
+            part == DetailsSchedule.Part.LIVE && match.status == MatchStatus.LIVE -> if (espnGaps(match, part)) FOTMOB_LIVE_MS else FOTMOB_EXTRAS_LIVE_MS
+            // După final: o dată, pentru harta și presiunea întregi.
+            match.status == MatchStatus.FINISHED && last in 1 until match.end -> 0L
+            // Cu 90 de minute înainte, fără echipele de start de la ESPN: la 20 de minute, ca să le prindă.
+            match.status == MatchStatus.SCHEDULED && espnGaps(match, part) -> FOTMOB_LINEUP_MS
+            else -> FOTMOB_PRE_MS
+        }
+        if (!force && now - last < every) return
         runCatching { stamp.writeText(now.toString()) }
-        set(match.id) { it.copy(status = "Se cer statisticile și formațiile (FotMob)…") }
+        set(match.id) { it.copy(status = "Se cer datele meciului (FotMob)…") }
         val f = File(dir, "${base(match)}-fotmob.html")
         val tmp = File(dir, "${base(match)}-fotmob.new")
         if (download(ro.ak.sportshub.core.sports.FotMobDetails.url(id), tmp, html = true)) {
             // O pagină fără date nu înlocuiește una bună.
-            val ok = runCatching { ro.ak.sportshub.core.sports.FotMobDetails.parse(tmp.readText()) }.getOrNull() != null
+            // Se păstrează doar partea citită (din ~1 MB rămân zeci de KB), recitită des cât e deschis meciul.
+            val small = runCatching { ro.ak.sportshub.core.sports.FotMobDetails.compact(tmp.readText()) }.getOrNull()
+            val ok = small != null && runCatching { ro.ak.sportshub.core.sports.FotMobDetails.parse(small) }.getOrNull() != null
+            if (ok) runCatching { tmp.writeText(small!!) }
             if (ok && !tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
             tmp.delete()
         } else {
@@ -565,6 +578,18 @@ class MatchDetailsRepository(
         return parseFile("${base(match)}-off.json") { OfficialStats.parseStats(league, it) }
     }
 
+    /**
+     * Pagina meciului FotMob la fotbal: cu cel mult 2 zile înainte (absenții, arbitrul, vremea), apoi după start
+     * (presiunea, harta șuturilor; statisticile și formațiile când ESPN nu le are). Doar meciuri cu două echipe.
+     */
+    private fun fotmobWanted(match: Match, part: DetailsSchedule.Part): Boolean {
+        if (match.away.isBlank() || (match.sport != null && match.sport != ro.ak.sportshub.core.sports.Sport.FOOTBALL)) return false
+        return when (match.status) {
+            MatchStatus.SCHEDULED -> match.start - System.currentTimeMillis() < FOTMOB_EXTRAS_BEFORE_MS
+            else -> part == DetailsSchedule.Part.LIVE || espnGaps(match, part) || !File(dir, "${base(match)}-fotmob.html").exists()
+        }
+    }
+
     /** ESPN n-are ce poate da FotMob (doar fotbal): Live fără statistici sau formații, Pre fără formații cu 90 min înainte. */
     private fun espnGaps(match: Match, part: DetailsSchedule.Part): Boolean {
         if (match.away.isBlank() || (match.sport != null && match.sport != ro.ak.sportshub.core.sports.Sport.FOOTBALL)) return false
@@ -587,14 +612,21 @@ class MatchDetailsRepository(
         val s365 = read365(match)
         val ls = readLiveScore(match)
         val goal = readGoal(match)
+        val fm = parseFile("${base(match)}-fotmob.html") { ro.ak.sportshub.core.sports.FotMobDetails.parse(it) }
         if (espn == null) {
-            if (off == null && s365 == null && ls == null && goal == null) return db
-            return db.copy(
-                stats = off?.stats.orEmpty().ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { goal?.stats.orEmpty() }.ifEmpty { db.stats },
-                lineup = off?.lineup.orEmpty().ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { goal?.lineup.orEmpty() }.ifEmpty { db.lineup },
+            val dbVenue = db.event?.let { e -> VenueInfo(e.venue, e.city, null, e.referee, e.spectators) }
+            val withExtras = db.copy(
+                momentum = fm?.momentum.orEmpty(),
+                shots = fm?.shots.orEmpty(),
+                absent = fm?.absent.orEmpty(),
+                venue = (dbVenue ?: fm?.venue)?.orElse(fm?.venue)?.takeIf { !it.isEmpty },
+            )
+            if (off == null && s365 == null && ls == null && goal == null && fm == null) return withExtras
+            return withExtras.copy(
+                stats = off?.stats.orEmpty().ifEmpty { fm?.stats.orEmpty() }.ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { goal?.stats.orEmpty() }.ifEmpty { db.stats },
+                lineup = off?.lineup.orEmpty().ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { goal?.lineup.orEmpty() }.ifEmpty { db.lineup },
             )
         }
-        val fm = parseFile("${base(match)}-fotmob.html") { ro.ak.sportshub.core.sports.FotMobDetails.parse(it) }
         return MatchDetails(
             event = espn.event ?: db.event,
             seasonStats = espn.seasonStats,
@@ -606,6 +638,11 @@ class MatchDetailsRepository(
             timeline = espn.timeline.ifEmpty { db.timeline },
             // Statisticile după start (înainte de meci ESPN pune sezonul în `seasonStats`).
             stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { off?.stats.orEmpty() }.ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { goal?.stats.orEmpty() }.ifEmpty { db.stats },
+            winProbability = espn.winProbability,
+            momentum = fm?.momentum.orEmpty(),
+            shots = fm?.shots.orEmpty(),
+            absent = espn.absent.ifEmpty { fm?.absent.orEmpty() },
+            venue = (espn.venue ?: fm?.venue)?.orElse(fm?.venue),
         )
     }
 
@@ -712,5 +749,8 @@ class MatchDetailsRepository(
         val FOTMOB_PRE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_PAUSE_MS = TimeUnit.HOURS.toMillis(6)
         val FOTMOB_LINEUP_BEFORE_MS = TimeUnit.MINUTES.toMillis(90)
+        val FOTMOB_EXTRAS_BEFORE_MS = TimeUnit.HOURS.toMillis(48)
+        val FOTMOB_EXTRAS_LIVE_MS = TimeUnit.MINUTES.toMillis(3)
+        val FOTMOB_LINEUP_MS = TimeUnit.MINUTES.toMillis(20)
     }
 }
