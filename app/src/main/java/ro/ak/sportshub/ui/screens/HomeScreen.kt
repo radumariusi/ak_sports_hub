@@ -68,7 +68,7 @@ fun HomeScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AkLogo(size = 36.dp)
+            AkLogo(size = 48.dp)
             Spacer(Modifier.width(18.dp))
             TabStrip(
                 tabs = Sections,
