@@ -1,9 +1,10 @@
 name: Build
 
-# PR: teste + APK ca artefact de 3 zile.
+# PR: teste + APK ca artefact de 3 zile, doar pentru PR-urile gata (nu ciorne), ca să nu consume minute la fiecare push.
 # main: teste + APK publicat în release-ul unic „ultima-versiune” (fișierul vechi e înlocuit).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore: ["docs/**", "**/*.md"]
   push:
     branches: [main]
@@ -19,6 +20,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
