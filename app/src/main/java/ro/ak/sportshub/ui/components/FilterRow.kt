@@ -76,7 +76,7 @@ fun FilterPill(
             val text = value ?: label
             val tint = if (value != null) accentText() else LocalContentColor.current
             Row(
-                modifier = Modifier.padding(start = 11.dp, end = 13.dp, top = 5.dp, bottom = 5.dp),
+                modifier = Modifier.padding(start = 11.dp, end = if (text.isEmpty()) 11.dp else 13.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
