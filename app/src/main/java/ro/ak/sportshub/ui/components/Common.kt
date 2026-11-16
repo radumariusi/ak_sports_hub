@@ -311,36 +311,14 @@ fun VariantQualityBadge(playlistId: Long, name: String, quality: Quality) {
     }
 }
 
-/** Sigla: patru reflectoare chihlimbar deasupra literelor „AK”. */
+/** Sigla aplicației: aceeași ca iconița (desenul rotund, `ic_app_rotund`). */
 @Composable
 fun AkLogo(size: Dp = 40.dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.size(size).background(AkColors.Panel, RoundedCornerShape(size * 0.23f)),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val u = this.size.width / 96f
-            // Reflectoarele, înclinate spre centru (ca în pictograma aplicației).
-            listOf(Triple(20f, 23f, -24f), Triple(38f, 16f, -8f), Triple(58f, 16f, 8f), Triple(76f, 23f, 24f)).forEach { (cx, cy, angle) ->
-                rotate(angle, pivot = Offset(cx * u, cy * u)) {
-                    drawRoundRect(
-                        color = AkColors.Accent,
-                        topLeft = Offset((cx - 6f) * u, (cy - 3.5f) * u),
-                        size = Size(12f * u, 7f * u),
-                        cornerRadius = CornerRadius(2f * u),
-                    )
-                }
-            }
-        }
-        Text(
-            text = "AK",
-            fontSize = (size.value * 0.46f).sp,
-            fontFamily = AkFonts.Condensed,
-            fontWeight = FontWeight.Bold,
-            color = AkColors.Text,
-            modifier = Modifier.padding(bottom = size * 0.06f),
-        )
-    }
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(ro.ak.sportshub.R.drawable.ic_app_rotund),
+        contentDescription = "AK Sports Hub",
+        modifier = modifier.size(size),
+    )
 }
 
 @Composable
