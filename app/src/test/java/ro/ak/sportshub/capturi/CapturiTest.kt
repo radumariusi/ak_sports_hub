@@ -117,6 +117,64 @@ class CapturiTest {
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/1b-toata-saptamana.png")
     }
 
+    /** Rândul de filtre (varianta D: iconiță + text), fără filtre și cu filtre puse. */
+    @Test
+    fun filtre() {
+        home()
+        click("Azi")
+        waitFor("Arsenal")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/9-filtre-fara.png")
+        app.container.sportsSettings.update {
+            it.copy(
+                filter = ro.ak.sportshub.core.sports.MatchFilter(
+                    sport = ro.ak.sportshub.core.sports.Sport.FOOTBALL,
+                    competition = "UEFA Champions League",
+                    team = "Manchester United",
+                    language = "en",
+                ),
+            )
+        }
+        Thread.sleep(300)
+        compose.waitForIdle()
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/9-filtre-puse.png")
+    }
+
+    /** Toate iconițele de sport ale filtrului (planșă pentru Radu). */
+    @Test
+    fun iconiteSporturi() {
+        val sports = listOf<ro.ak.sportshub.core.sports.Sport?>(null) + ro.ak.sportshub.core.sports.Sport.entries
+        compose.setContent {
+            AkTheme {
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier.padding(40.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
+                ) {
+                    sports.chunked(5).forEach { row ->
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
+                            row.forEach { sp ->
+                                ro.ak.sportshub.ui.components.FilterPill(
+                                    icon = ro.ak.sportshub.ui.components.FilterIcon.SPORT,
+                                    label = "Sport",
+                                    value = sp?.label,
+                                    onClick = {},
+                                    sport = sp,
+                                )
+                            }
+                        }
+                    }
+                    // Aceleași iconițe mari, ca să se vadă desenul.
+                    sports.chunked(9).forEach { row ->
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(30.dp)) {
+                            row.forEach { sp -> ro.ak.sportshub.ui.components.SportGlyph(sp, ro.ak.sportshub.ui.theme.AkColors.Text, 44.dp) }
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/10-iconite-sporturi.png")
+    }
+
     @Test
     fun meci() {
         val id = app.container.sports.snapshot.value.matches.first { it.match.home == "Arsenal" && it.match.isLive }.match.id

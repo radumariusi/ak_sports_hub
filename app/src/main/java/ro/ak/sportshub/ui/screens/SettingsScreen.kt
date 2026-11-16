@@ -42,6 +42,8 @@ fun SettingsScreen(
     val updater = appContainer().updater
     val update by updater.state.collectAsStateWithLifecycle()
     var editingToken by remember { mutableStateOf(false) }
+    val sportsStore = appContainer().sportsSettings
+    var filterDialog by remember { mutableStateOf<FilterDialog?>(null) }
     val scope = rememberCoroutineScope()
     // La Back de pe un ecran de setări, focusul revine pe rândul care l-a deschis.
     val returnFocus = rememberReturnFocus()
@@ -157,6 +159,28 @@ fun SettingsScreen(
                 }
 
             },
+            SettingsSection("Filtre Sports Hub", "Aceleași filtre ca pe rândul din Sports Hub") {
+                val f = sports.filter
+                val store = sportsStore
+                fun filterRow(key: String, title: String, value: String, onClick: () -> Unit) {
+                    item(key = key) {
+                        ListRow(title = title, onClick = onClick, trailing = { Text(text = value, fontSize = 14.sp) })
+                    }
+                }
+                filterRow("f-sport", "Sport", f.sport?.label ?: "toate") { filterDialog = FilterDialog.SPORT }
+                filterRow("f-comp", "Competiție", f.competition ?: "toate") { filterDialog = FilterDialog.COMPETITION }
+                filterRow("f-team", "Echipă", f.team ?: "oricare") { filterDialog = FilterDialog.TEAM }
+                filterRow("f-lang", "Limba surselor", f.language?.uppercase() ?: "oricare") { filterDialog = FilterDialog.LANGUAGE }
+                filterRow("f-quality", "Calitatea minimă", f.minQuality?.let { it.label + "+" } ?: "oricare") { filterDialog = FilterDialog.QUALITY }
+                filterRow("f-sources", "Doar meciurile cu surse", if (f.onlyWithSources) "da" else "nu") {
+                    store.update { it.copy(filter = it.filter.copy(onlyWithSources = !it.filter.onlyWithSources)) }
+                }
+                if (!f.isEmpty) {
+                    filterRow("f-clear", "Scoate toate filtrele", "") {
+                        store.update { it.copy(filter = ro.ak.sportshub.core.sports.MatchFilter()) }
+                    }
+                }
+            },
             SettingsSection("Zi de zi", "Notificări, rândul de pe ecranul principal, backup") {
                 item {
                     val store = appContainer().sportsSettings
@@ -240,6 +264,7 @@ fun SettingsScreen(
         },
     )
 
+    filterDialog?.let { d -> SportsFilterDialog(d, onDismiss = { filterDialog = null }) }
     if (editingToken) {
         TextInputDialog(
             title = "Cheie GitHub (token)",

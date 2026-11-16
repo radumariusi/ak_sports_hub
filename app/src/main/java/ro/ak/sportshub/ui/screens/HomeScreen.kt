@@ -50,6 +50,10 @@ fun HomeScreen(
     var section by rememberSaveable { mutableIntStateOf(0) }
     var focused by rememberSaveable { mutableIntStateOf(0) }
     val firstTab = remember { FocusRequester() }
+    // ▼ din meniul de sus intră în Sports Hub pe tabul curent (Live, Azi…), nu direct în listă;
+    // ▲ din taburile Sports Hub urcă pe secțiunea curentă din meniul de sus.
+    val topSelected = remember { FocusRequester() }
+    val sportsTabs = remember { FocusRequester() }
     // Fiecare secțiune își păstrează starea (căutarea din Live TV, tabul din Sports Hub) când treci prin celelalte.
     val sectionStates = rememberSaveableStateHolder()
     var confirmExit by remember { mutableStateOf(false) }
@@ -76,14 +80,18 @@ fun HomeScreen(
                 onSelect = { section = it },
                 firstTabModifier = Modifier.focusRequester(firstTab),
                 fontSize = 21.sp,
-                modifier = Modifier.weight(1f, fill = false),
+                selectedTabRequester = topSelected,
+                down = if (section == 0) sportsTabs else null,
+                // Taburile ocupă tot locul rămas, ca ceasul să stea lipit de marginea din dreapta.
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
             HeaderClock()
         }
         Column(modifier = Modifier.fillMaxSize().padding(top = 6.dp)) {
             sectionStates.SaveableStateProvider(section) { when (section) {
                 0 -> SportsHubScreen(
+                    topMenu = topSelected,
+                    tabsEntry = sportsTabs,
                     onOpenMatch = onOpenMatch,
                     onOpenSettings = onOpenSportsSettings,
                     onPlay = { id -> onPlayChannel(id, 0L) },
