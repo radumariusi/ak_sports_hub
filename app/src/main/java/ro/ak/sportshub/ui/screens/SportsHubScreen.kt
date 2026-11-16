@@ -213,25 +213,34 @@ fun SportsHubScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         // „Toată săptămâna”: zilele de după mâine (20.11…) într-un rând mărunt, chiar sub tab. Rândul are mereu
         // aceeași înălțime (gol la celelalte taburi), ca lista și panoul să nu se mute când schimbi tabul.
-        var weekTabX by remember { mutableStateOf(0f) }
+        var weekTabCenter by remember { mutableStateOf(0f) }
+        var dayStripWidth by remember { mutableStateOf(0) }
         var dayRowX by remember { mutableStateOf(0f) }
         TabStrip(
             tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel + StandingsTabLabel,
             selectedIndex = tab,
-            onSelect = { tab = it },
-            onTabX = { i, x -> if (i == MatchTab.WEEK.ordinal) weekTabX = x },
+            onSelect = {
+                // Intrarea în „Toată săptămâna” pornește mereu de la prima zi; cât rămâi pe tab, ziua se păstrează
+                // (urci în taburi și cobori înapoi pe ziua de unde ai plecat, prin focusRestorer din DayStrip).
+                if (it == MatchTab.WEEK.ordinal && tab != it) weekDay = 0
+                tab = it
+            },
+            onTabX = { i, centerX -> if (i == MatchTab.WEEK.ordinal) weekTabCenter = centerX },
         )
         Box(
             modifier = Modifier.fillMaxWidth().height(DayRowHeight)
                 .onGloballyPositioned { dayRowX = it.positionInWindow().x },
         ) {
             if (currentTab == MatchTab.WEEK && tab < MatchTab.entries.size) {
-                val offset = with(androidx.compose.ui.platform.LocalDensity.current) { (weekTabX - dayRowX).coerceAtLeast(0f).toDp() }
+                // Rândul zilelor e centrat sub tabul „Toată săptămâna”, chiar dacă e mai lat decât tabul.
+                val offset = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    (weekTabCenter - dayRowX - dayStripWidth / 2f).coerceAtLeast(0f).toDp()
+                }
                 DayStrip(
                     days = weekDays.map { it.format(WeekDayFormat) },
                     selected = weekDay,
                     onSelect = { weekDay = it },
-                    modifier = Modifier.padding(start = offset),
+                    modifier = Modifier.padding(start = offset).onGloballyPositioned { dayStripWidth = it.size.width },
                 )
             }
         }
