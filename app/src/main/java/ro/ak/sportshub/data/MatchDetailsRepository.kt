@@ -17,7 +17,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.Espn
+import ro.ak.sportshub.core.sports.EuroLeague
 import ro.ak.sportshub.core.sports.LiveDelay
+import ro.ak.sportshub.core.sports.LiveScoreCom
 import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.PanelView
 import ro.ak.sportshub.core.sports.StandingRow
@@ -26,6 +28,7 @@ import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchDetails
 import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.OfficialStats
+import ro.ak.sportshub.core.sports.Scores365
 import ro.ak.sportshub.core.sports.TheSportsDbDetails
 
 /** Detaliile unui meci, cu starea cererilor. */
@@ -55,6 +58,8 @@ class MatchDetailsRepository(
     private val standings: StandingsRepository? = null,
     /** Meciul FotMob (fotbal) din programul descărcat, a doua sursă pentru statistici și formații; null dacă nu e. */
     private val fotmobEventFor: (Match) -> String? = { null },
+    /** Meciul EuroLeague / EuroCup din programul oficial („E2026_379”), pentru statisticile oficiale; null dacă nu e. */
+    private val euroleagueEventFor: (Match) -> String? = { null },
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -103,11 +108,13 @@ class MatchDetailsRepository(
                 // NBA, NHL, MLB: statisticile oficiale ale ligii completează ce nu are ESPN (sau îl înlocuiesc).
                 if (officialGaps(match, espn != null)) fetchOfficial(match, force)
                 if (espn == null && !s.sportsDbEnabled) {
+                    if (gaps365(match, part)) fetch365(match, part, force)
+                    if (isFootball(match) && gaps365(match, part)) fetchLiveScore(match, force)
                     set(match.id) {
                         it.copy(
                             details = read(match),
                             loading = false,
-                            status = "Meciul nu e la ESPN, iar TheSportsDB e oprit în Setări → Sports Hub.".takeIf { official(match) == null },
+                            status = "Meciul nu e la ESPN, iar TheSportsDB e oprit în Setări → Sports Hub.".takeIf { read(match).let { d -> d.stats.isEmpty() && d.lineup.isEmpty() } },
                         )
                     }
                     return@withContext
@@ -152,6 +159,10 @@ class MatchDetailsRepository(
                     }
                     if (ok > 0) stamp.writeText(now.toString())
                 }
+                // Ce lipsește încă (statistici sau formații): 365Scores, a treia sursă.
+                if (gaps365(match, part)) fetch365(match, part, force)
+                // Tot lipsește ceva la fotbal: LiveScore.com, a patra sursă.
+                if (isFootball(match) && gaps365(match, part)) fetchLiveScore(match, force)
                 val fresh = read(match)
                 if (part == DetailsSchedule.Part.LIVE) delays.getOrPut(match.id) { LiveDelay() }.observe(System.currentTimeMillis(), fresh)
                 set(match.id) {
@@ -277,7 +288,7 @@ class MatchDetailsRepository(
     /** NBA / NHL / MLB după start, când ESPN lipsește sau n-are statistici ori jucători. */
     private fun officialGaps(match: Match, hasEspn: Boolean): Boolean {
         if (match.away.isBlank() || match.status == MatchStatus.SCHEDULED) return false
-        OfficialStats.leagueOf(match.competition, match.sport) ?: return false
+        if (OfficialStats.leagueOf(match.competition, match.sport) == null && euroleagueUrl(match) == null) return false
         if (!hasEspn) return true
         val d = espnDetails(match) ?: return true
         return d.stats.isEmpty() || d.lineup.isEmpty()
@@ -289,7 +300,6 @@ class MatchDetailsRepository(
      * o ultimă cerere. Un răspuns fără date nu înlocuiește unul bun.
      */
     private fun fetchOfficial(match: Match, force: Boolean) {
-        val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return
         val now = System.currentTimeMillis()
         val b = base(match)
         val stamp = File(dir, "$b-off.stamp")
@@ -299,6 +309,14 @@ class MatchDetailsRepository(
             if (now - last < OFFICIAL_LIVE_MS) return
             if (match.status == MatchStatus.FINISHED && data.exists() && last > match.end + OFFICIAL_LIVE_MS) return
         }
+        // EuroLeague / EuroCup: id-ul e deja în programul oficial, o singură cerere.
+        euroleagueUrl(match)?.let { url ->
+            runCatching { stamp.writeText(now.toString()) }
+            set(match.id) { it.copy(status = "Se cer statisticile oficiale EuroLeague…") }
+            keepIfGood(url, data) { EuroLeague.parseBoxScore(it) != null }
+            return
+        }
+        val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return
         runCatching { stamp.writeText(now.toString()) }
         val ref = File(dir, "$b-offref.txt")
         var id = ref.takeIf { it.exists() }?.readText()?.trim()?.ifEmpty { null }
@@ -322,7 +340,134 @@ class MatchDetailsRepository(
         tmp.delete()
     }
 
+    @Volatile private var pausedUntil365 = 0L
+
+    /** Meciul între două echipe, la un sport 365Scores, căruia îi lipsesc statisticile (după start) sau formațiile (după start sau cu 90 min înainte). */
+    private fun gaps365(match: Match, part: DetailsSchedule.Part): Boolean {
+        if (match.away.isBlank() || Scores365.sportId(match.sport) == null) return false
+        val d = read(match)
+        val started = match.status != MatchStatus.SCHEDULED
+        val soon = match.start - System.currentTimeMillis() < FOTMOB_LINEUP_BEFORE_MS
+        return when (part) {
+            DetailsSchedule.Part.LIVE -> started && (d.stats.isEmpty() || d.lineup.isEmpty())
+            DetailsSchedule.Part.PRE_MATCH -> d.lineup.isEmpty() && soon
+        }
+    }
+
+    /**
+     * 365Scores: programul zilei pe sport (o dată la 30 min, id-ul în `-365ref.txt`), apoi statisticile și pagina
+     * meciului (formațiile) la un minut cât e live, la 6 ore înainte de meci, o dată după final. Un refuz îl oprește 6 ore.
+     */
+    private fun fetch365(match: Match, part: DetailsSchedule.Part, force: Boolean) {
+        val sportId = Scores365.sportId(match.sport) ?: return
+        val now = System.currentTimeMillis()
+        if (now < pausedUntil365) return
+        val b = base(match)
+        val stamp = File(dir, "$b-365.stamp")
+        val statsFile = File(dir, "$b-365stats.json")
+        val gameFile = File(dir, "$b-365game.json")
+        val last = stamp.lastModifiedOrZero()
+        val live = match.status == MatchStatus.LIVE
+        if (!force) {
+            if (now - last < (if (live) OFFICIAL_LIVE_MS else FOTMOB_PRE_MS)) return
+            if (match.status == MatchStatus.FINISHED && statsFile.exists() && last > match.end + OFFICIAL_LIVE_MS) return
+        }
+        runCatching { stamp.writeText(now.toString()) }
+        val ref = File(dir, "$b-365ref.txt")
+        var id = ref.takeIf { it.exists() }?.readText()?.trim()?.ifEmpty { null }
+        if (id == null) {
+            val day = Scores365.gameDay(match.start)
+            val sched = File(dir, "365-$sportId-$day.json")
+            if (!sched.exists() || now - sched.lastModified() > OFFICIAL_SCHEDULE_MS) {
+                set(match.id) { it.copy(status = "Se caută meciul la 365Scores…") }
+                if (!download(Scores365.scheduleUrl(sportId, day), sched)) {
+                    pausedUntil365 = now + FOTMOB_PAUSE_MS
+                    log?.log("statistici", "365Scores a refuzat programul; pauză 6 h")
+                    return
+                }
+            }
+            val games = parseFile(sched.name) { Scores365.parseSchedule(it) }.orEmpty()
+            id = MatchInsights.pickEvent(games, match.home, match.away, match.start)?.providerId ?: return
+            runCatching { ref.writeText(id) }
+        }
+        set(match.id) { it.copy(status = "Se cer statisticile și formațiile (365Scores)…") }
+        if (match.status != MatchStatus.SCHEDULED) {
+            keepIfGood(Scores365.statsUrl(id), statsFile) { Scores365.parseStats(it).isNotEmpty() }
+        }
+        keepIfGood(Scores365.gameUrl(id), gameFile) { Scores365.parseLineup(it).isNotEmpty() }
+    }
+
+    private fun isFootball(match: Match) = match.sport == ro.ak.sportshub.core.sports.Sport.FOOTBALL
+
+    @Volatile private var pausedUntilLs = 0L
+
+    /** LiveScore.com (fotbal): programul zilei UTC o dată la 30 min (id-ul în `-lsref.txt`), apoi statisticile și formațiile, ca la 365Scores. */
+    private fun fetchLiveScore(match: Match, force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now < pausedUntilLs) return
+        val b = base(match)
+        val stamp = File(dir, "$b-ls.stamp")
+        val statsFile = File(dir, "$b-lsstats.json")
+        val lineupFile = File(dir, "$b-lslineup.json")
+        val last = stamp.lastModifiedOrZero()
+        if (!force) {
+            if (now - last < (if (match.status == MatchStatus.LIVE) OFFICIAL_LIVE_MS else FOTMOB_PRE_MS)) return
+            if (match.status == MatchStatus.FINISHED && statsFile.exists() && last > match.end + OFFICIAL_LIVE_MS) return
+        }
+        runCatching { stamp.writeText(now.toString()) }
+        val ref = File(dir, "$b-lsref.txt")
+        var id = ref.takeIf { it.exists() }?.readText()?.trim()?.ifEmpty { null }
+        if (id == null) {
+            val day = Scores365.gameDay(match.start)
+            val sched = File(dir, "ls-$day.json")
+            if (!sched.exists() || now - sched.lastModified() > OFFICIAL_SCHEDULE_MS) {
+                set(match.id) { it.copy(status = "Se caută meciul la LiveScore…") }
+                if (!download(LiveScoreCom.scheduleUrl(day), sched)) {
+                    pausedUntilLs = now + FOTMOB_PAUSE_MS
+                    log?.log("statistici", "LiveScore a refuzat programul; pauză 6 h")
+                    return
+                }
+            }
+            val games = parseFile(sched.name) { LiveScoreCom.parseSchedule(it) }.orEmpty()
+            id = MatchInsights.pickEvent(games, match.home, match.away, match.start)?.providerId ?: return
+            runCatching { ref.writeText(id) }
+        }
+        set(match.id) { it.copy(status = "Se cer statisticile și formațiile (LiveScore)…") }
+        if (match.status != MatchStatus.SCHEDULED) {
+            keepIfGood(LiveScoreCom.statsUrl(id), statsFile) { LiveScoreCom.parseStats(it).isNotEmpty() }
+        }
+        keepIfGood(LiveScoreCom.lineupsUrl(id), lineupFile) { LiveScoreCom.parseLineup(it).isNotEmpty() }
+    }
+
+    private fun readLiveScore(match: Match): MatchDetails? {
+        val b = base(match)
+        val stats = parseFile("$b-lsstats.json") { LiveScoreCom.parseStats(it) }.orEmpty()
+        val lineup = parseFile("$b-lslineup.json") { LiveScoreCom.parseLineup(it) }.orEmpty()
+        return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
+    }
+
+    /** Descarcă într-un fișier temporar și îl păstrează doar dacă are date (un răspuns gol nu înlocuiește unul bun). */
+    private fun keepIfGood(url: String, target: File, good: (String) -> Boolean) {
+        val tmp = File(dir, target.name + ".new")
+        if (download(url, tmp)) {
+            val ok = runCatching { good(tmp.readText()) }.getOrDefault(false)
+            if (ok && !tmp.renameTo(target)) { target.delete(); tmp.renameTo(target) }
+        }
+        tmp.delete()
+    }
+
+    private fun read365(match: Match): MatchDetails? {
+        val b = base(match)
+        val stats = parseFile("$b-365stats.json") { Scores365.parseStats(it) }.orEmpty()
+        val lineup = parseFile("$b-365game.json") { Scores365.parseLineup(it) }.orEmpty()
+        return MatchDetails(stats = stats, lineup = lineup).takeIf { stats.isNotEmpty() || lineup.isNotEmpty() }
+    }
+
+    private fun euroleagueUrl(match: Match): String? =
+        runCatching { euroleagueEventFor(match) }.getOrNull()?.let { EuroLeague.boxScoreUrl(it) }
+
     private fun official(match: Match): MatchDetails? {
+        if (euroleagueUrl(match) != null) return parseFile("${base(match)}-off.json") { EuroLeague.parseBoxScore(it) }
         val league = OfficialStats.leagueOf(match.competition, match.sport) ?: return null
         return parseFile("${base(match)}-off.json") { OfficialStats.parseStats(league, it) }
     }
@@ -346,9 +491,14 @@ class MatchDetailsRepository(
         val espn = espnDetails(match)
         val db = readSportsDb(match)
         val off = official(match)
+        val s365 = read365(match)
+        val ls = readLiveScore(match)
         if (espn == null) {
-            if (off == null) return db
-            return db.copy(stats = off.stats.ifEmpty { db.stats }, lineup = off.lineup.ifEmpty { db.lineup })
+            if (off == null && s365 == null && ls == null) return db
+            return db.copy(
+                stats = off?.stats.orEmpty().ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { db.stats },
+                lineup = off?.lineup.orEmpty().ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { db.lineup },
+            )
         }
         val fm = parseFile("${base(match)}-fotmob.html") { ro.ak.sportshub.core.sports.FotMobDetails.parse(it) }
         return MatchDetails(
@@ -358,10 +508,10 @@ class MatchDetailsRepository(
             awayRecent = espn.awayRecent.ifEmpty { db.awayRecent },
             headToHead = espn.headToHead.ifEmpty { db.headToHead },
             table = espn.table.ifEmpty { espnTable(match) }.ifEmpty { db.table },
-            lineup = espn.lineup.ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { off?.lineup.orEmpty() }.ifEmpty { db.lineup },
+            lineup = espn.lineup.ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { off?.lineup.orEmpty() }.ifEmpty { s365?.lineup.orEmpty() }.ifEmpty { ls?.lineup.orEmpty() }.ifEmpty { db.lineup },
             timeline = espn.timeline.ifEmpty { db.timeline },
             // Statisticile după start (înainte de meci ESPN pune sezonul în `seasonStats`).
-            stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { off?.stats.orEmpty() }.ifEmpty { db.stats },
+            stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { off?.stats.orEmpty() }.ifEmpty { s365?.stats.orEmpty() }.ifEmpty { ls?.stats.orEmpty() }.ifEmpty { db.stats },
         )
     }
 

@@ -1154,6 +1154,16 @@ class SportsRepository(
         return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
     }
 
+    /** Meciul EuroLeague / EuroCup („E2026_379”) din programul oficial deja descărcat; null dacă nu e. */
+    fun euroleagueEventFor(match: Match): String? {
+        if (match.away.isBlank() || (match.sport != null && match.sport != Sport.BASKETBALL)) return null
+        val candidates = parsedFiles.entries.asSequence()
+            .filter { File(it.key).name.startsWith("euroleague-") }
+            .flatMap { it.value.second.asSequence() }
+            .toList()
+        return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
+    }
+
     /** Meciul FotMob (id numeric) pentru un meci de fotbal, din programul FotMob deja descărcat; null dacă nu e. */
     fun fotmobEventFor(match: Match): String? {
         if (match.away.isBlank() || (match.sport != null && match.sport != Sport.FOOTBALL)) return null
