@@ -425,6 +425,23 @@ fun PlayerScreen(
         if (best.id != state.channel?.id || replay) controller.play(best.id, zapGroup = 0) else Unit
     }
 
+    // F4: telefonul vede ce e pe ecran, iar „Pornește pe televizor” trece pe calea schimbării canalului (un stream).
+    val playFromPhone by rememberUpdatedState<(MatchEntry) -> Unit>({ playMatch(it) })
+    LaunchedEffect(state.channel?.name, linkedMatch?.id) {
+        container.onTv.value = state.channel?.name?.let { ro.ak.sportshub.OnTv(it, linkedMatch?.id) }
+    }
+    DisposableEffect(Unit) {
+        container.playerRemote = { matchId ->
+            val entry = container.sports.snapshot.value.matches.firstOrNull { it.match.id == matchId }
+            if (entry != null) playFromPhone(entry)
+            entry != null
+        }
+        onDispose {
+            container.playerRemote = null
+            container.onTv.value = null
+        }
+    }
+
     // Numărătoarea comutării automate: la zero pornește meciul (stream-ul curent se oprește întâi).
     LaunchedEffect(autoSwitch) {
         val target = autoSwitch ?: return@LaunchedEffect

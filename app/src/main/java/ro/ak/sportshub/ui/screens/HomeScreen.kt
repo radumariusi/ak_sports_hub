@@ -47,6 +47,7 @@ fun HomeScreen(
     onOpenBackup: () -> Unit = {},
     onPlayArchive: (channelId: Long, start: Long, end: Long) -> Unit = { _, _, _ -> },
     onOpenQrSetup: () -> Unit = {},
+    onOpenSecondScreen: () -> Unit = {},
     /** Meciul deschis direct pe „De ce nu are sursă?” (raportul zilei, C4). */
     onOpenMatchWhy: (String) -> Unit = onOpenMatch,
     /** F1: căutarea în meciuri și canale (și cu vocea). */
@@ -123,6 +124,7 @@ fun HomeScreen(
                     onOpenSportsSettings = onOpenSportsSettings,
                     onOpenBackup = onOpenBackup,
                     onOpenQrSetup = onOpenQrSetup,
+                    onOpenSecondScreen = onOpenSecondScreen,
                 )
             } }
             }

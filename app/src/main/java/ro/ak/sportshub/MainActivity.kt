@@ -42,6 +42,16 @@ class MainActivity : ComponentActivity() {
         requestNotificationsOnce()
     }
 
+    override fun onStart() {
+        super.onStart()
+        (application as AkApp).container.secondScreen.setVisible(true)
+    }
+
+    override fun onStop() {
+        (application as AkApp).container.secondScreen.setVisible(false)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         // O dată la câteva ore: e o versiune nouă a aplicației? (apare în Setări → Actualizare).

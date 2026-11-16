@@ -32,6 +32,7 @@ fun SettingsScreen(
     onOpenSportsSettings: () -> Unit,
     onOpenBackup: () -> Unit = {},
     onOpenQrSetup: () -> Unit = {},
+    onOpenSecondScreen: () -> Unit = {},
 ) {
     val sports by appContainer().sportsSettings.settings.collectAsStateWithLifecycle()
     val playlists by appContainer().playlists.let { r -> remember { r.observePlaylists() } }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -71,6 +72,16 @@ fun SettingsScreen(
                         subtitle = "Scanezi codul cu telefonul și scrii adresa și parola Xtream (sau linkul M3U) acolo, nu cu telecomanda",
                         onClick = { returnFocus.clicked("qr"); onOpenQrSetup() },
                         modifier = returnFocus.on("qr"),
+                    )
+                }
+                item {
+                    val phone by appContainer().secondScreen.state.collectAsStateWithLifecycle()
+                    ListRow(
+                        title = "Telefonul ca al doilea ecran",
+                        subtitle = "Pe telefon: ce e pe televizor, meciurile, scorul, fazele, statisticile, formațiile și „Pornește pe televizor”",
+                        onClick = { returnFocus.clicked("phone"); onOpenSecondScreen() },
+                        modifier = returnFocus.on("phone"),
+                        trailing = { Text(text = if (phone.enabled) "Pornit" else "Oprit", fontSize = 14.sp) },
                     )
                 }
                 item {

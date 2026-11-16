@@ -181,7 +181,22 @@ class AppContainer(app: Application) {
 
     /** Timpii pornirii (E3), scriși o dată în jurnal. */
     val startup = StartupClock(diagnosticLog)
+
+    /** F4: ce rulează acum în player (pentru telefon); null = playerul nu e pe ecran. */
+    val onTv = MutableStateFlow<OnTv?>(null)
+
+    /** F4: meciurile trimise din telefon („Pornește pe televizor”), deschise de navigare. */
+    val phonePlay = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Playerul de pe ecran pornește singur meciul trimis (pe firul principal); null = nu rulează. */
+    @Volatile var playerRemote: ((String) -> Boolean)? = null
+
+    /** F4: telefonul ca al doilea ecran (serverul local, doar cât e aplicația pe ecran și setarea pornită). */
+    val secondScreen = ro.ak.sportshub.setup.SecondScreenHost(app, this)
 }
+
+/** Canalul din player și meciul legat de el. */
+data class OnTv(val channel: String, val matchId: String?)
 
 /**
  * Cât durează pornirea (E3): de la pornirea procesului (și de la deschiderea ecranului) până la primul ecran și până
