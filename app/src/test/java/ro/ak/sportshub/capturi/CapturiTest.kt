@@ -104,9 +104,17 @@ class CapturiTest {
     @Test
     fun sportsHub() {
         home()
-        click("Săptămâna asta")
+        click("Azi")
         waitFor("Arsenal")
         compose.onRoot().captureRoboImage("build/outputs/roborazzi/1-sports-hub.png")
+    }
+
+    @Test
+    fun saptamana() {
+        home()
+        click("Toată săptămâna")
+        waitFor("Inter")
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/1b-toata-saptamana.png")
     }
 
     @Test
