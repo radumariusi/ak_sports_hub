@@ -16,6 +16,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
@@ -89,7 +92,8 @@ private enum class FilterDialog { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY }
 private val RoLocale = Locale.forLanguageTag("ro")
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm", RoLocale)
 private val DayFormat = DateTimeFormatter.ofPattern("EEE d MMM", RoLocale)
-private val WeekDayFormat = DateTimeFormatter.ofPattern("EEE dd.MM", RoLocale)
+private val WeekDayFormat = DateTimeFormatter.ofPattern("dd.MM", RoLocale)
+private val DayRowHeight = 26.dp
 
 @Composable
 fun SportsHubScreen(
@@ -207,17 +211,29 @@ fun SportsHubScreen(
     val setFilter: ((MatchFilter) -> MatchFilter) -> Unit = { transform -> store.update { it.copy(filter = transform(it.filter)) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel + StandingsTabLabel, selectedIndex = tab, onSelect = { tab = it })
-        // „Toată săptămâna”: sub taburi, zilele de după mâine (18.11, 19.11…); focusul pe o zi îi arată meciurile,
-        // fără surse (sursele se caută din ajun). Sus revii la taburi.
-        if (currentTab == MatchTab.WEEK && tab < MatchTab.entries.size) {
-            TabStrip(
-                tabs = weekDays.map { it.format(WeekDayFormat) },
-                selectedIndex = weekDay,
-                onSelect = { weekDay = it },
-                fontSize = 20.sp,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+        // „Toată săptămâna”: zilele de după mâine (20.11…) într-un rând mărunt, chiar sub tab. Rândul are mereu
+        // aceeași înălțime (gol la celelalte taburi), ca lista și panoul să nu se mute când schimbi tabul.
+        var weekTabX by remember { mutableStateOf(0f) }
+        var dayRowX by remember { mutableStateOf(0f) }
+        TabStrip(
+            tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel + StandingsTabLabel,
+            selectedIndex = tab,
+            onSelect = { tab = it },
+            onTabX = { i, x -> if (i == MatchTab.WEEK.ordinal) weekTabX = x },
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth().height(DayRowHeight)
+                .onGloballyPositioned { dayRowX = it.positionInWindow().x },
+        ) {
+            if (currentTab == MatchTab.WEEK && tab < MatchTab.entries.size) {
+                val offset = with(androidx.compose.ui.platform.LocalDensity.current) { (weekTabX - dayRowX).coerceAtLeast(0f).toDp() }
+                DayStrip(
+                    days = weekDays.map { it.format(WeekDayFormat) },
+                    selected = weekDay,
+                    onSelect = { weekDay = it },
+                    modifier = Modifier.padding(start = offset),
+                )
+            }
         }
 
         if (eventsTab) {
@@ -1016,4 +1032,39 @@ private fun FittingName(name: String, fontSize: androidx.compose.ui.unit.TextUni
         onTextLayout = { r -> if (r.hasVisualOverflow && index < forms.size - 1) index++ },
         modifier = modifier,
     )
+}
+
+/** Zilele din „Toată săptămâna”, mărunte, sub tab: focusul pe o zi o alege (linia chihlimbar sub ziua aleasă). */
+@Composable
+private fun DayStrip(days: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val requesters = remember(days.size) { List(days.size) { androidx.compose.ui.focus.FocusRequester() } }
+    Row(
+        modifier = modifier
+            .focusRestorer(requesters.getOrElse(selected) { requesters.firstOrNull() ?: androidx.compose.ui.focus.FocusRequester.Default })
+            .focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        days.forEachIndexed { i, day ->
+            androidx.tv.material3.Surface(
+                onClick = { onSelect(i) },
+                modifier = Modifier.focusRequester(requesters[i]).onFocusChanged { if (it.isFocused) onSelect(i) },
+                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(5.dp)),
+                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = if (i == selected) AkColors.Text else AkColors.TextDim,
+                    focusedContainerColor = AkColors.Focus,
+                    focusedContentColor = AkColors.OnFocus,
+                ),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = day, fontSize = 13.sp, lineHeight = 15.sp, fontFamily = AkFonts.Condensed, fontWeight = FontWeight.SemiBold)
+                    Box(
+                        Modifier.padding(top = 1.dp).height(2.dp).width(22.dp)
+                            .background(if (i == selected) AkColors.Accent else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(1.dp)),
+                    )
+                }
+            }
+        }
+    }
 }

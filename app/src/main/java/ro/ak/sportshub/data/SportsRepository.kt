@@ -1154,6 +1154,17 @@ class SportsRepository(
         return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
     }
 
+    /** Meciul FotMob (id numeric) pentru un meci de fotbal, din programul FotMob deja descărcat; null dacă nu e. */
+    fun fotmobEventFor(match: Match): String? {
+        if (match.away.isBlank() || (match.sport != null && match.sport != Sport.FOOTBALL)) return null
+        val candidates = parsedFiles.entries.asSequence()
+            .filter { File(it.key).name.startsWith("fotmob-") }
+            .flatMap { it.value.second.asSequence() }
+            .toList()
+        return MatchInsights.pickEvent(candidates, match.home, match.away, match.start)?.providerId
+            ?.let { ro.ak.sportshub.core.sports.FotMobDetails.matchId(it) }
+    }
+
     @Volatile private var liveScoresAt = 0L
 
     /**
@@ -1795,7 +1806,7 @@ class SportsRepository(
         )
     }
 
-    private companion object {
+    internal companion object {
         const val PAGE = 5_000
         val FRESH_NEAR_MS = TimeUnit.HOURS.toMillis(3)
         val FRESH_FAR_MS = TimeUnit.HOURS.toMillis(12)
@@ -1861,7 +1872,7 @@ class SportsRepository(
         val SOFA_TV_FRESH_MS = TimeUnit.HOURS.toMillis(12)
         val SOFA_NAMES_FRESH_MS = TimeUnit.DAYS.toMillis(7)
         const val MAX_SAMPLE_BYTES = 300_000L
-        const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        internal const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         val DAY_IN_NAME = Regex("""\d{4}-\d{2}-\d{2}""")
         /** Prefixele de țară ale canalelor din SUA și Canada. */
         val NORTH_AMERICA = setOf("us", "usa", "ca")

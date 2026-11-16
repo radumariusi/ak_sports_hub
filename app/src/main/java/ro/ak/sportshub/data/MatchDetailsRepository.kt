@@ -52,6 +52,8 @@ class MatchDetailsRepository(
     private val espnEventFor: (Match) -> String? = { null },
     /** Clasamentele ESPN (aceleași fișiere ca tabul „Clasamente”), pentru Pre-meci când `summary` nu are clasament. */
     private val standings: StandingsRepository? = null,
+    /** Meciul FotMob (fotbal) din programul descărcat, a doua sursă pentru statistici și formații; null dacă nu e. */
+    private val fotmobEventFor: (Match) -> String? = { null },
 ) {
     private val dir = File(context.noBackupFilesDir, "sports/details")
     private val mutex = Mutex()
@@ -120,9 +122,11 @@ class MatchDetailsRepository(
                 if (espn != null && part == DetailsSchedule.Part.PRE_MATCH && espnDetails(match)?.table.isNullOrEmpty()) {
                     runCatching { standings?.load(espn.first) }
                 }
-                // Fără ESPN, sau ESPN fără o parte (statistici, formații, ultimele meciuri): TheSportsDB completează,
-                // iar `read` le amestecă (ce are ESPN rămâne de la ESPN).
-                if (due && s.sportsDbEnabled && (espn == null || espnGaps(match, part))) {
+                // ESPN fără statistici sau formații (fotbal): FotMob completează, iar `read` le amestecă
+                // (ce are ESPN rămâne de la ESPN). Rar: e un site protejat anti-robot.
+                if (espn != null && espnGaps(match, part)) fetchFotmob(match, part, force)
+                // Fără ESPN (sau dacă ESPN n-a dat nimic): TheSportsDB, ca înainte (e lent și dă puțin cu cheia gratuită).
+                if (due && s.sportsDbEnabled && (espn == null || espnDetails(match) == null)) {
                     val requests = plan(match, part, s.sportsDbKey)
                     var ok = 0
                     var i = 0
@@ -237,14 +241,40 @@ class MatchDetailsRepository(
         }
     }
 
-    /** ESPN n-a dat ce trebuie pentru partea asta (Live: statistici sau formații după start; Pre: formații sau forma). */
+    @Volatile private var fotmobPausedUntil = 0L
+
+    /** Pagina meciului FotMob: Live cel mult la 3 minute, Pre-meci la 6 ore; un refuz oprește FotMob 6 ore. */
+    private fun fetchFotmob(match: Match, part: DetailsSchedule.Part, force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now < fotmobPausedUntil || !settings.current.fotMobEnabled) return
+        val id = runCatching { fotmobEventFor(match) }.getOrNull() ?: return
+        val stamp = File(dir, "${base(match)}-fotmob.stamp")
+        val every = if (part == DetailsSchedule.Part.LIVE && match.status == MatchStatus.LIVE) FOTMOB_LIVE_MS else FOTMOB_PRE_MS
+        if (!force && now - stamp.lastModifiedOrZero() < every) return
+        runCatching { stamp.writeText(now.toString()) }
+        set(match.id) { it.copy(status = "Se cer statisticile și formațiile (FotMob)…") }
+        val f = File(dir, "${base(match)}-fotmob.html")
+        val tmp = File(dir, "${base(match)}-fotmob.new")
+        if (download(ro.ak.sportshub.core.sports.FotMobDetails.url(id), tmp, html = true)) {
+            // O pagină fără date nu înlocuiește una bună.
+            val ok = runCatching { ro.ak.sportshub.core.sports.FotMobDetails.parse(tmp.readText()) }.getOrNull() != null
+            if (ok && !tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+            tmp.delete()
+        } else {
+            tmp.delete()
+            fotmobPausedUntil = now + FOTMOB_PAUSE_MS
+            log?.log("statistici", "FotMob a refuzat pagina meciului; pauză 6 h")
+        }
+    }
+
+    /** ESPN n-are ce poate da FotMob (doar fotbal): Live fără statistici sau formații, Pre fără formații cu 90 min înainte. */
     private fun espnGaps(match: Match, part: DetailsSchedule.Part): Boolean {
+        if (match.away.isBlank() || (match.sport != null && match.sport != ro.ak.sportshub.core.sports.Sport.FOOTBALL)) return false
         val d = espnDetails(match) ?: return true
-        if (match.away.isBlank()) return false
         val started = match.status != MatchStatus.SCHEDULED
         return when (part) {
             DetailsSchedule.Part.LIVE -> started && (d.stats.isEmpty() || d.lineup.isEmpty())
-            DetailsSchedule.Part.PRE_MATCH -> d.homeRecent.isEmpty() || d.awayRecent.isEmpty() || (started && d.lineup.isEmpty())
+            DetailsSchedule.Part.PRE_MATCH -> d.lineup.isEmpty() && match.start - System.currentTimeMillis() < FOTMOB_LINEUP_BEFORE_MS
         }
     }
 
@@ -256,6 +286,7 @@ class MatchDetailsRepository(
         val espn = espnDetails(match)
         val db = readSportsDb(match)
         if (espn == null) return db
+        val fm = parseFile("${base(match)}-fotmob.html") { ro.ak.sportshub.core.sports.FotMobDetails.parse(it) }
         return MatchDetails(
             event = espn.event ?: db.event,
             seasonStats = espn.seasonStats,
@@ -263,9 +294,10 @@ class MatchDetailsRepository(
             awayRecent = espn.awayRecent.ifEmpty { db.awayRecent },
             headToHead = espn.headToHead.ifEmpty { db.headToHead },
             table = espn.table.ifEmpty { espnTable(match) }.ifEmpty { db.table },
-            lineup = espn.lineup.ifEmpty { db.lineup },
+            lineup = espn.lineup.ifEmpty { fm?.lineup.orEmpty() }.ifEmpty { db.lineup },
             timeline = espn.timeline.ifEmpty { db.timeline },
-            stats = espn.stats.ifEmpty { db.stats },
+            // Statisticile după start (înainte de meci ESPN pune sezonul în `seasonStats`).
+            stats = espn.stats.ifEmpty { fm?.stats.orEmpty() }.ifEmpty { db.stats },
         )
     }
 
@@ -294,12 +326,12 @@ class MatchDetailsRepository(
     private fun set(id: String, transform: (MatchDetailsState) -> MatchDetailsState) =
         _states.update { it + (id to transform(it[id] ?: MatchDetailsState())) }
 
-    private fun download(url: String, target: File): Boolean {
+    private fun download(url: String, target: File, html: Boolean = false): Boolean {
         val started = System.currentTimeMillis()
         var code: Int? = null
         var bytes: Int? = null
         var outcome = "ok"
-        val ok = runCatching { fetch(url, target, { code = it }, { bytes = it }, { outcome = it }) }
+        val ok = runCatching { fetch(url, target, { code = it }, { bytes = it }, { outcome = it }, html) }
             .onFailure { outcome = "EȘEC: ${it.javaClass.simpleName}" }
             .getOrDefault(false)
         // Jurnalul statisticilor: ce endpoint, ce cod și cât de mare (un `null` de la TheSportsDB = fără date).
@@ -307,8 +339,11 @@ class MatchDetailsRepository(
         return ok
     }
 
-    private fun fetch(url: String, target: File, code: (Int) -> Unit, bytes: (Int) -> Unit, outcome: (String) -> Unit): Boolean {
-        val request = Request.Builder().url(url).header("Accept", "application/json").build()
+    private fun fetch(url: String, target: File, code: (Int) -> Unit, bytes: (Int) -> Unit, outcome: (String) -> Unit, html: Boolean = false): Boolean {
+        val request = Request.Builder().url(url)
+            .header("Accept", if (html) "text/html" else "application/json")
+            .apply { if (html) header("User-Agent", SportsRepository.BROWSER_UA) }
+            .build()
         return http.newCall(request).execute().use { r ->
             code(r.code)
             if (!r.isSuccessful) {
@@ -318,7 +353,11 @@ class MatchDetailsRepository(
             val body = r.body?.string() ?: return false
             bytes(body.length)
             val trimmed = body.trimStart()
-            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            if (html && !trimmed.contains("__NEXT_DATA__")) {
+                outcome("EȘEC: pagină fără date (verificare anti-robot?)")
+                return false
+            }
+            if (!html && !trimmed.startsWith("{") && !trimmed.startsWith("[")) {
                 outcome("EȘEC: nu e JSON: " + trimmed.take(80).replace('\n', ' '))
                 return false
             }
@@ -351,5 +390,9 @@ class MatchDetailsRepository(
         const val REQUEST_GAP_MS = 1_200L
         val LOOKUP_MS = TimeUnit.HOURS.toMillis(6)
         val KEEP_MS = TimeUnit.DAYS.toMillis(3)
+        val FOTMOB_LIVE_MS = TimeUnit.MINUTES.toMillis(3)
+        val FOTMOB_PRE_MS = TimeUnit.HOURS.toMillis(6)
+        val FOTMOB_PAUSE_MS = TimeUnit.HOURS.toMillis(6)
+        val FOTMOB_LINEUP_BEFORE_MS = TimeUnit.MINUTES.toMillis(90)
     }
 }
