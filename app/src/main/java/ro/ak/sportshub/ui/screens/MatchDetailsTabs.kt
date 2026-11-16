@@ -267,7 +267,7 @@ fun StatsTab(
                 item(key = "none") {
                     ListRow(
                         title = if (state.loading) "Se încarcă…" else "Fără statistici încă",
-                        subtitle = if (status == MatchStatus.SCHEDULED) "Înainte de meci apar statisticile sezonului, dacă ESPN le are; în timpul meciului, cele live." else "ESPN nu le are (încă) pentru acest meci. OK: actualizează.",
+                        subtitle = if (status == MatchStatus.SCHEDULED) "Înainte de meci apar statisticile sezonului, dacă ESPN le are; în timpul meciului, cele live." else "Nici ESPN, nici TheSportsDB nu le au (încă) pentru acest meci. OK: actualizează.",
                         onClick = onRefresh,
                     )
                 }

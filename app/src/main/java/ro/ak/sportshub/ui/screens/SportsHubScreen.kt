@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,6 +89,7 @@ private enum class FilterDialog { SPORT, COMPETITION, TEAM, LANGUAGE, QUALITY }
 private val RoLocale = Locale.forLanguageTag("ro")
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm", RoLocale)
 private val DayFormat = DateTimeFormatter.ofPattern("EEE d MMM", RoLocale)
+private val WeekDayFormat = DateTimeFormatter.ofPattern("EEE dd.MM", RoLocale)
 
 @Composable
 fun SportsHubScreen(
@@ -104,6 +106,8 @@ fun SportsHubScreen(
     val settings by store.settings.collectAsStateWithLifecycle()
     val revealed by container.matchDetails.revealed.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // „Toată săptămâna”: ziua aleasă din rândul de zile (0 = poimâine).
+    var weekDay by rememberSaveable { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<FilterDialog?>(null) }
     var focusedId by rememberSaveable { mutableStateOf<String?>(null) }
     // F5: fereastra video (OK lung pe un meci): meciul și canalul pornit; se oprește la Back sau pe alt meci.
@@ -159,10 +163,13 @@ fun SportsHubScreen(
     val standingsTab = tab == MatchTab.entries.size + 3
     val currentTab = MatchTab.entries[tab.coerceAtMost(MatchTab.entries.lastIndex)]
 
-    val visible: List<MatchEntry> = remember(snapshot, settings, tab) {
+    val weekDays = remember(now / 3_600_000L) { MatchLists.weekDays(now, zone) }
+    val visible: List<MatchEntry> = remember(snapshot, settings, tab, weekDay) {
         val byId = snapshot.matches.associateBy { it.match.id }
+        val chosenDay = weekDays.getOrNull(weekDay)
         val inTab = snapshot.matches.filter { e ->
             MatchLists.inTab(e.match, currentTab, now, zone, settings.favorites.isFavorite(e.match)) &&
+                (currentTab != MatchTab.WEEK || MatchLists.day(e.match, zone) == chosenDay) &&
                 filter.accepts(e.match, e.summary)
         }
         MatchLists.sort(inTab.map { it.match }).mapNotNull { byId[it.id] }
@@ -201,6 +208,17 @@ fun SportsHubScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabStrip(tabs = MatchTab.entries.map { it.label } + EventsTabLabel + NowTabLabel + HighlightsTabLabel + StandingsTabLabel, selectedIndex = tab, onSelect = { tab = it })
+        // „Toată săptămâna”: sub taburi, zilele de după mâine (18.11, 19.11…); focusul pe o zi îi arată meciurile,
+        // fără surse (sursele se caută din ajun). Sus revii la taburi.
+        if (currentTab == MatchTab.WEEK && tab < MatchTab.entries.size) {
+            TabStrip(
+                tabs = weekDays.map { it.format(WeekDayFormat) },
+                selectedIndex = weekDay,
+                onSelect = { weekDay = it },
+                fontSize = 20.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
 
         if (eventsTab) {
             EventChannelsList(snapshot = snapshot, enabled = settings.eventChannels, zone = zone, onOpenMatch = onOpenMatch, onPlay = onPlay)
@@ -273,7 +291,20 @@ fun SportsHubScreen(
             val all = calendar.flatMap { it.second } + otherFavorites
             val preview = all.firstOrNull { it.match.id == focusedId } ?: all.firstOrNull()
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                // Dublu-clic sus / jos: primul / ultimul meci din listă.
+                val jump = ro.ak.sportshub.ui.components.rememberListJump()
+                val firstKey = if (nextFavorite != null) "next-favorite" else calendar.firstNotNullOfOrNull { (team, es) -> es.firstOrNull()?.let { "team:$team:" + it.match.id } }
+                    ?: otherFavorites.firstOrNull()?.match?.id
+                val lastKey = otherFavorites.lastOrNull()?.match?.id
+                    ?: calendar.lastOrNull { it.second.isNotEmpty() }?.let { (team, es) -> "team:$team:" + es.last().match.id }
+                val itemCount = (if (nextFavorite != null) 1 else 0) + calendar.sumOf { 1 + maxOf(1, it.second.size) } +
+                    (if (calendar.isNotEmpty() && otherFavorites.isNotEmpty()) 1 else 0) + otherFavorites.size
+                fun jumpOn(key: String): Modifier = when (key) {
+                    firstKey -> if (key == lastKey) Modifier.focusRequester(jump.first).focusRequester(jump.last) else Modifier.focusRequester(jump.first)
+                    lastKey -> Modifier.focusRequester(jump.last)
+                    else -> Modifier
+                }
+                LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f).then(jump.modifier(itemCount))) {
                     nextFavorite?.let { entry ->
                         item(key = "next-favorite") {
                             NextFavoriteCard(
@@ -283,7 +314,7 @@ fun SportsHubScreen(
                                 zone = zone,
                                 onClick = { returnFocus.clicked("next-favorite"); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
-                                modifier = returnFocus.on("next-favorite").padding(bottom = 6.dp),
+                                modifier = returnFocus.on("next-favorite").then(jumpOn("next-favorite")).padding(bottom = 6.dp),
                             )
                         }
                     }
@@ -310,7 +341,7 @@ fun SportsHubScreen(
                                 onClick = { returnFocus.clicked("team:$team:" + entry.match.id); onOpenMatch(entry.match.id) },
                                 onFocused = { focusedId = entry.match.id },
                                 onLongClick = { toggleVideo(entry) },
-                                modifier = returnFocus.on("team:$team:" + entry.match.id),
+                                modifier = returnFocus.on("team:$team:" + entry.match.id).then(jumpOn("team:$team:" + entry.match.id)),
                             )
                         }
                     }
@@ -323,17 +354,17 @@ fun SportsHubScreen(
                             looks = looks,
                             favorite = settings.favorites.isFavorite(entry.match),
                             hideScore = Spoilers.hide(settings.noSpoilers, entry.match.id in revealed, entry.match.status),
-                            showDay = currentTab == MatchTab.WEEK || currentTab == MatchTab.FAVORITES,
+                            showDay = currentTab == MatchTab.FAVORITES,
                             zone = zone,
                             onClick = { returnFocus.clicked(entry.match.id); onOpenMatch(entry.match.id) },
                             onFocused = { focusedId = entry.match.id },
                             onLongClick = { toggleVideo(entry) },
-                            modifier = returnFocus.on(entry.match.id),
+                            modifier = returnFocus.on(entry.match.id).then(jumpOn(entry.match.id)),
                         )
                     }
                 }
                 preview?.let { entry ->
-                    Column(modifier = Modifier.width(260.dp).fillMaxHeight().padding(bottom = 8.dp)) {
+                    Column(modifier = Modifier.width(290.dp).fillMaxHeight().padding(bottom = 8.dp)) {
                         val channel = videoChannel
                         if (channel != null && videoMatchId == entry.match.id) {
                             ro.ak.sportshub.player.VideoPreview(channelId = channel, modifier = Modifier.padding(bottom = 8.dp))
@@ -457,24 +488,22 @@ private fun MatchRow(
                         androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = team,
-                                fontSize = 16.sp,
-                                lineHeight = 18.sp,
+                                fontSize = 17.sp,
+                                lineHeight = 19.sp,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            if (score != null) {
-                                Text(
-                                    text = goals?.toString().orEmpty(),
-                                    fontSize = 17.sp,
-                                    lineHeight = 18.sp,
-                                    fontFamily = AkFonts.Condensed,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.End,
-                                    modifier = Modifier.padding(start = 8.dp).width(30.dp),
-                                )
-                            }
+                            // Coloana scorului are mereu aceeași lățime, ca scorurile să stea unul sub altul.
+                            Text(
+                                text = if (score != null) goals?.toString().orEmpty() else "",
+                                fontSize = 17.sp,
+                                lineHeight = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.padding(start = 8.dp).width(34.dp),
+                            )
                         }
                     }
                 }
@@ -500,10 +529,15 @@ private fun MatchRow(
             }
         },
         trailing = {
-            if (favorite) Text(text = "★", fontSize = 20.sp, color = accentText(), modifier = Modifier.padding(end = 4.dp))
+            // Coloane de lățime fixă (steaua, reluarea, calitatea, sursele), ca etichetele să stea una sub alta.
+            Box(modifier = Modifier.width(24.dp), contentAlignment = Alignment.Center) {
+                if (favorite) Text(text = "★", fontSize = 20.sp, color = accentText())
+            }
             // Meci terminat cu arhivă pe o sursă: se poate vedea ca reluare (niciodată marcat drept live).
             if (m.status == MatchStatus.FINISHED && entry.hasReplay(System.currentTimeMillis())) Badge(text = "RELUARE", color = AkColors.Focus)
-            if (count > 0) QualityBadge(entry.summary.best)
+            Box(modifier = Modifier.width(52.dp), contentAlignment = Alignment.CenterEnd) {
+                if (count > 0) QualityBadge(entry.summary.best)
+            }
             // Pe scurt, ca titlul să încapă; presupusele se văd în panoul din dreapta.
             Text(
                 text = when {
@@ -569,21 +603,31 @@ private fun MatchPreviewPanel(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // Echipele cu sigla, banda culorii și forma (ultimele 5, din programul ESPN; doar înainte de start).
             val showForm = m.status == MatchStatus.SCHEDULED && !hideScore
-            listOf(m.home, m.away).filter { it.isNotBlank() }.forEach { team ->
+            val teamScores = !hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED && m.away.isNotBlank()
+            listOf(m.home to m.homeScore, m.away to m.awayScore).filter { it.first.isNotBlank() }.forEach { (team, goals) ->
                 val look = looks.team(team)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MatchBand(look, look, 30.dp)
                     Spacer(Modifier.width(8.dp))
                     TeamLogo(team, 30.dp, look = look, modifier = Modifier.padding(end = 8.dp))
-                    Text(
-                        text = team,
+                    // Numele care nu încape se prescurtează („Manchester United” → „Man Utd”), nu se taie.
+                    FittingName(
+                        name = team,
                         fontSize = 22.sp,
-                        lineHeight = 24.sp,
-                        fontFamily = AkFonts.Condensed,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
                         modifier = Modifier.weight(1f),
                     )
+                    if (teamScores) {
+                        Text(
+                            text = goals?.toString().orEmpty(),
+                            fontSize = 22.sp,
+                            lineHeight = 24.sp,
+                            fontFamily = AkFonts.Condensed,
+                            fontWeight = FontWeight.Bold,
+                            color = if (m.isLive) AkColors.Live else AkColors.Text,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.padding(start = 8.dp).width(36.dp),
+                        )
+                    }
                 }
                 val form = if (showForm && m.away.isNotBlank()) look?.formResults().orEmpty() else emptyList()
                 if (form.isNotEmpty()) FormSquares(form, modifier = Modifier.padding(start = 12.dp), square = 16.dp)
@@ -591,15 +635,17 @@ private fun MatchPreviewPanel(
         }
         Row(verticalAlignment = Alignment.Bottom) {
             val score = !hideScore && m.homeScore != null && m.awayScore != null && m.status != MatchStatus.SCHEDULED
+            // Cu două echipe, scorul e deja în dreptul fiecăreia; aici rămâne ora.
+            val bigScore = score && m.away.isBlank()
             Text(
-                text = if (score) "${m.homeScore} – ${m.awayScore}" else start.format(TimeFormat),
+                text = if (bigScore) "${m.homeScore} – ${m.awayScore}" else start.format(TimeFormat),
                 fontSize = 30.sp,
                 fontFamily = AkFonts.Condensed,
                 fontWeight = FontWeight.Bold,
-                color = if (m.isLive) AkColors.Live else AkColors.Text,
+                color = if (m.isLive && bigScore) AkColors.Live else AkColors.Text,
             )
             Text(
-                text = (if (score) start.format(TimeFormat) + " · " else "") + Countdown.text(m.start, now, m.status),
+                text = (if (bigScore) start.format(TimeFormat) + " · " else "") + Countdown.text(m.start, now, m.status),
                 fontSize = 15.sp,
                 color = AkColors.TextDim,
                 maxLines = 2,
@@ -951,4 +997,23 @@ internal fun sportIcon(sport: ro.ak.sportshub.core.sports.Sport?): String = when
     ro.ak.sportshub.core.sports.Sport.GOLF -> "⛳"
     ro.ak.sportshub.core.sports.Sport.CRICKET -> "🏏"
     null -> "🏟"
+}
+
+/** Numele echipei în cea mai lungă formă care încape pe un rând (`TeamCodes.shorter`). */
+@Composable
+private fun FittingName(name: String, fontSize: androidx.compose.ui.unit.TextUnit, modifier: Modifier = Modifier) {
+    val forms = remember(name) { ro.ak.sportshub.core.sports.TeamCodes.shorter(name) }
+    var index by remember(name) { androidx.compose.runtime.mutableIntStateOf(0) }
+    Text(
+        text = forms[index.coerceIn(0, forms.size - 1)],
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.1f,
+        fontFamily = AkFonts.Condensed,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        softWrap = false,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        onTextLayout = { r -> if (r.hasVisualOverflow && index < forms.size - 1) index++ },
+        modifier = modifier,
+    )
 }

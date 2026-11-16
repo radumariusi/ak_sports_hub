@@ -18,6 +18,7 @@ import okhttp3.Request
 import ro.ak.sportshub.core.sports.DetailsSchedule
 import ro.ak.sportshub.core.sports.Espn
 import ro.ak.sportshub.core.sports.LiveDelay
+import ro.ak.sportshub.core.sports.MatchStatus
 import ro.ak.sportshub.core.sports.PanelView
 import ro.ak.sportshub.core.sports.StandingRow
 import ro.ak.sportshub.core.sports.TeamNames
@@ -119,8 +120,9 @@ class MatchDetailsRepository(
                 if (espn != null && part == DetailsSchedule.Part.PRE_MATCH && espnDetails(match)?.table.isNullOrEmpty()) {
                     runCatching { standings?.load(espn.first) }
                 }
-                // Fără ESPN (sau dacă ESPN n-a dat nimic): TheSportsDB, ca înainte.
-                if (due && s.sportsDbEnabled && (espn == null || espnDetails(match) == null)) {
+                // Fără ESPN, sau ESPN fără o parte (statistici, formații, ultimele meciuri): TheSportsDB completează,
+                // iar `read` le amestecă (ce are ESPN rămâne de la ESPN).
+                if (due && s.sportsDbEnabled && (espn == null || espnGaps(match, part))) {
                     val requests = plan(match, part, s.sportsDbKey)
                     var ok = 0
                     var i = 0
@@ -232,6 +234,17 @@ class MatchDetailsRepository(
             ?: return emptyList()
         return group.rows.map { r ->
             StandingRow(r.rank, r.team, r.teamId, r.played, r.won, r.drawn, r.lost, r.goalsFor, r.goalsAgainst, r.points?.toIntOrNull())
+        }
+    }
+
+    /** ESPN n-a dat ce trebuie pentru partea asta (Live: statistici sau formații după start; Pre: formații sau forma). */
+    private fun espnGaps(match: Match, part: DetailsSchedule.Part): Boolean {
+        val d = espnDetails(match) ?: return true
+        if (match.away.isBlank()) return false
+        val started = match.status != MatchStatus.SCHEDULED
+        return when (part) {
+            DetailsSchedule.Part.LIVE -> started && (d.stats.isEmpty() || d.lineup.isEmpty())
+            DetailsSchedule.Part.PRE_MATCH -> d.homeRecent.isEmpty() || d.awayRecent.isEmpty() || (started && d.lineup.isEmpty())
         }
     }
 

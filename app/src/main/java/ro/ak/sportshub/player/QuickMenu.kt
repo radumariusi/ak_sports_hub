@@ -47,6 +47,13 @@ fun QuickMenuContent(
     onMatchPanel: (() -> Unit)?,
     onPlayMatch: (MatchEntry) -> Unit,
     modifier: Modifier = Modifier,
+    /** Celelalte surse ale meciului de pe ecran (0 = rândul lipsește). */
+    sourceCount: Int = 0,
+    onSources: () -> Unit = {},
+    onVariants: () -> Unit = {},
+    onSchedule: () -> Unit = {},
+    suspect: Boolean = false,
+    onSuspect: () -> Unit = {},
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -86,6 +93,28 @@ fun QuickMenuContent(
                         modifier = panelModifier,
                     )
                 }
+            }
+            if (sourceCount > 1) {
+                item(key = "sources") {
+                    ListRow(
+                        title = "Alte surse pentru meci",
+                        subtitle = "$sourceCount surse, în ordinea preferințelor tale",
+                        onClick = onSources,
+                    )
+                }
+            }
+            item(key = "variants") {
+                ListRow(title = "Variantele canalului", subtitle = "Alte calități și limbi ale aceluiași canal", onClick = onVariants)
+            }
+            item(key = "schedule") {
+                ListRow(title = "Programul canalului (EPG)", subtitle = "Ce rulează acum și după", onClick = onSchedule)
+            }
+            item(key = "suspect") {
+                ListRow(
+                    title = if (suspect) "Scoate semnalarea „canal posibil greșit”" else "Semnalează: canal posibil greșit",
+                    subtitle = if (suspect) "eticheta dispare din surse și variante" else "alt canal în stream; rămâne sursă, cu eticheta asta",
+                    onClick = onSuspect,
+                )
             }
             item(key = "previous") {
                 ListRow(

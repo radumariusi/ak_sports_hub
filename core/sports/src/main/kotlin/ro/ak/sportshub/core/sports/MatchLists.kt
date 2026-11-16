@@ -12,7 +12,7 @@ import ro.ak.sportshub.core.model.SourcePreferences
 
 /** Taburile Sports Hub. */
 enum class MatchTab(val label: String) {
-    LIVE("LIVE"), TODAY("Azi"), TOMORROW("Mâine"), WEEK("Săptămâna asta"), FAVORITES("Favorite"),
+    LIVE("LIVE"), TODAY("Azi"), TOMORROW("Mâine"), WEEK("Toată săptămâna"), FAVORITES("Favorite"),
 }
 
 /** Echipele, competițiile și sporturile favorite (setări). */
@@ -98,6 +98,15 @@ object SourceWindow {
 
 object MatchLists {
 
+    /** Câte zile arată „Toată săptămâna”, începând de poimâine. */
+    const val WEEK_DAYS = 7
+
+    /** Zilele din „Toată săptămâna”: de poimâine, [WEEK_DAYS] zile. */
+    fun weekDays(now: Long, zone: ZoneId): List<LocalDate> {
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        return (0 until WEEK_DAYS).map { today.plusDays(2L + it) }
+    }
+
     /** Ziua locală a meciului. */
     fun day(m: Match, zone: ZoneId): LocalDate = Instant.ofEpochMilli(m.start).atZone(zone).toLocalDate()
 
@@ -108,7 +117,8 @@ object MatchLists {
             MatchTab.LIVE -> m.isLive
             MatchTab.TODAY -> m.isLive || d.isEqual(today)
             MatchTab.TOMORROW -> d.isEqual(today.plusDays(1))
-            MatchTab.WEEK -> m.isLive || (m.status != MatchStatus.FINISHED && !d.isBefore(today) && d.isBefore(today.plusDays(7)))
+            // Zilele de după mâine (azi și mâine au taburile lor); ziua aleasă se filtrează în ecran (`weekDays`).
+            MatchTab.WEEK -> m.status != MatchStatus.FINISHED && !d.isBefore(today.plusDays(2)) && d.isBefore(today.plusDays(2L + WEEK_DAYS))
             MatchTab.FAVORITES -> favorite && m.status != MatchStatus.FINISHED && d.isBefore(today.plusDays(7))
         }
     }

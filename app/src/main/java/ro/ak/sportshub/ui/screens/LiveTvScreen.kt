@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -374,8 +375,10 @@ private fun ChannelList(
     val nowNext by produceState(emptyMap<Long, NowNext>(), rows, now) {
         value = epg.nowNext(rows.flatMap { r -> r.variants.take(EPG_VARIANTS).map { it.id } }, now)
     }
-    LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(rows, key = { it.key }) { row ->
+    // Dublu-clic sus / jos: primul / ultimul canal.
+    val jump = ro.ak.sportshub.ui.components.rememberListJump()
+    LazyColumn(state = jump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = jump.modifier(rows.size)) {
+        itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
             val c = row.shown
             val nn = row.variants.take(EPG_VARIANTS).firstNotNullOfOrNull { nowNext[it.id] }
             val meta = buildList {
@@ -388,7 +391,7 @@ private fun ChannelList(
                 title = (c.number?.let { "$it  " } ?: "") + c.name,
                 subtitle = nowNextLine(nn)?.let { if (showGroup) "$it · ${c.groupName}" else it } ?: meta,
                 progress = nn?.now?.progress(now),
-                modifier = returnFocus.on(row.key).onPreviewKeyEvent { e ->
+                modifier = returnFocus.on(row.key).then(jump.row(index, rows.size)).onPreviewKeyEvent { e ->
                     // Săgeata dreapta (lista e ultima coloană): ecranul canalului.
                     if (e.key == Key.DirectionRight && e.type == KeyEventType.KeyDown) {
                         returnFocus.clicked(row.key)
