@@ -1,8 +1,8 @@
 package ro.ak.sportshub.core.sports
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
 
 class NflStatsTest {
 
@@ -23,8 +23,8 @@ class NflStatsTest {
         """.trimIndent()
         val d = Espn.parseSummary(body, "x")!!
         val all = d.stats + d.seasonStats
-        assertEquals(all.size, all.distinctBy { it.name }.size, all.toString())
-        assertEquals(3, all.size, all.toString())
+        assertEquals(all.toString(), all.size, all.distinctBy { it.name }.size)
+        assertEquals(all.toString(), 3, all.size)
     }
 
     @Test
