@@ -25,5 +25,8 @@ dependencies {
 tasks.test {
     // Un test blocat nu ține tot build-ul CI.
     timeout.set(Duration.ofMinutes(3))
-    testLogging { events("failed") }
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }

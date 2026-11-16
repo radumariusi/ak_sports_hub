@@ -49,6 +49,29 @@ class StationIndex(groupKeys: Collection<String>) {
         return out.toList()
     }
 
+    /** Canalele rețelelor de streaming ([StreamingServices]): rețea → (țară, cheia de grupare, numărul), după număr. */
+    private val streaming: Map<String, List<Triple<String?, String, Int>>> = groupKeys.distinct()
+        .mapNotNull { gk ->
+            val country = gk.substringBefore(':', "").ifEmpty { null }
+            val core = if (country != null) gk.substringAfter(':') else gk
+            StreamingServices.ofChannel(core)?.let { (service, n) -> service to Triple(country, gk, n) }
+        }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, list) -> list.sortedBy { it.third } }
+
+    private val streamingMemo = java.util.concurrent.ConcurrentHashMap<Pair<String, String?>, List<String>>()
+
+    /**
+     * Canalele rețelei de streaming anunțate ca post [station] („Peacock”, țara „USA”), din țara postului (sau fără
+     * țară), cel mult [StreamingServices.MAX_CHANNELS]; gol dacă postul nu e o rețea de streaming.
+     */
+    fun streamingChannels(station: TvStation): List<String> = streamingMemo.getOrPut(station.name to station.country) {
+        val service = StreamingServices.ofStation(station.name) ?: return@getOrPut emptyList()
+        val list = streaming[service] ?: return@getOrPut emptyList()
+        val wanted = Countries.codes(station.country ?: StationNames.splitCountry(station.name).second)
+        list.filter { (c, _, _) -> wanted.isEmpty() || c == null || c in wanted }.map { it.second }.take(StreamingServices.MAX_CHANNELS)
+    }
+
     /** Prefixele de țară ale canalelor tale („uk”, „ro”…), pentru a cere doar posturile din țările tale. */
     fun countries(): Set<String> = byKey.values.flatten().mapNotNull { it.first }.toSet()
 

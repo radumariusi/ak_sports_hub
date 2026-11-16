@@ -62,6 +62,7 @@ import ro.ak.sportshub.core.sports.Sport
 import ro.ak.sportshub.core.sports.Sofascore
 import ro.ak.sportshub.core.sports.FollowedNames
 import ro.ak.sportshub.core.sports.SourceFinder
+import ro.ak.sportshub.core.sports.SourceWindow
 import ro.ak.sportshub.core.sports.SourceSummary
 import ro.ak.sportshub.core.sports.SportChannels
 import ro.ak.sportshub.core.sports.SportEvent
@@ -388,6 +389,14 @@ class SportsRepository(
             for (cc in FotMob.countriesFor(playlistCountries())) {
                 val f = File(dir, "fotmob-$cc-$localToday.html")
                 if (force || isStale(f, fresh(FotMob.PROVIDER, 0))) jobs += Job(FotMob.url(cc), f, html = FotMob::looksValid)
+            }
+            // Ligile de tineret (U21, U18): tot sezonul într-o pagină, la 12 ore (fără dată în nume).
+            if (Sport.FOOTBALL in s.sports) {
+                for (league in FotMob.youthLeagues) {
+                    if (league.forFavorites && s.favorites.teams.isEmpty()) continue
+                    val f = File(dir, "fotmob-${league.fileKey}.html")
+                    if (isStale(f, YOUTH_FRESH_MS)) jobs += Job(league.url, f, html = FotMob::looksValid)
+                }
             }
         }
         if (s.usLeaguesEnabled) {
@@ -1055,8 +1064,13 @@ class SportsRepository(
         }
         if (s.fotMobEnabled) {
             files.filter { it.name.startsWith("fotmob-") && it.name.endsWith(".html") }.forEach { f ->
-                val cc = f.name.split('-').getOrNull(1) ?: return@forEach
-                events += parsed(f) { FotMob.parse(it, cc) }
+                val cc = f.name.removeSuffix(".html").split('-').getOrNull(1) ?: return@forEach
+                val youth = FotMob.youthLeague(cc)
+                events += when {
+                    youth == null -> parsed(f) { FotMob.parse(it, cc) }
+                    Sport.FOOTBALL !in s.sports || youth.forFavorites && s.favorites.teams.isEmpty() -> emptyList()
+                    else -> parsed(f) { FotMob.parseLeague(it, youth) }
+                }
             }
         }
         if (s.usLeaguesEnabled) {
@@ -1233,17 +1247,6 @@ class SportsRepository(
                 _snapshot.value = SportsSnapshot(loading = false)
             }
         }
-        // Prima listă s-a făcut doar cu programul EPG de azi și mâine; restul săptămânii se citește acum, separat.
-        if (farWindow == null && !farLoading) {
-            farLoading = true
-            scope.launch {
-                try {
-                    recompute()
-                } finally {
-                    farLoading = false
-                }
-            }
-        }
     }
 
     /** Emisiunile EPG citite pentru o fereastră de timp, ținute în memorie (nu se recitesc la fiecare minut). */
@@ -1265,7 +1268,6 @@ class SportsRepository(
     /** Restul săptămânii: citit după prima listă, recitit la 6 ore. */
     @Volatile private var farWindow: BroadcastWindow? = null
 
-    @Volatile private var farLoading = false
 
     /** Competițiile scoase de „Doar competițiile importante” la ultimul calcul (pentru jurnal). */
     @Volatile private var droppedCompetitions: Map<String, Int> = emptyMap()
@@ -1321,19 +1323,15 @@ class SportsRepository(
         // Întâi azi și mâine (lista apare repede), apoi restul săptămânii; amândouă rămân în memorie.
         // Numele urmărite se caută în aceeași citire a EPG-ului (alt nume urmărit = fereastra se recitește).
         val names = s.favorites.names
-        val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS && it.names == names }
-            ?: (now + NEAR_AHEAD_MS).let { end ->
+        // Sursele se caută doar pentru live, azi și mâine (Radu): EPG-ul se citește doar până la sfârșitul zilei de mâine.
+        val sourceEnd = SourceWindow.end(now, ZoneId.systemDefault())
+        val near = nearWindow?.takeIf { now - it.loadedAt < NEAR_RELOAD_MS && it.names == names && it.until >= sourceEnd }
+            ?: maxOf(now + NEAR_AHEAD_MS, sourceEnd).let { end ->
                 loadBroadcasts(scan.sportEpg, now - BROADCAST_BACK_MS, end, names)
                     .let { r -> BroadcastWindow(now - BROADCAST_BACK_MS, end, now, r.matches, r.followed, names, r.airing) }
             }.also { nearWindow = it; lap("EPG azi-mâine (${it.list.size} emisiuni)") }
-        val far = farWindow?.takeIf { now - it.loadedAt < FAR_RELOAD_MS && it.names == names }
-            ?: if (_snapshot.value.loading && farWindow == null) {
-                null
-            } else {
-                loadBroadcasts(scan.sportEpg, near.until, until, names)
-                    .let { r -> BroadcastWindow(near.until, until, now, r.matches, r.followed, names, r.airing) }
-                    .also { farWindow = it; lap("EPG restul săptămânii (${it.list.size} emisiuni)") }
-            }
+        // Restul săptămânii: doar meciurile, fără surse (le primesc când ajung „mâine”), deci fără EPG.
+        val far: BroadcastWindow? = null
         val broadcasts = if (far == null) near.list else (near.list + far.list).distinctBy { it.broadcast.programmeId }
         val zone = s.eventZoneId()
         // Numele canalelor EVENT se citesc o dată pe oră (nu la fiecare minut, pentru mii de canale).
@@ -1343,7 +1341,7 @@ class SportsRepository(
             slotCache[c.id]?.takeIf { it.first == key }?.second
                 ?: EventChannels.parse(c.id, c.name, c.groupName, now, zone).also { slotCache[c.id] = key to it }
         }
-        val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from..until) }
+        val activeSlots = slots.filter { it.home != null && (it.start == null || it.start in from until sourceEnd) }
         val assembled = MatchAssembler.assemble(events.filter { it.start in (from - WINDOW_BACK_MS)..until }, broadcasts, now, tv, activeSlots)
             .filter { it.end > from && it.start < until }
             .filter { m ->
@@ -1391,12 +1389,22 @@ class SportsRepository(
         val unmatched = HashMap<String, Int>()
         val aliases = knowledge.current.stationAliases
         val myCountries = index.countries()
+        val zoneNow = ZoneId.systemDefault()
+        // Canalele EVENT / PPV care au acum un meci în nume: nu sunt presupuneri (rețele de streaming) pentru alt meci.
+        val slotKeys = activeSlots.mapNotNull { slotChannels[it.channelId]?.groupKey }.toSet()
         for (m in matches) {
+            if (!SourceWindow.searches(m, now, zoneNow)) {
+                // După mâine: fără căutare, doar canalele adăugate de tine.
+                val mine = finder.confirmedOnly(m)
+                foundByMatch[m.id] = mine
+                mine.forEach { allKeys += it.groupKey }
+                continue
+            }
             val epgKeys = m.broadcasts.flatMap { b -> channelsByEpg[b.epgChannelId].orEmpty() }
                 .mapNotNull { epgChannels[it]?.groupKey }.toSet()
             val eventKeys = m.eventChannels.mapNotNull { slotChannels[it]?.groupKey }.toSet()
             val dedicatedKeys = DedicatedChannels.seriesOfMatch(m)?.let { scan.dedicated[it] }.orEmpty()
-            val found = BusyChannels.adjust(m, finder.find(m, epgKeys, eventKeys, dedicatedKeys), busy)
+            val found = BusyChannels.adjust(m, finder.find(m, epgKeys, eventKeys, dedicatedKeys, slotKeys - eventKeys), busy)
             foundByMatch[m.id] = found
             found.forEach { allKeys += it.groupKey }
             if (m.status != MatchStatus.FINISHED) {
@@ -1820,6 +1828,9 @@ class SportsRepository(
         const val ESPN_RECOMPUTE_EVERY = 30
         const val MID_ROUND_GAP_MS = 45_000L
         val NEAR_AHEAD_MS = TimeUnit.HOURS.toMillis(36)
+
+        /** Programul ligilor de tineret FotMob (tot sezonul): reîmprospătat la 12 ore. */
+        val YOUTH_FRESH_MS = TimeUnit.HOURS.toMillis(12)
         val NEAR_RELOAD_MS = TimeUnit.HOURS.toMillis(1)
         val FAR_RELOAD_MS = TimeUnit.HOURS.toMillis(6)
         const val SLOW_COMPUTE_MS = 3_000L

@@ -90,7 +90,22 @@ object DefaultRights {
 }
 
 /** Ce ai spus despre o sursă la un meci: „da, e meciul” sau „nu e”. */
-enum class Verdict { CONFIRMED, REJECTED }
+enum class Verdict {
+    CONFIRMED,
+    REJECTED,
+
+    /**
+     * Canalul e bun, dar nu transmite meciul ăsta (cererea lui Radu): rămâne sursă, la final, cu eticheta
+     * [NOT_AIRING_NOTE]; nu se învață nimic (alt meci poate fi corect acolo).
+     */
+    NOT_AIRING,
+    ;
+
+    companion object {
+        /** Ce scrie la sursa bifată „nu transmite meciul”. */
+        const val NOT_AIRING_NOTE = "nu transmite meciul (bifat de tine)"
+    }
+}
 
 /** Alegerile tale pentru un meci (pe cheia de grupare a canalului), cu momentul ultimei alegeri. */
 data class MatchDecisions(val at: Long, val verdicts: Map<String, Verdict>)
@@ -137,7 +152,7 @@ data class SportsKnowledge(
         val nextVerdicts = if (verdict == null) current - groupKey else current + (groupKey to verdict)
         val nextDecisions = if (nextVerdicts.isEmpty()) decisions - match.id else decisions + (match.id to MatchDecisions(now, nextVerdicts))
         var k = copy(decisions = nextDecisions)
-        if (verdict == null) return k
+        if (verdict == null || verdict == Verdict.NOT_AIRING) return k
         val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
         val station = source?.station?.let { StationIndex.compact(StationNames.splitCountry(it).first) }?.takeIf { it.isNotEmpty() }
         when (source?.origin) {
@@ -240,6 +255,8 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
         epgKeys: Collection<String>,
         eventKeys: Collection<String> = emptyList(),
         dedicatedKeys: Collection<String> = emptyList(),
+        /** Canalele EVENT / PPV care au acum în nume alt meci: nu sunt presupuneri pentru meciul ăsta. */
+        otherEventKeys: Set<String> = emptySet(),
     ): List<FoundSource> {
         val found = LinkedHashMap<String, FoundSource>()
         fun add(key: String, confidence: Confidence, station: String? = null) {
@@ -254,6 +271,13 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
             val compact = StationIndex.stationKey(st.name)
             val keys = knowledge.stationAliases[compact].orEmpty() + index.find(st)
             keys.filter { "$compact|$it" !in knowledge.stationBlocks }.forEach { add(it, Confidence.STATION, st.name) }
+        }
+        // Rețelele de streaming (Peacock, Max, Fubo, Stan…): canalele lor numerotate din playlist, presupuse.
+        for (st in match.stations) {
+            val compact = StationIndex.stationKey(st.name)
+            index.streamingChannels(st)
+                .filter { it !in otherEventKeys && "$compact|$it" !in knowledge.stationBlocks }
+                .forEach { add(it, Confidence.DEDICATED, st.name) }
         }
 
         val comp = match.competition?.let { Sport.fold(it) }?.takeIf { it.isNotEmpty() }
@@ -273,10 +297,16 @@ class SourceFinder(private val index: StationIndex, private val knowledge: Sport
                 // Un canal adăugat de mână (negăsit altfel) apare tot ca „confirmat”.
                 Verdict.CONFIRMED -> found[key] = FoundSource(key, Confidence.CONFIRMED, old?.station, origin = old?.origin ?: Confidence.CONFIRMED)
                 Verdict.REJECTED -> if (old != null) found[key] = old.copy(rejected = true)
+                Verdict.NOT_AIRING -> if (old != null) found[key] = old.copy(confidence = Confidence.ELSEWHERE, airing = Verdict.NOT_AIRING_NOTE)
             }
         }
         return found.values.toList()
     }
+
+    /** Doar canalele confirmate sau adăugate de tine pentru meci (pentru meciurile de după mâine, fără căutare). */
+    fun confirmedOnly(match: Match): List<FoundSource> =
+        knowledge.decisions[match.id]?.verdicts.orEmpty().filterValues { it == Verdict.CONFIRMED }.keys
+            .map { FoundSource(it, Confidence.CONFIRMED, origin = Confidence.CONFIRMED) }
 }
 
 /**
