@@ -1257,6 +1257,8 @@ class SportsRepository(
             } else if (_snapshot.value.loading) {
                 _snapshot.value = SportsSnapshot(loading = false)
             }
+            // Fără `start()` (capturile de ecran, fără lucru în fundal) lista arătată nu urmează singură.
+            if (!started.get()) publishShown()
         }
     }
 
