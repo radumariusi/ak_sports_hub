@@ -2,4 +2,6 @@
 <resources>
     <color name="background">#0B0F14</color>
     <color name="accent">#FFB547</color>
+    <!-- fundalul iconiței adaptive: marginea cercului din iconiță -->
+    <color name="icon_background">#051327</color>
 </resources>
