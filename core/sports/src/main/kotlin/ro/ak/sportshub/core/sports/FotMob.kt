@@ -88,6 +88,9 @@ object FotMob {
         when (el) {
             is JsonArray -> el.forEach { walk(it, league, cc, out, depth + 1) }
             is JsonObject -> {
+                // Forma echipelor din clasament („resultString”, „tooltipText”) repetă meciurile jucate fără id
+                // (văzut pe pagina ligii, 16.11.2026): ar dubla meciurile.
+                if (el.containsKey("resultString") || el.containsKey("tooltipText")) return
                 val match = asMatch(el, league, cc)
                 if (match != null) {
                     out.putIfAbsent(match.providerId, match)
@@ -119,6 +122,13 @@ object FotMob {
             else -> null
         }
         val id = o.text("id") ?: o.text("matchId") ?: "$start ${Sport.fold(home)}|${Sport.fold(away)}"
+        // Scorul (pagina ligii): `home.score` / `away.score`, altfel „3 - 0” din `status.scoreStr`; doar după start.
+        val scores = if (state == null) null else {
+            val h = homeKeys.firstNotNullOfOrNull { (o[it] as? JsonObject)?.text("score")?.toIntOrNull() }
+            val a = awayKeys.firstNotNullOfOrNull { (o[it] as? JsonObject)?.text("score")?.toIntOrNull() }
+            if (h != null && a != null) h to a else status?.text("scoreStr")?.split('-')?.map { it.trim().toIntOrNull() }
+                ?.takeIf { it.size == 2 && it.all { n -> n != null } }?.let { it[0]!! to it[1]!! }
+        }
         return SportEvent(
             provider = PROVIDER,
             providerId = "$cc-$id",
@@ -128,6 +138,8 @@ object FotMob {
             away = away,
             start = start,
             status = state,
+            homeScore = scores?.first,
+            awayScore = scores?.second,
             stations = stations.map { TvStation(it, cc) },
         )
     }

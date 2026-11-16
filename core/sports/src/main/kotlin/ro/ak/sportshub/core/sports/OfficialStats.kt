@@ -16,7 +16,8 @@ import kotlinx.serialization.json.doubleOrNull
  * - NBA: `cdn.nba.com` (programul zilei de azi, apoi `boxscore_{id}.json`: statisticile echipelor și jucătorii);
  * - NHL: `api-web.nhle.com` (programul zilei, apoi `gamecenter/{id}/right-rail`: șuturi, face-off, power play…);
  * - MLB: `statsapi.mlb.com` (programul zilei, apoi `game/{id}/boxscore`: lovituri, home run-uri, erori, ordinea la bătaie).
- * Formatul nu a putut fi verificat din mediul de lucru, deci citirea e tolerantă: ce lipsește nu apare.
+ * NHL și MLB verificate pe răspunsuri reale (16.11.2026, `RealResponsesTest`); NBA refuză cererile din mediul de lucru,
+ * deci rămâne neverificat. Citirea e tolerantă: ce lipsește nu apare.
  */
 object OfficialStats {
 

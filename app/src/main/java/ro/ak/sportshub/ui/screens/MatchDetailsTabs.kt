@@ -115,6 +115,11 @@ fun PreMatchTab(
             }
             statusItem(state)
             factsSection(match, d)
+            d.winProbability?.takeIf { it.forecast && match.away.isNotBlank() }?.let { wp ->
+                item(key = "chance-h") { SectionLabel("Șansele (previziunea ESPN)") }
+                item(key = "chance") { ChanceBar(match.home, match.away, wp) }
+            }
+            absentSection(match, d)
             formSection(match, d, hideSpoilers, zone)
             headToHeadSection(match, d, zone)
             if (!state.loading && d.isEmpty && sportsDbEnabled) {
@@ -132,7 +137,7 @@ fun PreMatchTab(
             if (match.away.isNotBlank()) groupedStats(d.seasonStats, "ss", match.home, match.away, title = "Sezonul", compact = true)
             item(key = "foot") {
                 Text(
-                    text = "ESPN (sau TheSportsDB), cerut doar cât e deschis meciul; nu folosește conexiunea playlisturilor.",
+                    text = "ESPN și FotMob (sau TheSportsDB), cerute doar cât e deschis meciul; nu folosesc conexiunea playlisturilor.",
                     fontSize = 12.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(14.dp),
@@ -230,6 +235,22 @@ fun LiveTab(
                     trailing = { if (status == MatchStatus.LIVE) Badge(text = "LIVE", color = AkColors.Live) },
                 )
             }
+            d.winProbability?.takeIf { !it.forecast && match.away.isNotBlank() }?.let { wp ->
+                item(key = "chance-h") { SectionLabel("Șansele de câștig (ESPN)") }
+                item(key = "chance") { ChanceBar(match.home, match.away, wp) }
+                if (wp.series.size >= 2) item(key = "chance-chart") { ChanceChart(wp.series) }
+            }
+            if (d.momentum.size >= 2) {
+                item(key = "mom-h") { SectionLabel("Presiunea (FotMob)") }
+                item(key = "mom") {
+                    val goals = d.timeline.filter { it.kind == TimelineKind.GOAL || it.kind == TimelineKind.PENALTY || it.kind == TimelineKind.OWN_GOAL }
+                    MomentumChart(
+                        d.momentum,
+                        homeGoals = goals.filter { it.home }.mapNotNull { it.minute },
+                        awayGoals = goals.filter { !it.home }.mapNotNull { it.minute },
+                    )
+                }
+            }
             if (d.timeline.isNotEmpty()) {
                 item { SectionLabel("Evenimente") }
                 timelineAxis(match, d.timeline, newestFirst = status == MatchStatus.LIVE)
@@ -241,6 +262,10 @@ fun LiveTab(
                         onClick = {},
                     )
                 }
+            }
+            if (d.shots.isNotEmpty()) {
+                item(key = "shots-h") { SectionLabel("Harta șuturilor (FotMob)") }
+                item(key = "shots") { ShotMapView(d.shots, match.home, match.away) }
             }
         }
     }
@@ -302,11 +327,18 @@ fun StatsTab(
 
 internal fun LazyListScope.factsSection(match: Match, d: MatchDetails) {
     val e = d.event
+    val v = d.venue
+    fun number(n: Int) = "%,d".format(n).replace(',', '.')
+    val attendance = v?.attendance ?: e?.spectators
     val facts = listOfNotNull(
         e?.league?.let { it + (e?.round?.let { r -> ", etapa $r" } ?: "") },
-        (e?.venue ?: match.venue)?.let { it + (e?.city?.let { c -> ", $c" } ?: "") },
-        e?.referee?.let { "Arbitru: $it" },
-        e?.spectators?.let { "Spectatori: " + "%,d".format(it).replace(',', '.') },
+        (v?.stadium ?: e?.venue ?: match.venue)?.let { stadium ->
+            stadium + ((v?.city ?: e?.city)?.let { c -> ", $c" } ?: "") +
+                (v?.capacity?.takeIf { attendance == null }?.let { c -> " (${number(c)} locuri)" } ?: "")
+        },
+        (v?.referee ?: e?.referee)?.let { "Arbitru: $it" },
+        attendance?.let { "Spectatori: " + number(it) },
+        v?.weather?.label?.let { "Vremea: $it" },
     )
     if (facts.isEmpty()) return
     item(key = "facts") {
@@ -317,6 +349,42 @@ internal fun LazyListScope.factsSection(match: Match, d: MatchDetails) {
             lineHeight = 19.sp,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
         )
+    }
+}
+
+/** Jucătorii indisponibili (accidentați, suspendați, incerți), pe echipe; ESPN la sporturile americane, FotMob la fotbal. */
+internal fun LazyListScope.absentSection(match: Match, d: MatchDetails) {
+    if (d.absent.isEmpty()) return
+    item(key = "abs-h") { SectionLabel("Absenți") }
+    listOf(true to match.home, false to match.away).forEach { (home, team) ->
+        val list = d.absent.filter { it.home == home }
+        if (list.isEmpty()) return@forEach
+        val side = if (home) "h" else "a"
+        item(key = "abs-t:$side") {
+            Text(
+                text = team,
+                fontSize = 14.sp,
+                fontFamily = AkFonts.Condensed,
+                fontWeight = FontWeight.Bold,
+                color = AkColors.Accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 1.dp),
+            )
+        }
+        items(list.withIndex().toList(), key = { "abs:$side:" + it.index }) { (_, p) ->
+            FocusLine(verticalPadding = 1.dp, horizontalPadding = 8.dp, spacing = 6.dp) {
+                Text(text = p.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(
+                    text = listOfNotNull(p.kind.label, p.detail).joinToString(" · "),
+                    fontSize = 12.sp,
+                    color = dimText(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1.2f),
+                )
+            }
+        }
     }
 }
 
