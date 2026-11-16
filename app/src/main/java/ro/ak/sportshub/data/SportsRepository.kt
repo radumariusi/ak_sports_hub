@@ -41,6 +41,7 @@ import ro.ak.sportshub.core.sports.BusyChannels
 import ro.ak.sportshub.core.sports.MatchInsights
 import ro.ak.sportshub.core.sports.FotMob
 import ro.ak.sportshub.core.sports.Highlights
+import ro.ak.sportshub.core.sports.LiveFootballOnTv
 import ro.ak.sportshub.core.sports.LiveOnSat
 import ro.ak.sportshub.core.sports.UsLeagues
 import ro.ak.sportshub.core.sports.SourceDiagnosis
@@ -381,6 +382,11 @@ class SportsRepository(
                 val f = File(dir, "fetv-${site.code}-${LocalDate.now(site.zone)}.html")
                 if (force || isStale(f, fresh(FutbolEnLaTv.PROVIDER, 0))) jobs += Job(site.url, f, html = FutbolEnLaTv::looksValid)
             }
+        }
+        // live-footballontv.com (posturile din UK, ca FutbolEnLaTV: doar adaugă surse), doar cu canale din UK.
+        if (s.futbolEnLaTvEnabled && playlistCountries().any { it == "uk" || it == "gb" }) {
+            val f = File(dir, "lfotv-$localToday.html")
+            if (force || isStale(f, fresh(LiveFootballOnTv.PROVIDER, 0))) jobs += Job(LiveFootballOnTv.URL, f, html = LiveFootballOnTv::looksValid)
         }
         if (s.liveOnSatEnabled) {
             val f = File(dir, "los-$localToday.html")
@@ -1065,6 +1071,9 @@ class SportsRepository(
                 val site = FutbolEnLaTv.site(code)?.takeIf { it.code in sites } ?: return@forEach
                 events += parsed(f) { FutbolEnLaTv.parse(it, day, site) }
             }
+        }
+        if (s.futbolEnLaTvEnabled) {
+            files.filter { it.name.startsWith("lfotv-") && it.name.endsWith(".html") }.forEach { f -> events += parsed(f) { LiveFootballOnTv.parse(it) } }
         }
         if (s.liveOnSatEnabled) {
             files.filter { it.name.startsWith("los-") && it.name.endsWith(".html") }.forEach { f ->
@@ -1887,7 +1896,7 @@ class SportsRepository(
         private const val LIVE_SCORES_MAX_LEAGUES = 8
 
         /** Furnizorii care doar găsesc surse (posturi, canale), fără să adauge meciuri în listă. */
-        val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER)
+        val SOURCE_ONLY_PROVIDERS = setOf(MatchAssembler.EPG_PROVIDER, MatchAssembler.EVENT_PROVIDER, FutbolEnLaTv.PROVIDER, LiveFootballOnTv.PROVIDER)
 
         /** Se mărește când se schimbă clasificarea canalelor după nume. */
         const val NAMES_VERSION = 1
@@ -1957,6 +1966,7 @@ fun providerOf(url: String): String {
         "euroleague" in u -> EuroLeague.PROVIDER
         "365scores" in u -> Scores365.PROVIDER
         "liveonsat" in u -> LiveOnSat.PROVIDER
+        "live-footballontv" in u -> LiveFootballOnTv.PROVIDER
         "fotmob" in u -> FotMob.PROVIDER
         "espn.com" in u -> UsLeagues.ESPN
         "nhle.com" in u -> UsLeagues.NHL_API
@@ -1971,6 +1981,7 @@ fun providerLabel(provider: String): String = when (provider) {
     "sofascore" -> "Sofascore"
     FutbolEnLaTv.PROVIDER -> "FutbolEnLaTV"
     LiveOnSat.PROVIDER -> "LiveOnSat"
+    LiveFootballOnTv.PROVIDER -> "Live Football On TV"
     FotMob.PROVIDER -> "FotMob"
     UsLeagues.ESPN -> "ESPN"
     EuroLeague.PROVIDER -> "EuroLeague"
