@@ -304,7 +304,11 @@ fun SportsHubScreen(
         fun slotModifier(slot: Int): Modifier = Modifier.focusRequester(filterReqs[slot])
             .onFocusChanged { if (it.isFocused) lastFilter = slot }
             .focusProperties { up = filterUp }
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // ▲ din listă intră pe ultimul filtru folosit (focusRestorer), nu pe cel aflat întâmplător deasupra rândului.
+        Row(
+            modifier = Modifier.fillMaxWidth().focusRestorer(filterReqs[filterSlot]).focusGroup(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             // Filtrele: doar valoarea când e pusă („Fotbal”, „UCL”), numele filtrului când nu; nume lungi tăiate cu „…”.
             Row(
                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())

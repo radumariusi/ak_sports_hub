@@ -1,13 +1,9 @@
 name: Capturi
 
 # Capturile de ecran ale aplicației (date inventate), generate cu Robolectric + Roborazzi.
-# Rulează la cerere sau când se schimbă testele de capturi; imaginile sunt artefacte de 3 zile, nu intră în repo.
+# Rulează doar la cerere (workflow_dispatch, pe ramura dorită), ca să nu consume minute; imaginile sunt artefacte de 3 zile.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "app/src/test/**"
-      - ".github/workflows/capturi.yml"
 
 permissions:
   contents: read
@@ -34,6 +30,10 @@ jobs:
 
       - name: Capturi de ecran
         run: ./gradlew :app:testDebugUnitTest --tests 'ro.ak.sportshub.capturi.*' --stacktrace
+
+      - name: Drumul focusului (testul de navigare)
+        if: always()
+        run: cat app/build/outputs/roborazzi/navigare.txt || true
 
       - name: Capturile ca artefact (3 zile)
         if: always()

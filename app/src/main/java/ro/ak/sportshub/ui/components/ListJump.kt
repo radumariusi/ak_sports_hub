@@ -51,7 +51,9 @@ class ListJump internal constructor(val state: LazyListState, private val scope:
                 true
             }
             KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MOVE_END -> {
-                if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) jump((count - 1).coerceAtLeast(0), last)
+                if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) {
+                    jump(((state.layoutInfo.totalItemsCount.takeIf { it > 0 } ?: count) - 1).coerceAtLeast(0), last)
+                }
                 true
             }
             else -> false

@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -148,7 +149,9 @@ fun LiveTvScreen(
                 .background(AkColors.Panel, RoundedCornerShape(8.dp))
                 .padding(vertical = 8.dp),
         ) {
-            LazyColumn(contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // Back: întâi la începutul listei de grupuri; CH+/CH− (P+/P−): începutul / ultimul grup.
+            val groupJump = ro.ak.sportshub.ui.components.rememberListJump()
+            LazyColumn(state = groupJump.state, contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = groupJump.modifier(0)) {
                 lastChannel?.let { ref ->
                     item {
                         ListRow(
@@ -171,6 +174,7 @@ fun LiveTvScreen(
                 item {
                     ListRow(
                         title = "★ Canale favorite",
+                        modifier = Modifier.focusRequester(groupJump.first),
                         subtitle = if (favoriteKeys.isEmpty()) "OK lung pe un canal îl adaugă la favorite" else null,
                         selected = selectedGroup == FAVORITES && !(searching && mode.channels),
                         onClick = {
@@ -247,6 +251,7 @@ fun LiveTvScreen(
                         title = g.name,
                         subtitle = if (multiplePlaylists) "${g.playlistName} · ${formatCount(g.channelCount)}" else null,
                         selected = g.id == selectedGroup && !(searching && mode.channels),
+                        modifier = if (g.id == visibleGroups.lastOrNull()?.id) Modifier.focusRequester(groupJump.last) else Modifier,
                         onClick = {
                             selectedGroup = g.id
                             // Alegerea unui grup arată canalele lui, chiar dacă era o căutare de canale.
