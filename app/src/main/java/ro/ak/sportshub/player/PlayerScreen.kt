@@ -83,6 +83,7 @@ import ro.ak.sportshub.core.sports.ArchiveJumps
 import ro.ak.sportshub.core.sports.AutoStop
 import ro.ak.sportshub.core.common.player.AudioDelay
 import ro.ak.sportshub.core.common.player.VideoFit
+import ro.ak.sportshub.core.common.player.Timeshift
 import ro.ak.sportshub.core.sports.Match
 import ro.ak.sportshub.core.sports.MatchClock
 import ro.ak.sportshub.core.sports.MatchStatus
@@ -244,6 +245,7 @@ fun PlayerScreen(
                     "stare ${s.status.javaClass.simpleName}",
                     "setări fluidă=${v.smoothVideo} frecvență=${v.matchFrameRate}",
                     "adaptare=${adaptActive.joinToString(",") { it.name }.ifEmpty { "-" }}",
+                    "pauză-live=${s.timeshift.name}${if (s.behindMs > 0) " " + Timeshift.behindLabel(s.behindMs) else ""}",
                 ).joinToString(" · "),
             )
         }
@@ -619,6 +621,9 @@ fun PlayerScreen(
         toast = "Comutarea automată anulată."
     }
 
+    /** B1: ⏪ ⏩ derulează pe live; la reluare rămân pentru faze (A4). */
+    val canShift = state.timeshift == TimeshiftKind.LOCAL || state.timeshift == TimeshiftKind.PROVIDER
+
     fun onKey(code: Int): Boolean {
         when (code) {
             AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP, AndroidKeyEvent.KEYCODE_PAGE_UP ->
@@ -640,8 +645,16 @@ fun PlayerScreen(
             }
             AndroidKeyEvent.KEYCODE_PROG_BLUE -> if (linkedMatch != null) panel = Panel.Match
             AndroidKeyEvent.KEYCODE_INFO -> showInfo()
-            AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> jumpPhase(forward = true)
-            AndroidKeyEvent.KEYCODE_MEDIA_REWIND, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> jumpPhase(forward = false)
+            // B1: pe live, ⏪ ⏩ derulează 10 s (înregistrarea locală sau fereastra furnizorului); la reluare, fazele (A4).
+            AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_FORWARD ->
+                if (canShift) controller.seekBy(Timeshift.STEP_MS)?.let { toast = it } else jumpPhase(forward = true)
+            AndroidKeyEvent.KEYCODE_MEDIA_REWIND, AndroidKeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD ->
+                if (canShift) controller.seekBy(-Timeshift.STEP_MS)?.let { toast = it } else jumpPhase(forward = false)
+            AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> {
+                val wantPause = code != AndroidKeyEvent.KEYCODE_MEDIA_PLAY
+                val wantPlay = code != AndroidKeyEvent.KEYCODE_MEDIA_PAUSE
+                if ((state.paused && wantPlay) || (!state.paused && wantPause)) controller.togglePause()?.let { toast = it }
+            }
             AndroidKeyEvent.KEYCODE_GUIDE, AndroidKeyEvent.KEYCODE_TV_DATA_SERVICE -> panel = Panel.Schedule
             AndroidKeyEvent.KEYCODE_LAST_CHANNEL, AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS ->
                 if (!controller.playPrevious()) toast = "Nu există un canal anterior."
@@ -659,6 +672,8 @@ fun PlayerScreen(
             zapOffer != null && panel == Panel.None -> acceptZap()
             numberInput.isActive -> commitNumber()
             state.status is PlaybackStatus.Failed -> controller.retry()
+            // B1: OK pe imaginea oprită o pornește mai departe.
+            state.paused -> controller.togglePause()
             infoVisible -> infoVisible = false
             else -> showInfo()
         }
@@ -936,6 +951,8 @@ fun PlayerScreen(
 
         val infoShown = (infoVisible || state.status !is PlaybackStatus.Playing) && panel == Panel.None
         Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            // B1: pauza și cât ești în urmă față de live, cât timp nu ești la live.
+            if (panel == Panel.None && (state.paused || state.behindMs > 0)) TimeshiftLine(state)
             // A3: banda de scoruri, o linie discretă deasupra informațiilor (tasta galbenă o pornește / oprește).
             if (band && panel == Panel.None) ScoreBandLine(bandItems)
             if (infoShown) {
@@ -961,6 +978,18 @@ fun PlayerScreen(
             )
             Panel.Menu -> MenuPanel(
                 state = state,
+                timeshift = timeshiftActions(
+                    state,
+                    onPause = {
+                        panel = Panel.None
+                        controller.togglePause()?.let { toast = it }
+                    },
+                    onSeek = { delta -> controller.seekBy(delta)?.let { toast = it } },
+                    onLive = {
+                        panel = Panel.None
+                        controller.backToLive()
+                    },
+                ),
                 matchTitle = linkedMatch?.title,
                 onMatch = { panel = Panel.Match },
                 sourceCount = linked?.sources?.size ?: 0,
@@ -1410,11 +1439,11 @@ private fun InfoBar(state: PlayerUiState, matchLine: String?, rateMatchOn: Boole
                 }
                 Text(
                     // Pe un meci, ▶ deschide panoul meciului; variantele, audio și subtitrările sunt în meniu.
-                    text = if (matchLine != null) {
+                    text = (if (matchLine != null) {
                         "▲▼ canale · ◀ lista grupului · ▶ meciul: Live, Statistici, Formații, Pre · Meniu: variante, audio, subtitrări · OK ascunde · OK lung: meniu rapid"
                     } else {
                         "▲▼ canale · ◀ lista grupului · ▶ variante, audio, subtitrări, program · OK ascunde · OK lung: meniu rapid"
-                    },
+                    }) + if (state.timeshift == TimeshiftKind.LOCAL || state.timeshift == TimeshiftKind.PROVIDER) " · ⏯ pauză · ⏪⏩ 10 s" else "",
                     fontSize = 13.sp,
                     color = AkColors.TextDim,
                     modifier = Modifier.padding(top = 8.dp),
@@ -1504,6 +1533,7 @@ private fun ChannelsPanel(
 @Composable
 private fun MenuPanel(
     state: PlayerUiState,
+    timeshift: List<MenuAction>,
     matchTitle: String?,
     onMatch: () -> Unit,
     sourceCount: Int,
@@ -1548,6 +1578,7 @@ private fun MenuPanel(
                     ListRow(title = "Alte surse pentru meci", subtitle = "$sourceCount surse, în ordinea din Sports Hub", onClick = onSources)
                 }
             }
+            timeshift.forEach { a -> ListRow(title = a.title, subtitle = a.subtitle, onClick = a.onClick) }
             ListRow(title = "Meniu rapid", subtitle = "Meciurile de acum (și cu OK lung)", onClick = onQuick)
             ListRow(
                 title = "Pistă audio",
@@ -1761,4 +1792,45 @@ internal object PlaybackCheck {
 /** Ce a ajutat la sacadare, pe canal (playlist + nume), cât rulează aplicația: la revenire se aplică din prima. */
 private object AdaptMemory {
     val steps = java.util.concurrent.ConcurrentHashMap<String, Set<DropAdapter.Step>>()
+}
+
+/** Un rând de meniu simplu (titlu, explicație, acțiune). */
+private data class MenuAction(val title: String, val subtitle: String?, val onClick: () -> Unit)
+
+/** B1: rândurile de pauză și derulare din meniul playerului (doar unde se poate). */
+private fun timeshiftActions(
+    state: PlayerUiState,
+    onPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onLive: () -> Unit,
+): List<MenuAction> {
+    if (state.timeshift != TimeshiftKind.LOCAL && state.timeshift != TimeshiftKind.PROVIDER) return emptyList()
+    val back = if (state.rewindMs > 0) "se poate până la ${Timeshift.behindLabel(state.rewindMs + state.behindMs)}" else "încă se înregistrează"
+    return buildList {
+        add(MenuAction(if (state.paused) "Continuă" else "Pauză", "⏯ pe telecomandă; OK pe imagine continuă", onPause))
+        add(MenuAction("Înapoi 10 s", "⏪ pe telecomandă · $back") { onSeek(-Timeshift.STEP_MS) })
+        add(MenuAction("Revezi ultimele 30 s", "De exemplu după un gol") { onSeek(-Timeshift.REPLAY_MS) })
+        if (state.behindMs > 0) {
+            add(MenuAction("Înainte 10 s", "⏩ pe telecomandă") { onSeek(Timeshift.STEP_MS) })
+            add(MenuAction("Înapoi la live", "Acum ești ${Timeshift.behindLabel(state.behindMs)} în urmă", onLive))
+        }
+    }
+}
+
+/** B1: linia mică de deasupra informațiilor: „⏸ Pauză · −0:45 față de live”. */
+@Composable
+private fun TimeshiftLine(state: PlayerUiState) {
+    val behind = if (state.behindMs > 0) "${Timeshift.behindLabel(state.behindMs)} față de live" else "la live"
+    val text = if (state.paused) "⏸ Pauză · $behind · OK: continuă" else "⏪ $behind · Meniu: înapoi la live"
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 6.dp)) {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AkColors.Accent,
+            modifier = Modifier
+                .background(Overlay, RoundedCornerShape(8.dp))
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+        )
+    }
 }

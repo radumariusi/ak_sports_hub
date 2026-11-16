@@ -17,8 +17,10 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -41,6 +43,7 @@ import ro.ak.sportshub.core.common.SourceHealth
 import ro.ak.sportshub.core.common.player.PlaybackErrors
 import ro.ak.sportshub.core.common.player.ReconnectBackoff
 import ro.ak.sportshub.core.common.player.StreamLease
+import ro.ak.sportshub.core.common.player.Timeshift
 import ro.ak.sportshub.core.common.player.TrackLabels
 import ro.ak.sportshub.core.common.player.AudioChoice
 import ro.ak.sportshub.core.common.player.AudioDelay
@@ -92,7 +95,27 @@ data class PlayerUiState(
     val audioDelayMs: Int = 0,
     /** Încadrarea imaginii pe canal (B5). */
     val fit: VideoFit = VideoFit.FIT,
+    /** B1: cum se poate da pauză / derula stream-ul care rulează. */
+    val timeshift: TimeshiftKind = TimeshiftKind.NONE,
+    /** Pauză cerută de tine (nu o oprire pentru încărcare). */
+    val paused: Boolean = false,
+    /** Cât e în urmă imaginea față de live (0 = live). */
+    val behindMs: Long = 0,
+    /** Cât de departe în urmă se poate merge acum. */
+    val rewindMs: Long = 0,
 )
+
+/** B1: de unde vin pauza și derularea. */
+enum class TimeshiftKind {
+    /** Fără: stream TS cu înregistrarea oprită din setări sau alt format. */
+    NONE,
+    /** Înregistrarea locală (stream TS): pauză și derulare cât ține capacitatea. */
+    LOCAL,
+    /** HLS live: doar fereastra pe care o ține furnizorul (de obicei câteva minute). */
+    PROVIDER,
+    /** Reluare din arhivă: derularea obișnuită. */
+    ARCHIVE,
+}
 
 /** O porțiune din arhiva canalului (catch-up): de la [start] la [end], în ms UTC. */
 data class Archive(val start: Long, val end: Long)
@@ -147,6 +170,37 @@ class PlayerController(context: Context, private val container: AppContainer) {
     /** Întârzierea sunetului și modul de noapte, citite de pe firul audio. */
     private val tweaks = AudioTweaks().apply { night = container.channelPlayback.general.value.night }
 
+    // ---------- B1: pauză și derulare pe live ----------
+
+    /** Stream-urile TS de IPTV au des cadre-cheie lipsă sau marcate greșit. */
+    private val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
+        DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+            DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
+    )
+
+    /** Înregistrarea locală (în cache, ștearsă la oprirea stream-ului și la pornirea playerului). */
+    private val timeshiftDir = File(context.cacheDir, "timeshift").apply {
+        // Resturile unei rulări vechi (căderea aplicației) se șterg o dată pe proces, nu la fiecare player.
+        if (!staleCleaned) {
+            staleCleaned = true
+            deleteRecursively()
+        }
+    }
+    private var buffer: TimeshiftBuffer? = null
+    private var recorder: TimeshiftRecorder? = null
+    private var kind = TimeshiftKind.NONE
+    /** Canalele pe care redarea din înregistrare n-a pornit: până la ieșirea din player, redare directă. */
+    private val directOnly = HashSet<Long>()
+    /** Ora (ceas monoton) la care a sosit octetul de la care s-a pornit redarea din înregistrare. */
+    private var tsStartTime = 0L
+    /** Poziția playerului la prima imagine după pornire (de acolo se numără ce s-a văzut). */
+    private var tsBaseMs: Long? = null
+    private var tsAtLive = true
+    /** Întârzierea firească a pornirii (de la sosirea octeților la imagine), scăzută din „în urmă”. */
+    private var liveLatencyMs = 0L
+    /** La HLS: decalajul față de live la pornire (ținta furnizorului), scăzut din „în urmă”. */
+    private var nativeLiveBase: Long? = null
+
     val player: ExoPlayer = buildPlayer(context)
 
     /** Pista audio aleasă data trecută pe canal (B3); se aplică o dată pe pornirea stream-ului. */
@@ -179,6 +233,13 @@ class PlayerController(context: Context, private val container: AppContainer) {
     private var pendingSeekMs = 0L
 
     init {
+        // B1: cât e în urmă imaginea și cât se poate derula, o dată pe secundă.
+        scope.launch {
+            while (true) {
+                delay(1_000)
+                refreshTimeshift()
+            }
+        }
         // Cadrele pe secundă măsurate din orele cadrelor redate, când stream-ul nu le declară (TS de IPTV):
         // fără ele, potrivirea frecvenței ecranului nu avea ce potrivi, iar 50 fps pe 60 Hz sacadează.
         player.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
@@ -390,6 +451,7 @@ class PlayerController(context: Context, private val container: AppContainer) {
         endSession(failed = false)
         cancelJobs()
         scope.cancel()
+        stopRecording()
         player.release()
         http.connectionPool.evictAll()
         container.scope.launch { lease.release() }
@@ -657,18 +719,175 @@ class PlayerController(context: Context, private val container: AppContainer) {
 
     private fun prepare(channel: PlayableChannel) {
         val url = streamUrl(channel) ?: return fail("Canalul nu are arhivă.")
-        dataSources.setUserAgent(channel.userAgent ?: DEFAULT_USER_AGENT)
+        val userAgent = channel.userAgent ?: DEFAULT_USER_AGENT
+        dataSources.setUserAgent(userAgent)
+        val hls = forceHls || isHls(url)
+        pendingSeekMs = archive?.let { it.start - floorMinute(it.start) } ?: 0L
+        nativeLiveBase = null
+        // B1: un stream TS live se scrie pe disc și se redă de acolo (aceeași conexiune, una singură),
+        // ca pauza să nu oprească citirea din rețea și „înapoi 10 s” să aibă de unde relua.
+        val capacity = if (archive == null && !hls && channel.id !in directOnly && Timeshift.canRecord(url)) {
+            Timeshift.capacityBytes(variantStore.current.timeshiftMb, timeshiftDir.parentFile?.usableSpace ?: 0L)
+        } else {
+            null
+        }
+        kind = when {
+            archive != null -> TimeshiftKind.ARCHIVE
+            capacity != null -> TimeshiftKind.LOCAL
+            hls -> TimeshiftKind.PROVIDER
+            else -> TimeshiftKind.NONE
+        }
+        _state.update { it.copy(status = PlaybackStatus.Connecting, timeshift = kind, paused = false, behindMs = 0, rewindMs = 0) }
+        if (capacity != null) {
+            val b = TimeshiftBuffer(timeshiftDir, capacity)
+            buffer = b
+            recorder = TimeshiftRecorder(http, url, userAgent, b).also { it.start() }
+            playRecording(fromByte = 0, atLive = true)
+            return
+        }
         val item = MediaItem.Builder()
             .setUri(url)
-            .apply { if (forceHls || isHls(url)) setMimeType(MimeTypes.APPLICATION_M3U8) }
+            .apply { if (hls) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
-        _state.update { it.copy(status = PlaybackStatus.Connecting) }
-        pendingSeekMs = archive?.let { it.start - floorMinute(it.start) } ?: 0L
         // La fiecare pornire (și reconectare) pistele sunt noi: alegerea ținută minte se caută din nou.
         audioApplied = false
         player.setMediaItem(item)
         player.playWhenReady = true
         player.prepare()
+    }
+
+    /** Redarea din înregistrare, de la octetul [fromByte] (fără nicio cerere în rețea: citește de pe disc). */
+    private fun playRecording(fromByte: Long, atLive: Boolean) {
+        val b = buffer ?: return
+        tsStartTime = if (atLive) SystemClock.elapsedRealtime() else b.timeAt(fromByte) ?: SystemClock.elapsedRealtime()
+        tsBaseMs = null
+        tsAtLive = atLive
+        audioApplied = false
+        val source = ProgressiveMediaSource.Factory(TimeshiftDataSource.Factory(b), extractors)
+            .createMediaSource(MediaItem.fromUri(TimeshiftDataSource.uri(fromByte)))
+        player.setMediaSource(source)
+        player.playWhenReady = true
+        player.prepare()
+    }
+
+    private fun stopRecording() {
+        recorder?.stop()
+        recorder = null
+        buffer = null
+    }
+
+    // ---------- B1: comenzi ----------
+
+    /** Pauză / continuare. Întoarce mesajul de afișat (sau null). */
+    fun togglePause(): String? {
+        if (_state.value.channel == null || player.playbackState == Player.STATE_IDLE) return null
+        if (!player.playWhenReady) {
+            player.play()
+            refreshTimeshift()
+            return null
+        }
+        val message = when (kind) {
+            TimeshiftKind.NONE -> return "Pauza pe live merge pe stream-urile TS cu „Pauză pe live” pornită (Setări → Redare și afișare)."
+            TimeshiftKind.LOCAL -> "Pauză. Stream-ul se înregistrează mai departe (cel mult ${Timeshift.label(variantStore.current.timeshiftMb)})."
+            TimeshiftKind.PROVIDER -> "Pauză (doar cât ține fereastra furnizorului, de obicei câteva minute)."
+            TimeshiftKind.ARCHIVE -> "Pauză."
+        }
+        player.pause()
+        refreshTimeshift()
+        return message
+    }
+
+    /** ⏪ / ⏩: [deltaMs] înapoi (negativ) sau înainte; înainte peste live = live. Întoarce mesajul de afișat. */
+    fun seekBy(deltaMs: Long): String? {
+        if (_state.value.channel == null) return null
+        when (kind) {
+            TimeshiftKind.LOCAL -> {
+                val b = buffer ?: return null
+                val watched = watchedLocal() ?: return "Stream-ul încă pornește."
+                val now = SystemClock.elapsedRealtime()
+                val oldest = b.oldestTime() ?: return null
+                val target = Timeshift.target(watched, deltaMs, oldest, now - liveLatencyMs)
+                if (target == null) {
+                    if (tsAtLive && _state.value.behindMs == 0L) return "Ești deja la live."
+                    toLiveEdge()
+                    return "Înapoi la live."
+                }
+                if (b.looksTs == false) return "Stream-ul nu e TS: aici merge doar pauza."
+                _state.update { it.copy(status = PlaybackStatus.Buffering) }
+                playRecording(b.byteAt(target), atLive = false)
+            }
+            TimeshiftKind.PROVIDER, TimeshiftKind.ARCHIVE -> {
+                if (!player.isCurrentMediaItemSeekable) return "Stream-ul nu permite derularea."
+                val to = (player.currentPosition + deltaMs).coerceAtLeast(0)
+                val duration = player.duration
+                if (kind == TimeshiftKind.PROVIDER && deltaMs > 0 && duration != C.TIME_UNSET && to >= duration - Timeshift.LIVE_TOLERANCE_MS) {
+                    player.seekToDefaultPosition()
+                    player.play()
+                    return "Înapoi la live."
+                }
+                player.seekTo(to)
+                player.play()
+            }
+            TimeshiftKind.NONE -> return "Derularea pe live merge pe stream-urile TS cu „Pauză pe live” pornită (Setări → Redare și afișare)."
+        }
+        refreshTimeshift()
+        return null
+    }
+
+    /** „Înapoi la live”: din înregistrare sau fereastra furnizorului; din arhivă, pornește live-ul. */
+    fun backToLive() {
+        when (kind) {
+            TimeshiftKind.LOCAL -> toLiveEdge()
+            TimeshiftKind.PROVIDER -> {
+                player.seekToDefaultPosition()
+                player.play()
+            }
+            TimeshiftKind.ARCHIVE -> goLive()
+            TimeshiftKind.NONE -> player.play()
+        }
+        refreshTimeshift()
+    }
+
+    private fun toLiveEdge() {
+        val b = buffer ?: return
+        _state.update { it.copy(status = PlaybackStatus.Buffering) }
+        playRecording(b.written(), atLive = true)
+    }
+
+    /** Ce se vede acum din înregistrare: ora (ceas monoton) la care a sosit. */
+    private fun watchedLocal(): Long? {
+        val base = tsBaseMs ?: return null
+        return tsStartTime + (player.currentPosition - base).coerceAtLeast(0)
+    }
+
+    private fun refreshTimeshift() {
+        if (_state.value.channel == null) return
+        val paused = !player.playWhenReady && player.playbackState != Player.STATE_IDLE
+        var behind = 0L
+        var rewind = 0L
+        when (kind) {
+            TimeshiftKind.LOCAL -> {
+                val b = buffer
+                val watched = watchedLocal()
+                val now = SystemClock.elapsedRealtime()
+                if (b != null && watched != null) {
+                    behind = (now - watched - liveLatencyMs).coerceAtLeast(0)
+                    if (behind < Timeshift.LIVE_TOLERANCE_MS) behind = 0
+                    rewind = b.oldestTime()?.let { (watched - it).coerceAtLeast(0) } ?: 0L
+                }
+            }
+            TimeshiftKind.PROVIDER -> {
+                val offset = player.currentLiveOffset
+                val base = nativeLiveBase
+                if (offset != C.TIME_UNSET && base != null) {
+                    behind = (offset - base).coerceAtLeast(0)
+                    if (behind < Timeshift.LIVE_TOLERANCE_MS) behind = 0
+                }
+                rewind = player.currentPosition.coerceAtLeast(0)
+            }
+            else -> Unit
+        }
+        _state.update { it.copy(paused = paused, behindMs = behind, rewindMs = rewind) }
     }
 
     private fun stopStream() {
@@ -679,6 +898,9 @@ class PlayerController(context: Context, private val container: AppContainer) {
             player.clearMediaItems()
             lastStopAt = SystemClock.elapsedRealtime()
         }
+        // B1: conexiunea înregistrării se închide odată cu stream-ul, iar fișierele se șterg.
+        if (recorder != null) lastStopAt = SystemClock.elapsedRealtime()
+        stopRecording()
         // Conexiunile HTTP rămase deschise (HLS) se închid, ca serverul să vadă sesiunea încheiată.
         http.connectionPool.evictAll()
     }
@@ -699,6 +921,14 @@ class PlayerController(context: Context, private val container: AppContainer) {
             }
             Player.STATE_READY -> {
                 _state.update { it.copy(status = PlaybackStatus.Playing) }
+                if (kind == TimeshiftKind.LOCAL && tsBaseMs == null) {
+                    tsBaseMs = player.currentPosition
+                    // Pornirea durează câteva secunde și la live: întârzierea asta nu înseamnă „în urmă”.
+                    if (tsAtLive) liveLatencyMs = (SystemClock.elapsedRealtime() - tsStartTime).coerceIn(0, MAX_LIVE_LATENCY_MS)
+                }
+                if (kind == TimeshiftKind.PROVIDER && nativeLiveBase == null) {
+                    player.currentLiveOffset.takeIf { it != C.TIME_UNSET }?.let { nativeLiveBase = it }
+                }
                 if (sessionChannel != null && sessionStartMs == null) {
                     val t = SystemClock.elapsedRealtime()
                     sessionStartMs = t - sessionPreparedAt
@@ -721,9 +951,20 @@ class PlayerController(context: Context, private val container: AppContainer) {
     }
 
     private fun onError(error: PlaybackException) {
-        if (_state.value.channel == null) return
+        val current = _state.value.channel ?: return
+        // B1: redarea din înregistrare n-a pornit deloc (fără un răspuns HTTP de la server): pe canalul ăsta
+        // se revine la redarea directă de dinainte, ca o problemă a înregistrării să nu lase canalul fără imagine.
+        if (kind == TimeshiftKind.LOCAL && sessionStartMs == null && httpStatus(error) == null &&
+            error.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+        ) {
+            directOnly += current.id
+        }
         when (error.errorCode) {
             PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> {
+                // HLS: pauza a trecut de fereastra furnizorului.
+                if (_state.value.paused || _state.value.behindMs > 0) {
+                    _state.update { it.copy(notice = Notice("Pauza a depășit fereastra furnizorului: înapoi la live.")) }
+                }
                 player.seekToDefaultPosition()
                 player.prepare()
                 return
@@ -824,11 +1065,6 @@ class PlayerController(context: Context, private val container: AppContainer) {
     }
 
     private fun buildPlayer(context: Context): ExoPlayer {
-        // Stream-urile TS de IPTV au des cadre-cheie lipsă sau marcate greșit.
-        val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
-        )
         // FFmpeg doar când televizorul nu are decodor (AC3, E-AC3, DTS…).
         val renderers = TweakedRenderersFactory(context, tweaks)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -853,6 +1089,9 @@ class PlayerController(context: Context, private val container: AppContainer) {
         const val DOWNGRADE_CONFIRM_MS = 20_000L
         const val DEFAULT_USER_AGENT = "AKSportsHub/1.0 (Android TV)"
         const val MIN_ARCHIVE_MS = 10 * 60_000L
+        const val MAX_LIVE_LATENCY_MS = 10_000L
+
+        @Volatile var staleCleaned = false
 
         fun floorMinute(ms: Long): Long = ms - Math.floorMod(ms, 60_000L)
 
