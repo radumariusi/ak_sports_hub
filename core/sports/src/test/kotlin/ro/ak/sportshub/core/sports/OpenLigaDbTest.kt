@@ -2,10 +2,10 @@ package ro.ak.sportshub.core.sports
 
 import java.time.Instant
 import java.time.LocalDate
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 
 class OpenLigaDbTest {
 
@@ -55,7 +55,7 @@ class OpenLigaDbTest {
     @Test
     fun hockeyLeaguesPassTheFilter() {
         for (l in OpenLigaDb.leagues.filter { !it.forFavorites }) {
-            assertEquals(CompetitionFilter.Verdict.KEEP, CompetitionFilter.verdict(l.sport, l.competition), l.competition)
+            assertEquals(l.competition, CompetitionFilter.Verdict.KEEP, CompetitionFilter.verdict(l.sport, l.competition))
         }
     }
 }
